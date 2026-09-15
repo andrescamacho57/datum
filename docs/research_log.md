@@ -1,6 +1,6 @@
 # Research Log: SMB Credit Risk Tool for Trade Contractors
 
-**Last updated:** 2026-09-14
+**Last updated:** 2026-09-15
 **Purpose:** Track verified facts, market data, competitors, customer insights, and open questions for the contractor credit decisioning product.
 
 ---
@@ -319,11 +319,12 @@ Format: one entry per interview. Update within an hour of the call.
 | 2026-05-13 | Focus on Option A (data platform) with Option B (open-source) on the side | Best matches builder identity + has clearer monetization than pure OSS |
 | 2026-05-13 | Target: small commercial contractors in Florida first | Plays to my domain (mech eng, industrial), geography, and underserved segment |
 | 2026-05-13 | Frame: builder/engineer first, Amex is context | I don't want to be locked into "credit risk expert" identity |
-| 2026-05-18 | No code before 5 customer interviews complete | Customer discovery is the bottleneck right now, not engineering |
+| 2026-05-18 | ~~No code before 5 customer interviews complete~~ **Superseded 2026-09-15** | ~~Customer discovery is the bottleneck right now, not engineering~~ Withdrawn; see 2026-09-15 row. |
 | 2026-09-14 | Mission statement formalized (section 0); insurance/guarantee layer explicitly parked | Founding insight is the Amex observation that contractors default because their own customers default. Insurance is attractive but converts the business from information to risk-bearing, triggering state insurance regulation. Revisit only after accuracy is measured. |
 | 2026-09-14 | Pricing model is open, not assumed subscription | Severity of bad debt is now ✅ verified; frequency of the decision is not. If contractors evaluate only a few new commercial customers a year, subscription math fails and per-report or workflow-attached pricing fits better. Decide from interview data, not preference. |
 | 2026-09-14 | Frequency is the #1 business risk, ahead of competition | Severe-but-rare pain does not sustain recurring revenue. Adding the 90-day new-customer-count question as the first question in every interview. |
 | 2026-05-19 | Customer discovery is national; MVP launch is single-state (FL likely) | The pain is national — nothing about contractor cash flow stress is geographically specific. But the data is jurisdiction-fragmented: state business registries, county courts, and state-specific mechanic's lien laws make a multi-state product expensive to build. Open the funnel for interviews (LinkedIn cold to any US metro), keep the product geographically focused until paying users tell us where to expand. Phone and supply house channels remain Jacksonville-local. |
+| 2026-09-15 | Build and discovery run in parallel. The "no product code before 5 interviews" gate is withdrawn. Anything a contractor sees still needs interview evidence before it's called validated. | Discovery stalled for four months as a serial gate: zero interviews logged between 2026-05-18 and 2026-09-15 while engineering waited on them. Running the two as parallel tracks instead, with automated recruitment (outreach and scheduling) feeding interviews while product code proceeds. Validation still comes only from interview evidence; building does not create it. |
 
 ---
 
