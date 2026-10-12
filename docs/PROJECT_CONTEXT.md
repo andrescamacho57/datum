@@ -2,9 +2,10 @@
 
 > **Read this first.** Single source of truth for what this project is, who I am, and where we are. Update it as decisions are made. Anyone (or any AI) joining this project reads this top-to-bottom before doing anything else.
 
-**Last updated:** 2026-09-15
+**Last updated:** 2026-10-12
 **Owner:** Andres
-**Status:** Pre-MVP — customer discovery + data feasibility, running in parallel
+**Status:** Building version one (Florida, commercial clients). Outreach runs in parallel.
+**Approved decisions live on the Agenda dashboard (Decisions tab). If this file disagrees with it, the dashboard wins.**
 **Companion docs:** `research_log.md` (facts, sources, decisions), `Customer_Discovery_Outreach_Playbook.md`, `data_feasibility_spikes.md`, `interview_synthesis_onepager.md`
 
 ---
@@ -29,6 +30,18 @@
 3. Analysis, not advice. The contractor decides.
 
 **Datum is not:** a lender, a collections agency, a lien filer, or a credit bureau.
+
+### Version one sources (decided 2026-10-12)
+
+The mission names every source Datum will eventually cover. Version one ships a narrower set, in this order:
+
+1. **Sunbiz bulk files**: company filings, fictitious names (DBAs, "doing business as" names), and federal tax liens. Free and complete, published by the state over SFTP (secure file transfer) as a quarterly full snapshot plus daily changes.
+2. **DBPR (Department of Business and Professional Regulation) contractor licenses**: free download files. Delinquent and involuntarily inactive licenses are left out, so "not found" doesn't mean "never licensed."
+3. **One county's recorded liens**, piloted with human review.
+
+**Version 1.1:** county civil court records, UCC (Uniform Commercial Code) filings, federal bankruptcy.
+
+**Why this order.** Entity resolution comes first, and the registry is its spine: a lien or judgment only means something once it's tied to the right legal entity, and Sunbiz is the official list of which companies exist. It's also the only source that is free, bulk and complete, so the 50-name test set can run offline and give the same answer every time. The fictitious-name file carries each DBA owner's document number, so linking "Donnie Riddle Plumbing & Htg" to its legal entity is a join, not a guess (✅ confirmed in `docs/access/sunbiz.md`). Liens come second because they're the most direct non-payment signal. Courts wait because access varies county by county and the clean path (Trellis) is paid and usage-based, against a ~$100/month budget.
 
 ### Why the mission says "underwriting" and not "a lookup tool"
 
@@ -118,20 +131,27 @@ Every version of this product, at any price, for any trade, needs to match a loo
 **This is the viability question.** A risk report run on the wrong "John's Plumbing" is worse than no report — it's confidently wrong, which destroys trust instantly and is a lawsuit, not a bug.
 
 **Design principles (settled):**
-- **Code retrieves; the model adjudicates.** Deterministic work (URL patterns, table parsing, normalization, fuzzy candidate scoring) is plain Python. The model only handles genuine ambiguity.
+- **Workflow first (approved 2026-10-11).** Plain code for every predictable step: download, parse, normalize, score candidates, deterministic joins. A single model call only for close name matches the scorer can't separate. An agent only for long-tail lookups, always behind human review.
 - **Move model judgment from runtime to build time** wherever the answer is stable. A model reads an unfamiliar county page layout *once*, in development, and emits a parser config that gets reviewed and committed. Production lookups then run deterministic code, and a layout change becomes a test failure instead of a silent wrong answer.
 - **Three-state output, not two:** `CONFIRMED` / `AMBIGUOUS` / `NO_MATCH`. `AMBIGUOUS` is a first-class success — it's the human checkpoint, implemented in the type system rather than bolted on.
-- **Accuracy is a measured number, not a vibe.** ~50 hand-verified businesses as a fixed evaluation set. `wrong_match` is the metric that matters most; a wrong confident match is the lawsuit, a wrong abstention is a mild annoyance.
+- **Accuracy is a measured number, not a vibe.** A 50-name hand-checked test set. Nothing is shown to a contractor as fact until matching scores 90% or better on it. `wrong_match` is the metric that matters most; a wrong confident match is the lawsuit, a wrong abstention is a mild annoyance.
+- **Every report line links to its official record.**
 
 **Deferred:** MCP (Model Context Protocol) wrappers — indirection with one consumer. Multi-agent orchestration — single well-built agent first. Both revisit when there's evidence they beat the simpler thing.
 
 **Runtime vs. dev-time tooling:** use Claude Code / the Claude Agent SDK to *build* Datum. Use the Client SDK (direct API, own tool loop) for Datum's *runtime* agent — an entity-adjudication agent has no business holding a bash tool.
 
+### Stack (approved 2026-10-11)
+
+- **Pipeline:** Snowflake + dbt, layered raw → staging → marts. Raw keeps each source line exactly as downloaded; staging parses it into fields; marts serve lookups.
+- **Cost guardrails:** X-Small warehouse, 60-second auto-suspend, and a resource monitor that caps monthly credits so a mistake can't run up a bill.
+- **App:** Postgres behind a mobile-friendly web app. Native iPhone and Android apps later, when users need push notifications or offline use.
+
 ---
 
 ## 7. Strategy
 
-**Phase 1 (now, ~$100/month):** Contractor-facing evaluation of commercial customers. Florida first — easier data, my network. Validate the wedge.
+**Phase 1 (now, ~$100/month plus capped Snowflake spend):** Contractor-facing checks on commercial clients. Florida and commercial clients only. Expand to more states after 10 paying users.
 
 **Phase 2 (with traction, ~$500/month):** Whichever of the section 4 concepts interviews justify. Possibly cash flow integration (Plaid/QuickBooks), possibly monitoring, possibly supply houses.
 
@@ -145,15 +165,15 @@ Open-source small components to build engineering reputation: a dbt package for 
 
 ## 8. Where I Am Right Now
 
-**Done:** wedge and persona identified; competitive landscape mapped; mission formalized; severity of the pain verified with sources; frequency named as the #1 risk; outreach scripts and interview guide drafted.
+**Done:** wedge and persona identified; competitive landscape mapped; mission formalized; severity of the pain verified with sources; frequency named as the #1 risk; outreach scripts drafted; source recon for Sunbiz and Duval County (`docs/access/`); version-one scope, sources and stack approved (2026-10-11).
 
-**In progress:** customer discovery (20 outreach → 3–5 conversations → 5 interviews). **Zero interviews logged to date.** Data feasibility spikes running in parallel.
+**In progress:** the version-one pipeline, starting with one Sunbiz daily file loaded end to end (raw → staging → mart → lookup). Outreach in parallel, leading with a free report and a $50 gift card for 15 minutes.
 
-**Not yet started, deliberately:** product code, data model, final tech stack, B2B conversations with banks.
+**Interviews logged:** zero. Nothing is validated yet. Building doesn't change that; only contractor conversations do.
 
-### The rule
+### How build and outreach fit together
 
-**Build and discovery run in parallel. Anything a contractor sees still needs interview evidence before it's called validated.** The entity-resolution spike (section 6) is true regardless of interview outcomes; product code can proceed alongside it. What a contractor is shown — a concierge report, a demo, a feature — is unvalidated until interview data says otherwise. Changed 2026-09-15; see the decision log in `research_log.md`.
+Build and outreach run in parallel. There is no interview gate on writing code.
 
 ---
 
@@ -174,12 +194,13 @@ Open-source small components to build engineering reputation: a dbt package for 
 ## 10. Open Questions
 
 - Frequency: how often does a contractor actually make this decision? (**#1**)
-- Which trade first? HVAC only, or all trades?
-- Florida-only first, or broader?
+- Does the quarterly Sunbiz snapshot include inactive and dissolved companies? A dissolved client is one of the strongest signals; if bulk omits them, they need another path.
 - Per-report vs. subscription vs. workflow-attached
 - Is monitoring the real product, with pre-job as the demo?
 - Sub-$1M trade credit insurance — does anyone write it?
 - Legal exposure if an assessment is wrong (lawyer before launch; never frame as "advice")
+
+**Closed:** Florida first (decided 2026-10-11). Trade first: not needed (decided 2026-10-12). The data describes the client, not the contractor's trade, so the build is the same for every trade. Record each interviewee's trade and watch for clusters.
 
 ---
 
@@ -194,3 +215,5 @@ Not building a lending product. Not giving financial advice. Not competing head-
 Datum stays on **business and public records only**. Public business records (state registries, court records, liens, UCC filings) are not consumer credit reporting and carry no FCRA (Fair Credit Reporting Act) permissible-purpose requirement. The moment personal credit on an owner is pulled, FCRA applies and consent or permissible purpose is required.
 
 **That line is not crossed without legal review.** Related flags: a site's terms of use may restrict automated access even when the records are public ("it's public" ≠ "I can scrape it however I want"); surface public-record *facts*, never editorialized conclusions; frame every output as analysis or decision support, never advice.
+
+**Personal data inside business records.** Officer, registered-agent and DBA-owner records name real people, often with home addresses. Use them only to confirm that two filings belong to the same company. No person search, no person-centric index, no gathering one individual's records across sources.

@@ -1,7 +1,7 @@
-# Research Log: SMB Credit Risk Tool for Trade Contractors
+# Research Log: Datum — Risk and Verification for Trade Contractors
 
-**Last updated:** 2026-09-15
-**Purpose:** Track verified facts, market data, competitors, customer insights, and open questions for the contractor credit decisioning product.
+**Last updated:** 2026-10-12
+**Purpose:** Track verified facts, market data, competitors, customer insights, and open questions for Datum, a risk and verification tool for trade contractors.
 
 ---
 
@@ -192,9 +192,14 @@ Recorded so they aren't lost. None are committed; all are responses to the frequ
 ## 3. Available Data Sources
 
 ### Free public data
-- **Florida Sunbiz** (state business registry) — entities, agents, officers, formation dates
-- **Florida Clerk of Court records** (county level) — lawsuits, judgments, mechanic's liens, UCC filings
-  - Duval, Clay, Nassau, St. Johns counties for Jacksonville metro
+Version-one order decided 2026-10-12 (see decision log). Full reasoning in `PROJECT_CONTEXT.md` section 1.
+
+- ✅ **Florida Sunbiz bulk files** (state business registry): companies, fictitious names (DBAs), federal tax liens. Free over SFTP (secure file transfer): quarterly full snapshot plus daily changes. DBA records carry the owner's document number, so DBA → legal entity is a deterministic join. Full recon: `docs/access/sunbiz.md` (2026-09-15). **Version one.**
+- ✅ **DBPR (Department of Business and Professional Regulation) contractor licenses**: free download files; delinquent and involuntarily inactive licenses are left out. (Source: https://www2.myfloridalicense.com/construction-industry/public-records/, checked 2026-10-10.) **Version one.**
+- **County recorded liens** (Official Records): one county, piloted with human review. Duval recon: `docs/access/duval-official-records.md`. **Version one.**
+- **County civil court records**: lawsuits and judgments. Duval recon: `docs/access/duval-civil.md`. **Version 1.1.**
+- **Florida UCC (Uniform Commercial Code) filings**: Florida Secured Transaction Registry; bulk access not verified. **Version 1.1.**
+  - Counties for the Jacksonville metro: Duval, Clay, Nassau, St. Johns
 - **SAM.gov** — federal contractor registry, debarments
 - **OFAC** — sanctions list
 - **PACER** — federal court records (low cost per query)
@@ -211,7 +216,6 @@ Recorded so they aren't lost. None are committed; all are responses to the frequ
 - D&B Direct, Experian Business, Equifax Business APIs ($$$)
 - Middesk — modern business verification
 - Worth.ai
-- People Data Labs — owner background
 
 ### Legal note
 - **Pulling personal credit reports requires permissible purpose under FCRA** — either consumer consent or you must be a creditor making a credit decision
@@ -291,7 +295,7 @@ Format: one entry per interview. Update within an hour of the call.
 
 ---
 
-(No interviews completed yet. Goal: 5 by end of June 2026.)
+(No interviews completed yet. Outreach now leads with a free report plus a $50 gift card for 15 minutes; see decision log 2026-10-12.)
 
 ---
 
@@ -307,7 +311,7 @@ Format: one entry per interview. Update within an hour of the call.
 - [ ] Try Levelset's free tier; document what they do and don't offer
 - [ ] Pull a sample D&B report on a real business to see what it contains
 - [ ] Check FL Sunbiz API/scraping rules and terms of use
-- [ ] After 5 interviews: decide vertical (HVAC only first? all trades?) and MVP launch state(s)
+- [x] ~~Decide vertical and launch state~~ Florida first (2026-10-11). No trade choice needed; record trade in every interview (2026-10-12).
 - [ ] Decide: legal entity (LLC) before first paying user
 
 ---
@@ -324,6 +328,11 @@ Format: one entry per interview. Update within an hour of the call.
 | 2026-09-14 | Pricing model is open, not assumed subscription | Severity of bad debt is now ✅ verified; frequency of the decision is not. If contractors evaluate only a few new commercial customers a year, subscription math fails and per-report or workflow-attached pricing fits better. Decide from interview data, not preference. |
 | 2026-09-14 | Frequency is the #1 business risk, ahead of competition | Severe-but-rare pain does not sustain recurring revenue. Adding the 90-day new-customer-count question as the first question in every interview. |
 | 2026-05-19 | Customer discovery is national; MVP launch is single-state (FL likely) | The pain is national — nothing about contractor cash flow stress is geographically specific. But the data is jurisdiction-fragmented: state business registries, county courts, and state-specific mechanic's lien laws make a multi-state product expensive to build. Open the funnel for interviews (LinkedIn cold to any US metro), keep the product geographically focused until paying users tell us where to expand. Phone and supply house channels remain Jacksonville-local. |
+| 2026-10-11 | Version one approved: Florida, commercial clients only; Sunbiz bulk files + DBPR licenses first, then one county's liens; workflow first, an agent only behind human review; Snowflake + dbt pipeline with cost guardrails, Postgres for the app, mobile-friendly web app; 90% on a 50-name test set before anything shows as fact; every report line links to its official record. | Full reasons are on the Agenda dashboard, Decisions tab, which is the source of truth for approved decisions. |
+| 2026-10-12 | Version-one source order: registry first, liens second, courts and UCC in version 1.1. | Entity resolution comes first and the registry is its spine. Sunbiz is free, bulk and complete, so the test set runs offline. Liens are the most direct non-payment signal. Court access varies by county and the clean path (Trellis) is paid. |
+| 2026-10-12 | No trade-first choice. | The data describes the client, not the contractor's trade, so the build is trade-agnostic. Outreach channels already sort by trade (plumbing/HVAC supply houses vs. electrical). Record each interviewee's trade and watch for clusters. |
+| 2026-10-12 | Outreach leads with a free report, plus a $50 gift card for 15 minutes. | Replaces the $25 figure in earlier scripts. Cold interview asks got no replies; a free check on a client they're worried about gives them a reason to answer. |
+| 2026-10-12 | The pipeline starts with one Sunbiz daily file end to end, then the quarterly snapshot. | Prove the path (raw → staging → mart → lookup) on a small file before scaling it. |
 | 2026-09-15 | Build and discovery run in parallel. The "no product code before 5 interviews" gate is withdrawn. Anything a contractor sees still needs interview evidence before it's called validated. | Discovery stalled for four months as a serial gate: zero interviews logged between 2026-05-18 and 2026-09-15 while engineering waited on them. Running the two as parallel tracks instead, with automated recruitment (outreach and scheduling) feeding interviews while product code proceeds. Validation still comes only from interview evidence; building does not create it. |
 
 ---
