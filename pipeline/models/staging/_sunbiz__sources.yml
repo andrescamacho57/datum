@@ -1,0 +1,58 @@
+# ---------------------------------------------------------------------------
+# _sunbiz__sources.yml: tells dbt about tables that dbt did NOT build.
+#
+# dbt builds models (our .sql files). But our models have to start from
+# somewhere, and here that's the raw table you filled with COPY in Snowflake
+# (step E). dbt didn't create that table, so it doesn't know it exists until
+# we declare it here. This file is that declaration.
+#
+# Once a table is declared, a model can refer to it as
+#     source('sunbiz', 'sunbiz_cor_daily')   (wrapped in double curly braces)
+# instead of hardcoding datum.raw.sunbiz_cor_daily. Two benefits:
+#   1. If the table ever moves, you change it here, once, and every model
+#      that uses it follows automatically.
+#   2. dbt can draw the dependency graph: raw table → staging → mart. It uses
+#      that graph to build things in the right order.
+#
+# File name: the leading underscore sorts it to the top of the folder, and
+# "sunbiz__sources" (double underscore) is the common dbt naming convention
+# for "<source system>__<what this file holds>".
+# ---------------------------------------------------------------------------
+
+version: 2
+# The version of dbt's FORMAT for property files like this one. Always 2.
+# (It's dbt's version number, not ours, the same idea as config-version
+# in dbt_project.yml.)
+
+sources:
+# The start of a list of source systems. A project can read from several:
+# Sunbiz now, DBPR (Department of Business and Professional Regulation)
+# licenses later. Each one is an item in this list.
+
+  - name: sunbiz
+    # The `-` (dash) starts one item in a YAML list. This item is the Sunbiz
+    # source system.
+    # `name` is the label you use in SQL: the FIRST argument of source().
+    # It's our label, not a Snowflake name. We picked "sunbiz" because
+    # that's where the data comes from.
+
+    database: datum
+    # The Snowflake database where this source's tables live.
+
+    schema: raw
+    # The Snowflake schema inside that database. With the database above,
+    # dbt now knows to look in datum.raw.
+
+    tables:
+    # The list of tables from this source that our models use.
+
+      - name: sunbiz_cor_daily
+        # One table. This name must match the real Snowflake table exactly,
+        # because dbt combines it with the database and schema above:
+        #     datum + raw + sunbiz_cor_daily  →  datum.raw.sunbiz_cor_daily
+        # It's also the SECOND argument of source('sunbiz', 'sunbiz_cor_daily').
+
+        description: One row per line of a Sunbiz daily corporate file, untouched.
+        # Plain-English documentation. dbt shows it on the auto-generated
+        # docs site (`dbt docs generate`). It doesn't change any behavior,
+        # but it tells the next person what's in the table.

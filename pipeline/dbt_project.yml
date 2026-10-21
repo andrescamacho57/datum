@@ -1,0 +1,15 @@
+# dbt project config: tells dbt what this project is called and how to build each folder of models.
+name: datum                             # project name; must match the key under `models:` below
+version: "0.1.0"                        # our own version label for the project
+config-version: 2                       # dbt's config file format version (2 is current)
+profile: datum                          # which entry in ~/.dbt/profiles.yml holds the Snowflake connection
+model-paths: ["models"]                 # folder where dbt looks for .sql models
+
+models:
+  datum:                                # settings for models in this project
+    staging:                            # applies to everything in models/staging/
+      +schema: staging                  # builds into schema DEV_STAGING (target schema + "_" + this)
+      +materialized: view               # a saved query: no storage cost, always reflects raw
+    marts:                              # applies to everything in models/marts/
+      +schema: marts                    # builds into schema DEV_MARTS
+      +materialized: table              # stored results: fast to query

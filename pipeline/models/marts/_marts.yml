@@ -1,0 +1,50 @@
+# ---------------------------------------------------------------------------
+# _marts.yml: TESTS for the mart models.
+#
+# What a dbt test is: an automatic check that dbt runs after building a model.
+# Under the hood, each test is a SQL query that looks for BAD rows:
+#   - it finds zero bad rows → the test PASSES
+#   - it finds any           → the test FAILS, and `dbt build` reports it and
+#                              skips anything that depends on the bad model
+#
+# Why tests matter here: Datum's promise is being right about who a company
+# is. These tests are the first automatic guard on that promise. If one
+# company ever showed up twice, a lookup could return two conflicting answers.
+# ---------------------------------------------------------------------------
+
+version: 2
+# dbt's property-file format version. Always 2.
+
+models:
+# A list of models we're describing. Each item names one model and its checks.
+
+  - name: entity_lookup
+    # Which model these tests apply to. It must match the file name
+    # entity_lookup.sql, without the .sql.
+
+    columns:
+    # The columns we're putting tests on.
+
+      - name: document_number
+        data_tests:
+        # The checks for this column. (`data_tests:` is the current dbt
+        # name; older guides call it `tests:`.)
+
+          - not_null
+          # Fails if any row has an empty document_number. Every company
+          # must have its ID.
+
+          - unique
+          # Fails if any document_number appears more than once. This proves
+          # the one-row-per-company step in entity_lookup.sql actually worked.
+
+      - name: status_code
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['A', 'I']
+          # Fails if status_code holds anything other than A (active) or
+          # I (inactive). An unexpected value usually means the field
+          # positions shifted, so this test also guards the parsing.
+          # `arguments:` holds the test's settings. dbt 2.0 requires this
+          # nesting; older dbt let `values:` sit directly under the test name.

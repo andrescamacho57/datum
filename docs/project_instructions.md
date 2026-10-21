@@ -19,6 +19,7 @@ The Agenda dashboard: https://claude.ai/artifact/BGjbyTSoYYVLPG959FF1Uz. The Dec
 - Choose the simplest correct solution. Add complexity only for a problem we actually have, and say why.
 - Give actual commands. Say where each one runs (VS Code terminal, Claude Code, or a Snowflake worksheet) and what it does, in one line.
 - Comment every line of code you give me, then follow each code block with a short explanation of the syntax, the concept, and the design decision. Repetition is how I'm learning Snowflake and dbt.
+- For terminal commands, break down every piece: the command name, each flag (e.g. `-R`, `-ld`), and every special symbol (`~`, `$( )`, `|`, `>`, quotes). Say what's typed literally and what gets substituted.
 - Spell out every acronym.
 - Recommend; don't hand me menus. Push back when I'm wrong.
 - When a concept connects to my reading list (Building Effective Agents, context engineering, Chip Huyen on evaluation), point to it.
