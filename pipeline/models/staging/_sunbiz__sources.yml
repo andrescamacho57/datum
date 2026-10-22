@@ -8,7 +8,10 @@
 #
 # Once a table is declared, a model can refer to it as
 #     source('sunbiz', 'sunbiz_cor_daily')   (wrapped in double curly braces)
-# instead of hardcoding datum.raw.sunbiz_cor_daily. Two benefits:
+# instead of hardcoding datum.raw.sunbiz_cor_daily. 
+
+#   Two benefits:
+
 #   1. If the table ever moves, you change it here, once, and every model
 #      that uses it follows automatically.
 #   2. dbt can draw the dependency graph: raw table → staging → mart. It uses

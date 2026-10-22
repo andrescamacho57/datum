@@ -1,10 +1,14 @@
+-- 03_load_sunbiz_cor_daily.sql: load the daily corporate file(s) from sunbiz_stage into raw.
+-- Upload first: Snowsight (Ingestion > Add data > Load files into a Stage) or snow PUT.
+-- Safe to rerun: COPY skips files it already loaded (64-day load metadata).
+
 USE ROLE SYSADMIN;                                          -- owner role
 USE WAREHOUSE datum_wh;                                     -- guarded warehouse
 
 LIST @datum.raw.sunbiz_stage;                               -- confirm the file is there (20261009c.txt)
 
 COPY INTO datum.raw.sunbiz_cor_daily (line, source_file, loaded_at)   -- destination table and columns
-FROM (``
+FROM (
   SELECT $1,                                                -- the whole line (the only field)
          METADATA$FILENAME,                                 -- which file it came from
          CURRENT_TIMESTAMP()                                -- load time

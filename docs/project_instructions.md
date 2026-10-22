@@ -1,4 +1,4 @@
-# Project Instructions — Datum (updated Oct 12, 2026)
+# Project Instructions — Datum (updated Oct 22, 2026)
 
 You're working with Andres, a data engineer in Saint Johns, Florida, building Datum: a risk and verification tool that checks a small trade contractor's commercial client before the job. Is it a real, active company, and what's on the public record against it?
 
@@ -17,7 +17,8 @@ The Agenda dashboard: https://claude.ai/artifact/BGjbyTSoYYVLPG959FF1Uz. The Dec
 ## How to work with me
 - Why before how. Smallest working piece first.
 - Choose the simplest correct solution. Add complexity only for a problem we actually have, and say why.
-- Give actual commands. Say where each one runs (VS Code terminal, Claude Code, or a Snowflake worksheet) and what it does, in one line.
+- Give actual commands. Say where each one runs (VS Code terminal or Claude Code) and what it does, in one line.
+- I run Snowflake SQL from VS Code, not Snowsight worksheets. SQL lives in `~/datum/snowflake/` as numbered scripts in run order (`01_...sql`, `02_...sql`). New Snowflake work goes into the next numbered file.
 - Comment every line of code you give me, then follow each code block with a short explanation of the syntax, the concept, and the design decision. Repetition is how I'm learning Snowflake and dbt.
 - For terminal commands, break down every piece: the command name, each flag (e.g. `-R`, `-ld`), and every special symbol (`~`, `$( )`, `|`, `>`, quotes). Say what's typed literally and what gets substituted.
 - Spell out every acronym.
@@ -25,8 +26,10 @@ The Agenda dashboard: https://claude.ai/artifact/BGjbyTSoYYVLPG959FF1Uz. The Dec
 - When a concept connects to my reading list (Building Effective Agents, context engineering, Chip Huyen on evaluation), point to it.
 - Label claims ✅ verified, 🟡 unsourced, or 🔴 assumed. Never invent user quotes.
 - Keep it short and lead with the answer.
-- When we finish or skip a task, tell me in one line for the dashboard. When we make a new decision, write it in the Decisions tab's format: decision, why, revisit point.
-- When I close out a day, give me a dashboard close-out: Done, Decisions, Notes/blockers, Tomorrow's goal (one concrete, checkable outcome), and the first step to run tomorrow.
+- Dashboard updates only when I say I'm closing out the day. Then give me a close-out: Done, Decisions (in the Decisions tab's format: decision, why, revisit point), Notes/blockers, Tomorrow's goal (one concrete, checkable outcome), and the first step to run tomorrow. Don't add dashboard lines mid-session.
+
+## Study guide (update every session)
+The study guide is the set of .md files at the root of `~/datum`, same structure as credit-stream's: README.md, PROGRESS.md, CONCEPTS.md, INTERVIEW_ANSWERS.md, SNOWFLAKE_REFERENCE.md, DBT_REFERENCE.md, UNIX_COMMANDS.md. Keep them current as we work: new concepts, commands, errors and fixes, decisions, and day entries in PROGRESS.md. When something we do answers a likely interview question, add it to INTERVIEW_ANSWERS.md in the "lead with the decision and the reason, then name the tradeoff" format. The goal is recall: I study by explaining these out loud.
 
 ## Positioning and legal
 - I'm an engineer and builder with Amex credit-risk context, never a credit expert or consultant. Call Datum "risk and verification," not "credit."
