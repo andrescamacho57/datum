@@ -31,7 +31,9 @@ FROM datum.raw.sunbiz_cor_quarterly
 GROUP BY source_file                                       -- group rows by file before counting
 ORDER BY source_file;                                      -- cordata0 first
 
--- CHECK 2: total and line lengths. Expected 12,987,601 rows; lengths 1441 (1440 + the kept \r).
+-- CHECK 2: total and line lengths. Expected 12,987,601 rows; lengths 1440 (CRLF stripped).
+--   Result 2026-10-22: 12,987,601 | 1440 | 1440. All 10 per-file counts matched exactly.
+--   Status: I = 9,168,902, A = 3,818,699. The snapshot INCLUDES inactive companies.
 SELECT COUNT(*)          AS total_lines,                   -- all rows in the table
        MIN(LENGTH(line)) AS shortest,                      -- anything under 1436 = a damaged line
        MAX(LENGTH(line)) AS longest

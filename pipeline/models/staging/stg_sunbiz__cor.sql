@@ -25,19 +25,51 @@
 -- `with name as ( ... )` defines a named, temporary result that later steps
 -- can read from. Read them top to bottom, like a recipe.
 
-with source as (
-    -- STEP 1: read the raw table, just the three columns we need.
+with daily as (
+    -- STEP 1a: the daily files (one day's new filings each).
     select
-        line,          -- the full 1440-character line from the state file
-        source_file,   -- which file the line came from (provenance)
-        loaded_at      -- when COPY loaded it (provenance)
+        line,                                        -- the full 1440-character line from the state file
+        source_file,                                 -- which file the line came from (provenance)
+        loaded_at,                                   -- when COPY loaded it (provenance)
+        'daily' as source_kind,                      -- a label: which kind of state file this row came from
+        try_to_date(left(source_file, 8), 'YYYYMMDD') as published_on
+        -- The date the STATE published this file. Daily files are named for
+        -- their date: 20261009c.txt → left(…, 8) takes the first 8 characters,
+        -- "20261009", and try_to_date reads them as year-month-day.
     from {{ source('sunbiz', 'sunbiz_cor_daily') }}
     -- The double curly braces around source(...) mark Jinja, dbt's template
     -- language. dbt fills it in BEFORE sending the SQL to Snowflake.
-    -- source() looks up the table declared in _sunbiz__sources.yml and
-    -- becomes datum.raw.sunbiz_cor_daily.
     -- (Never write double curly braces inside a comment: dbt reads Jinja
     -- everywhere in a file, comments included.)
+),
+
+quarterly as (
+    -- STEP 1b: the quarterly full snapshot (every company, active or not).
+    select
+        line,
+        source_file,
+        loaded_at,
+        'quarterly' as source_kind,
+        '2026-10-07'::date as published_on
+        -- The snapshot's files are named cordata0-9 with no date in the name,
+        -- so the date is written here. It comes from the state's own file
+        -- timestamps inside cordata.zip (`unzip -l`, all 2026-10-07).
+        -- `::date` converts the text '2026-10-07' to a DATE value.
+        -- REVISIT when the January 2027 snapshot arrives: one hardcoded date
+        -- can't describe two snapshots. Then the date moves into raw at COPY time.
+    from {{ source('sunbiz', 'sunbiz_cor_quarterly') }}
+),
+
+source as (
+    -- STEP 1c: stack the two into one set of rows.
+    select * from daily
+    union all
+    select * from quarterly
+    -- union all = put the rows of the second query under the first. Both must
+    -- have the same columns in the same order (they do: 5 each).
+    -- "all" keeps every row, including duplicates; plain `union` would
+    -- de-duplicate, which costs a sort over 13M rows and could silently merge
+    -- rows. Deduping is the mart's job, done on purpose with a rule.
 ),
 
 parsed as (
@@ -103,10 +135,12 @@ parsed as (
         -- deleting them, so a data problem shows up instead of quietly
         -- disappearing.
 
+        source_kind,
+        published_on,
         source_file,
         loaded_at
         -- Carried through unchanged, so every value can be traced to the
-        -- exact state file it came from.
+        -- exact state file it came from, and when the state published it.
 
     from source
     -- Read from STEP 1 above.

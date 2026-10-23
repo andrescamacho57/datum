@@ -102,7 +102,9 @@ snow sql -c datum -q "PUT file://$PWD/cordata*.txt @datum.raw.sunbiz_cor_quarter
 - `file://` + an absolute path (`$PWD` fills in the current folder)
 - `*` matches all ten `cordata0.txt`…`cordata9.txt`
 - `AUTO_COMPRESS=TRUE` gzips during upload (default is TRUE)
-- `PARALLEL=8` uploads 8 chunks at once
+- `PARALLEL=8` uses 8 upload threads (default 4, max 99). Large files are split
+  into chunks and the threads send chunks concurrently. Home upload speed caps
+  the benefit
 - Result shows each file as `UPLOADED` or `SKIPPED` (already there)
 
 ---
@@ -185,7 +187,8 @@ WHERE name_key LIKE '%DINATALE VENTURES%';
 - **Snowflake can't read .zip.** Unzip first (or gzip, which it reads natively).
 - **Worksheets default to COMPUTE_WH**, which isn't under the resource monitor.
   Always `USE WAREHOUSE datum_wh`.
-- **LENGTH counts NULs and `\r`.** Daily lines load as 1440, quarterly as 1441.
+- **LENGTH counts NUL bytes.** Both daily (LF) and quarterly (CRLF) lines load as 1440:
+  the default record delimiter strips `\r\n` as one line ending (verified 2026-10-22).
 - **Load metadata expires after 64 days** — after that, COPY would reload a file.
 - **Trial ends ~Nov 15** with ~$362 credit left. Decide on upgrade before then.
 

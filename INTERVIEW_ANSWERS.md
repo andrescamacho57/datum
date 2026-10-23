@@ -58,10 +58,15 @@ project — lead with it for data quality, debugging, or attention to detail.**
 > I divided each file's size by its line count, which in a fixed-width file gives the
 > exact line length: 1442 bytes, versus 1441 for the daily file. That told me the
 > quarterly files use Windows line endings — a carriage return the loader would keep.
-> I confirmed my length check already tolerated it, so no code change.
+> I predicted the loader would keep that carriage return, so lines would come in at
+> 1441. They came in at 1440 — Snowflake strips the whole Windows line ending. Wrong
+> prediction, caught by checking, and the length check tolerated either case anyway.
+> And every one of the ten files loaded exactly file size divided by 1442 rows — zero
+> lost, zero split.
 >
 > Two of the ten files had identical sizes and line counts, and I suspected a
-> duplicate. An `md5` checksum disproved it. And then I realized why: in a
+> duplicate. An `md5` checksum disproved it — and after upload, their gzipped sizes
+> differed too, which identical files can't do. And then I realized why: in a
 > fixed-width file, the same line count forces the same size, so it was one
 > coincidence, not two.
 >
@@ -85,6 +90,24 @@ into a permanent test.
 > The checks become a pre-load script: expected line count and line length per file
 > type, checksum recorded with the load, and the load refuses a file that fails. The
 > dbt tests stay as the second line of defense after the load.
+
+---
+
+## "How do you know the pipeline is right, not just green?"
+
+> Known-answer tests. I look a company up by hand on the state's website, write down
+> its document number, name and status, then query my mart by that exact number and
+> compare every field. I did it for a company from the daily file and for one filed in
+> 1998 that only exists in the quarterly snapshot. Both matched — which proves the
+> download, the load, the position-based parsing, and the newest-version rule in one
+> shot.
+>
+> I select by the ID, not the name, on purpose. Names repeat — the state's own search
+> shows several "FERGUSON LLC"s. Finding a company from what a contractor types is a
+> different problem, matching, and that gets its own 50-name evaluation set.
+
+**Why it works:** separates "the data is right" from "the search is right" — two
+different claims that need two different tests.
 
 ---
 

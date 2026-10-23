@@ -48,3 +48,11 @@ models:
           # positions shifted, so this test also guards the parsing.
           # `arguments:` holds the test's settings. dbt 2.0 requires this
           # nesting; older dbt let `values:` sit directly under the test name.
+
+      - name: published_on
+        data_tests:
+          - not_null
+          # Fails if any row has no publish date. The daily date is parsed
+          # from the file name, so a file named differently (no date in front)
+          # would produce NULL here and silently break "newest" ordering.
+          # This test turns that silent failure into a loud one.

@@ -5,7 +5,7 @@
 -- Upload from the VS Code terminal (PUT only runs from a client on your machine):
 --   cd ~/datum/data/raw/sunbiz/quarterly
 --   snow sql -c datum -q "PUT file://$PWD/cordata*.txt @datum.raw.sunbiz_cor_quarterly_stage AUTO_COMPRESS=TRUE PARALLEL=8"
--- Note: quarterly lines end in CRLF (\r\n), so each loads as 1441 characters.
+-- Note: quarterly lines end in CRLF (\r\n). Snowflake strips both, so each loads as 1440 characters (verified 2026-10-22).
 
 USE ROLE SYSADMIN;                                         -- the role that owns DATUM
 USE WAREHOUSE datum_wh;                                    -- the cost-capped warehouse

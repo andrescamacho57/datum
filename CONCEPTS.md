@@ -76,6 +76,27 @@ parsing guard: a shifted line puts junk there instead of A or I.
 **Why we don't parse on load:** Snowflake has no fixed-width file type. Standard
 approach: load each whole line as one column, cut it into fields later in dbt.
 
+**The schema lives outside the file.** A CSV header row names its own columns. A
+fixed-width file names nothing: the layout document *is* the schema, and the
+character positions are the column definitions. Lose the layout and the file is
+unreadable.
+
+**The `fixed_width` file format** is our own name for a reusable object that holds
+Snowflake's reading instructions. Its `TYPE` is CSV, because CSV is Snowflake's
+plain-text reader. Each setting turns off a CSV behavior that would damage
+positions:
+
+| Setting | CSV default | What the default would break |
+|---|---|---|
+| `FIELD_DELIMITER = NONE` | `,` | "ACME, INC." splits at the comma and `$1` holds only "ACME". Every later position is lost |
+| `ESCAPE_UNENCLOSED_FIELD = NONE` | `\` | A backslash in a name is treated as an escape and eats the next character, shifting the rest of the line left |
+| `ENCODING = 'ISO-8859-1'` | UTF-8 | Accented bytes are read as multi-byte characters (or rejected), so character 205 stops being byte 205 |
+| `TRIM_SPACE` (left at FALSE) | FALSE | Trimming would remove padding that holds positions |
+
+**One sentence to say out loud:** the file format tells Snowflake to read each line
+as one untouched string, so every character stays at the position the layout says
+it's in.
+
 ---
 
 ## Bytes, Characters, and Encodings
@@ -109,8 +130,10 @@ The names come from typewriters: carriage return slides the carriage back to the
 line feed rolls the paper up one line.
 
 **Datum finding:** the daily file ends lines with LF (1440 + 1 = **1441** bytes per
-line on disk); the quarterly files end with CRLF (1440 + 2 = **1442**). Snowflake
-strips the `\n` but keeps the `\r`, so quarterly lines load as 1441 characters. The
+line on disk); the quarterly files end with CRLF (1440 + 2 = **1442**). I predicted
+Snowflake would keep the `\r` and load 1441 characters. **The load proved me wrong:
+every line came in at 1440.** Snowflake's default record delimiter treats `\r\n` as
+one line ending and strips both. A prediction checked against data, and corrected. The
 staging check `length(line) >= 1436` handles both — no code change.
 
 **How I found it without opening an 18.7 GB file:** file size ÷ line count. If every
@@ -208,6 +231,23 @@ added).
 
 **Analogy:** the stage is the loading dock, PUT is the truck delivering boxes, COPY is
 unpacking boxes onto shelves.
+
+**PUT runs where the file lives.** The program running PUT has to be able to open
+the file. `snow` in the terminal can, because it runs on the Mac. A Snowsight
+worksheet can't, because it runs in a browser tab connected to Snowflake's servers.
+A `.sql` file containing a PUT works when `snow sql -f` runs it, but `$PWD` isn't
+expanded inside a file, so the path has to be written out in full.
+
+**"On the wire"** means the bytes that actually cross the network. With
+`AUTO_COMPRESS=TRUE`, gzip runs on the Mac *before* sending, so ~18.7 GB on disk
+becomes roughly 1.7 GB on the wire. Compressing first costs a bit of CPU (the
+processor's time) and saves a lot of network time.
+
+**`PARALLEL` = upload threads.** It isn't "files at once." Snowflake splits large
+files into chunks, and each thread sends chunks. Default is 4; maximum is 99. More
+threads help only until something else becomes the bottleneck, usually the home
+internet **upload** speed. Analogy: more checkout lanes don't help when the parking
+lot exit is one lane. 8 is a modest bump over the default, not a tuned number.
 
 **One stage per file type** (Datum decision): keeps daily and quarterly files from
 being swept into the same COPY. Simplest way to keep them separate.

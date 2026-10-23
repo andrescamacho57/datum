@@ -47,10 +47,12 @@ select
     file_date,
     -- Passed through from staging unchanged.
 
+    source_kind,
+    published_on,
     source_file,
     loaded_at
     -- Provenance stays with every row, even in the final layer, so any fact
-    -- Datum ever shows can be traced to the exact state file.
+    -- Datum ever shows can be traced to the exact state file and its date.
 
 from {{ ref('stg_sunbiz__cor') }}
 -- ref() = "read from another dbt model." dbt replaces it with the real name,
@@ -64,7 +66,7 @@ where is_well_formed
 
 qualify row_number() over (
     partition by document_number
-    order by loaded_at desc
+    order by published_on desc, loaded_at desc
 ) = 1
 -- Keep exactly one row per company. Read it in pieces:
 --   row_number()            numbers rows 1, 2, 3, ...
@@ -72,7 +74,13 @@ qualify row_number() over (
 --   partition by document_number
 --                           one group per company (restart numbering at 1
 --                           for each document_number)
---   order by loaded_at desc number each group newest first (desc = descending)
+--   order by published_on desc, loaded_at desc
+--                           number each group newest first (desc = descending),
+--                           by the date the STATE published the record. If two
+--                           rows tie on that date, the one loaded last wins.
+--                           (Ordering by loaded_at alone was a bug: the Oct 7
+--                           snapshot, loaded on Oct 22, would beat the Oct 9
+--                           daily file, loaded on Oct 13.)
 --   = 1                     keep row number 1: the newest row per company
 --   qualify                 filters on that number. It's like WHERE, but WHERE
 --                           can't see window functions like row_number();

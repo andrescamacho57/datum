@@ -76,7 +76,7 @@ git remotes, COPY idempotency
 Jinja renders before SQL runs, QUALIFY + ROW_NUMBER for dedupe, normalization and
 regex, boolean flag columns, DEV vs PROD environments
 
-### Day 3 — 2026-10-22: Full register (in progress)
+### Day 3 — 2026-10-22: Full Florida register loaded and verified
 
 - Installed the Snowflake CLI (`snow`) with pipx. First attempt failed: Homebrew had
   just installed Python 3.15, too new for `pydantic-core` (no prebuilt wheel, and its
@@ -90,21 +90,45 @@ regex, boolean flag columns, DEV vs PROD environments
   **disproved with `md5`**. In a fixed-width file, same line count ⇒ same size, so
   it was one coincidence, not two
 - Created stage `sunbiz_cor_quarterly_stage`
-- Snowflake SQL reorganized into numbered scripts in `snowflake/`
+- Snowflake SQL reorganized into numbered scripts in `snowflake/`; study guide created
+- `PUT` all 10 files: 18.7 GB → **1.80 GB gzipped** (~10:1). `cordata6`/`cordata8`:
+  same raw size, different compressed size — a second proof they differ
+- `COPY` into new table `raw.sunbiz_cor_quarterly`: **12,987,601 rows**, every
+  per-file count matched size ÷ 1442 exactly
+- Line length **1440**, not the 1441 I predicted — Snowflake strips `\r\n` as one line
+  ending. Prediction disproved by the data; docs corrected
+- **Status: I = 9,168,902 (71%), A = 3,818,699 (29%).** The "active data" snapshot
+  includes inactive companies — the dissolved-client signal is there
 
-**Next:** PUT the 10 files → COPY to raw → count status A vs I (does the snapshot
-include inactive companies?) → point dbt at it → look up a long-established
-Jacksonville business
+**Decision:** separate raw table for the quarterly snapshot (raw = one table per source
+kind; staging combines them)
+
+- Deleted the 18.7 GB of `.txt` files (zip kept). Snapshot date from `unzip -l`: **2026-10-07**
+- dbt: staging combines daily + quarterly (`union all`) with `source_kind` and
+  `published_on`; mart orders "newest" by `published_on`, then `loaded_at` (fixes the
+  load-time ordering bug). New `not_null` test on `published_on`
+- `dbt build`: **6/6 passed** in 44s; `entity_lookup` = **13.0M companies**, `unique` holds
+- Known-answer checks by exact document number (not name):
+  - L26000514010 DINATALE VENTURES LLC → A, daily, 2026-10-09 ✅
+  - P98000033661 FERGUSON AIR CONDITIONING & REFRIGERATION, INC. → A, DOMP,
+    Boynton Beach, filed 1998-04-13, quarterly, 2026-10-07 ✅ (matches search.sunbiz.org)
+- Mart mix: daily A 834 · quarterly A 3,818,699 · quarterly I 9,168,902
+
+**Decisions:** separate raw table per Sunbiz file kind; combine in staging; "newest" =
+the state's publish date. Snapshot date hardcoded until the January 2027 snapshot.
+
+**Concepts learned:** union all vs union, known-answer tests by identity (ID, not name),
+APFS disk percentages, compression ratios, predictions checked against data
 
 ---
 
 ## Next
 
-1. Finish the full-register load (above)
-2. Decide how daily + quarterly combine in staging, and order "newest" by the
-   state's file date, not by `loaded_at`
-3. Delete the unzipped `.txt` files from the laptop once loaded (disk is 94% full)
-4. Start the 50-name hand-checked test set
+1. Start the 50-name hand-checked test set (`evals/`): input as a contractor would
+   type it → expected document number, verified on search.sunbiz.org
+2. Name matching against `entity_lookup`, measured on that set (target ≥ 90%)
+3. Fictitious names (DBAs) and federal tax liens from Sunbiz
+4. Move the snapshot date into raw at COPY time before the January 2027 snapshot
 
 ---
 
@@ -126,7 +150,12 @@ Jacksonville business
 
 - What does the date at positions 473–480 mean? (Some values are future dates —
   likely an effective date, not the filing date)
-- Does the quarterly snapshot include inactive companies? (count pending)
+- ~~Does the quarterly snapshot include inactive companies?~~ **Yes:** 9.17M inactive vs
+  3.82M active (2026-10-22)
 - How does each report line link to the official record? (Sunbiz detail URLs need a
   GUID that isn't in the bulk file)
 - Snowflake trial ends ~Nov 15 — upgrade decision
+- The website shows statuses beyond A/I (`NAME HS`, `CROSS RF`, `INACT`, `InActive`).
+  What do they mean, and where do they live in the bulk files?
+- City casing is inconsistent (`Boynton Beach` vs `PALM BEACH GARDENS`) — normalize
+  before matching on address
