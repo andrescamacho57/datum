@@ -122,6 +122,39 @@ APFS disk percentages, compression ratios, predictions checked against data
 
 ---
 
+### Day 4 — 2026-10-24/25: What a daily file actually is
+
+- Anti-join of the Oct 9 daily file against the Oct 7 snapshot (`07_explore_daily_vs_quarterly.sql`):
+  **all 834 daily records are new companies** — none existed in the snapshot
+- So the daily corporate file = new registrations. Updates to existing companies
+  (dissolutions!) come through the separate **events** file or the next quarterly →
+  without events, status can be up to ~3 months stale
+- The Oct 9 file holds filings dated Oct 1–8: the state processes with a lag
+- `file_date` includes 21 records dated 2027-01-01 → it's often an effective date, not
+  the filing date
+- Designed the search flow: LLM extracts fields → plain-code normalization → SQL
+  fuzzy match (`EDITDISTANCE`, `JAROWINKLER_SIMILARITY`) → LLM judges only close
+  calls → user confirms
+
+- Test set v0: 10 cases in `pipeline/seeds/test_set.csv` (dbt seed → `DEV_EVALS.TEST_SET`),
+  two groups: `legal_name_variant` (8) and `real_world_reference` (2)
+- **Baseline search** (`09_score_baseline_search.sql`: normalize input like `name_key`,
+  top-1 `JAROWINKLER_SIMILARITY` over all 13M names): **6/10 = 60%**
+  (legal-name variants 6/8 = 75%, real-world references 0/2)
+- Misses: `ferguson ac…` → FERGUSON MORTGAGE (abbreviation); `kromah properties` →
+  KROM PROPERTIES (close competitor name); Cinemark → CINEMAR, INC. (storefront ≠ legal
+  entity); `the pool guy off race track rd` → a Central Florida pool company at **91**,
+  a confident wrong answer
+- Correct matches scored 91–96 and a wrong one scored 91: **similarity is not confidence**.
+  No threshold separates right from wrong; we need more signals (location, margin to
+  the runner-up) and a user confirmation step
+
+**Concepts learned:** anti-join (LEFT JOIN + IS NULL), full snapshot vs delta,
+processing lag, normalize both sides with the same function, dbt seeds, baselines,
+Jaro-Winkler (prefix-weighted), similarity ≠ confidence, small eval sets swing 10% per case
+
+---
+
 ## Next
 
 1. Start the 50-name hand-checked test set (`evals/`): input as a contractor would
@@ -147,6 +180,9 @@ APFS disk percentages, compression ratios, predictions checked against data
 ---
 
 ## Open Questions
+
+- **Events file recon** (`doc/cor/events/yyyymmddce.txt`): needed to catch dissolutions
+  between quarterly snapshots. Before launch.
 
 - What does the date at positions 473–480 mean? (Some values are future dates —
   likely an effective date, not the filing date)

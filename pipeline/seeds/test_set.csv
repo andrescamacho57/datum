@@ -1,0 +1,11 @@
+case_id,case_group,input_text,expected_document_number,expected_entity_name,case_type,verified_on,notes
+1,legal_name_variant,ferguson ac boynton beach,P98000033661,"FERGUSON AIR CONDITIONING & REFRIGERATION, INC.",abbreviation + city,2026-10-22,AC = Air Conditioning; many other FERGUSON companies exist
+2,legal_name_variant,dinatale ventures,L26000514010,DINATALE VENTURES LLC,lowercase + no suffix,2026-10-21,new 2026 LLC from the Oct 9 daily file
+3,legal_name_variant,hughes financial ponte vedra,P18000005972,"HUGHES FINANCIAL PARTNERS, INC.",partial name + city,2026-10-26,drops PARTNERS and INC
+4,legal_name_variant,automotive assurance grp,L14000186157,"AUTOMOTIVE ASSURANCE GROUP, LLC",abbreviation,2026-10-26,GRP = GROUP
+5,legal_name_variant,surfside luxery homes,L26000480461,"SURFSIDE LUXURY HOMES, LLC",typo,2026-10-26,LUXERY misspelled
+6,legal_name_variant,sadler holdings inc jax,P02000008536,"SADLER HOLDINGS, INC.",city nickname,2026-10-26,JAX = Jacksonville
+7,legal_name_variant,realy good beer,L22000096579,REALLY GOOD BEER LLC,typo,2026-10-26,REALY missing an L
+8,legal_name_variant,kromah properties,L26000402102,KROMAH PROPERTY LLC,word variant,2026-10-26,PROPERTIES vs PROPERTY
+9,real_world_reference,cinemark durbin park,P24771,"CINEMARK USA, INC.",location to operator,2026-10-26,storefront not registered; Texas corp registered in FL (foreign profit corp)
+10,real_world_reference,the pool guy off race track rd,NEEDS_MORE_INFO,,not identifiable,2026-10-26,correct behavior is to ask for more details instead of guessing

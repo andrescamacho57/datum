@@ -461,3 +461,38 @@ actually have, and say which problem.
 **Datum story:** I first proposed one stage with folders and a `PATTERN` filter to
 separate daily from quarterly files. Simpler and just as correct: one stage per file
 type and a plain `COPY`. Complexity has to earn its place.
+
+---
+
+## Evaluation: Baselines, Similarity, and Confidence
+
+**Baseline** — the score of the simplest reasonable approach, measured before any
+improvement. Datum's: normalize the input, pick the single most similar name out of
+13M. **60%** on the first 10 cases. Every change after this is judged against it.
+
+**Jaro-Winkler similarity** (`JAROWINKLER_SIMILARITY` in Snowflake) — scores two strings
+0–100 by shared characters in roughly the same order, with a bonus when the
+**beginnings match**. That's why `sadler holdings inc jax` still found SADLER HOLDINGS:
+extra words at the end cost little. It's also why `kromah properties` lost to KROM
+PROPERTIES: strong shared start, small differences.
+
+**Similarity is not confidence.** Right answers scored 91–96; a wrong one scored 91. A
+score says "these strings look alike," not "this is the company." Confidence needs
+more evidence: does the city/ZIP match, how far ahead is the top answer of the
+runner-up, did the user confirm it.
+
+**The worst failure is a confident wrong answer.** `the pool guy off race track rd`
+returned THE POOL GUY OF CENTRAL FLORIDA, INC. at 91. A tool that always answers will
+eventually show a contractor the wrong company as fact. That's why the test set has
+`NEEDS_MORE_INFO` cases, and why the user confirms the match.
+
+**Top-1 vs top-k (recall@k).** Top-1 asks "was the first answer right?" Recall@5 asks
+"was the right answer anywhere in the first 5?" If the app shows 5 candidates for the
+user to confirm, recall@5 is the honest measure of search.
+
+**Small eval sets are noisy.** With 10 cases, one case = 10 percentage points. Treat
+the number as direction, not precision, until the set reaches 50.
+→ *Chip Huyen on evaluation.*
+
+**dbt seed** — a CSV in the repo (`pipeline/seeds/`) that `dbt seed` loads as a table.
+Small, version-controlled reference data: test sets, lookup lists.
