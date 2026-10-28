@@ -111,6 +111,28 @@ different claims that need two different tests.
 
 ---
 
+## "How do you evaluate the LLM part of your system?"
+
+> Search is a chain: an LLM extracts the business name and city from what the contractor
+> typed, then plain SQL matches it against 13 million registered names. I built a small
+> test set with known answers first and scored a no-LLM baseline: 60% top-1, 80% with a
+> five-result shortlist. Then I added the extraction step and scored again: 90% recall at
+> five. It fixed cases string math can't — "ferguson ac" became "Ferguson Air
+> Conditioning" — but it also broke one: it read "really good beer" as a description and
+> dropped the name. I only caught that because I check the extraction output separately
+> from the final score. I froze the model's outputs to a file so scores stay comparable,
+> and I stopped tuning the prompt after two rounds, because tuning on your own test set
+> inflates it.
+
+**Why it works:** baseline first, component-level evaluation, an honest regression, and
+awareness of overfitting the eval. → Chip Huyen on evaluation; *Building Effective Agents*
+(the LLM does one narrow step in a fixed workflow).
+
+**Also answers:** "Have you worked with REST APIs in Python?" — the extraction is an
+SDK call to Anthropic's REST API; the key lives in an environment variable, never in code.
+
+---
+
 ## "Why bulk files instead of an API or scraping?"
 
 > The state publishes the entire register as bulk files over SFTP, free, with record

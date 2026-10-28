@@ -22,3 +22,7 @@ seeds:
       +column_types:                    # don't let dbt guess these column types
         expected_document_number: varchar  # IDs are text (P24771), never numbers
         verified_on: date               # the day the expected answer was checked
+    extracted_inputs:                   # settings for seeds/extracted_inputs.csv (written by src/datum/extract.py)
+      +column_types:
+        case_id: integer                # join key to test_set
+        is_specific: boolean            # Python writes True/False; load it as a real TRUE/FALSE

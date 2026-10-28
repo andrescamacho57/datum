@@ -153,6 +153,37 @@ APFS disk percentages, compression ratios, predictions checked against data
 processing lag, normalize both sides with the same function, dbt seeds, baselines,
 Jaro-Winkler (prefix-weighted), similarity ≠ confidence, small eval sets swing 10% per case
 
+### Day 5 — 2026-10-26/27: Search v1 with LLM extraction
+
+- Recall@5 on the baseline (`10_score_baseline_recall_at_5.sql`): **8/10** — a shortlist
+  rescues Kromah (#2) and Cinemark (#2). Hughes' top-1 "win" was a 91/91 tie: luck
+- Suffix stripping computed offline first (Python Jaro-Winkler reproduced Snowflake's
+  scores exactly): flips no test case → **not built**
+- `src/datum/extract.py`: Claude API (Haiku) call per input with a forced tool schema →
+  `{business_name, city, street, is_specific}` → `pipeline/seeds/extracted_inputs.csv`
+- New `.venv` on Python 3.12 + `anthropic` SDK; API key in `~/.zshrc`, never in the repo.
+  The SDK rejected `temperature` → repeatability comes from freezing outputs in the CSV
+- Prompt v1 broke "really good beer" (→ "Beer") and invented city "Surfside"; prompt v2
+  fixed the name. Stopped tuning after 2 rounds (tuning on the test set inflates it)
+- **Search v1** (`11_score_search_v1.sql`: extracted name → Jaro-Winkler → city tie-break
+  → fixed sort; vague notes → NEEDS_MORE_INFO):
+
+  | | top-1 | recall@5 |
+  |---|---|---|
+  | v0 baseline | 6/10 | 8/10 |
+  | **v1 extraction** | **6/10** | **9/10** |
+
+  Gains: Ferguson (#1, AC → Air Conditioning), pool guy (correctly asks for more).
+  Losses: Hughes (#4, HUGHES FINANCIAL GROUP outranks — city only breaks exact ties),
+  really good beer (model called it vague → NEEDS_MORE_INFO)
+
+**Next single change:** don't let `is_specific` alone skip the search, and give a city
+match more weight than a tie-break. Re-score.
+
+**Concepts learned:** structured output via forced tool use, REST API from Python (SDK),
+component-level evaluation, teaching to the test, freezing model outputs, deterministic
+tie-breaking, virtual environments and activation
+
 ---
 
 ## Next

@@ -496,3 +496,38 @@ the number as direction, not precision, until the set reaches 50.
 
 **dbt seed** — a CSV in the repo (`pipeline/seeds/`) that `dbt seed` loads as a table.
 Small, version-controlled reference data: test sets, lookup lists.
+
+**Evaluate each step, not just the end.** Search v1 is a chain: LLM extraction → name
+match → ranking. When the end score moves, check the extraction output first. Prompt v1
+turned "really good beer" into "Beer" — an LLM step made a case worse that plain string
+math got right. Only the test set showed it.
+
+**Teaching to the test.** Tuning a prompt while looking at the same cases you score on
+inflates the score. Rules stay general (examples NOT from the test set), stop after a
+couple of rounds, and the real check is new cases.
+
+**Freeze model outputs, score the frozen copy.** The extraction is saved to a CSV and the
+eval always scores that file. Re-running the model is a deliberate act, so scores stay
+comparable over time even though a model can answer slightly differently each call.
+
+**Deterministic tie-breaking.** `ROW_NUMBER()` picks arbitrarily among equal values, so a
+query can return different winners on different runs. End every ranking with a unique
+column (`document_number`) so reruns can't flip.
+
+---
+
+## Calling an LLM from Python
+
+**SDK** (software development kit) — a library that wraps an API. `anthropic` turns
+`client.messages.create(...)` into an authenticated HTTPS POST to Anthropic's REST API,
+reads the key from the `ANTHROPIC_API_KEY` environment variable, retries, and parses the
+JSON reply. Same idea as `boto3` for AWS.
+
+**Structured output via a forced tool.** Give the model a tool with a JSON schema and
+`tool_choice` that requires it. The reply comes back as fields, not prose to parse.
+
+**Virtual environment** (`.venv`) — a private Python with its own packages, per project.
+`source .venv/bin/activate` switches the current terminal to it (prompt shows `(.venv)`);
+it's per terminal session, not per folder. Plain `python` exists only inside one —
+macOS itself has `python3`.
+
