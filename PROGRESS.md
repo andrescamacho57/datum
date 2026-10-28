@@ -207,6 +207,16 @@ tie-breaking, virtual environments and activation
 **Concepts learned:** retrieve-then-rerank, asymmetric error costs, inherent ambiguity,
 component interactions, when an eval set is too small to decide
 
+**First end-to-end report** (`src/datum/report.py`): note → Claude extraction → top 5 from
+Snowflake (Python driver, same `datum` key-pair connection) → confidence LEVEL + evidence
+(Strong / Likely / Possible, no percentages until calibrated) → pick → one-page report saved
+to `data/reports/` (git-ignored)
+- `ferguson ac boynton beach` → #1 [Likely] FERGUSON AIR CONDITIONING & REFRIGERATION, INC.,
+  "name is similar (91/100); city matches; ACTIVE" → report P98000033661 ✅
+- Seen: other FERGUSON names also score 90–91 (Jaro-Winkler rewards the shared start), so
+  the evidence level, not the score, separated the right one
+- Mart now carries street address + ZIP (dbt build 8/8: 2 models, 2 seeds, 4 tests)
+
 ---
 
 ## Next

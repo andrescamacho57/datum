@@ -42,10 +42,13 @@ select
 
     status_code,
     filing_type,
+    principal_address_1,
     principal_city,
     principal_state,
+    principal_zip,
     file_date,
-    -- Passed through from staging unchanged.
+    -- Passed through from staging unchanged. The street and ZIP were added on
+    -- 2026-10-28 because the first report shows the company's principal address.
 
     source_kind,
     published_on,
