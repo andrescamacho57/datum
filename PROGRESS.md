@@ -216,6 +216,17 @@ to `data/reports/` (git-ignored)
 - Seen: other FERGUSON names also score 90–91 (Jaro-Winkler rewards the shared start), so
   the evidence level, not the score, separated the right one
 - Mart now carries street address + ZIP (dbt build 8/8: 2 models, 2 seeds, 4 tests)
+- Manual testing found three flaws, all fixed in `report.py`:
+  - **No exit:** a vague note asked "add more" forever → now Enter/"idk" stops, max 3
+    asks, and it ends with "I won't guess"
+  - **Wrong company as fact:** picking #1 on an all-"Possible" Cinemark list produced a
+    clean report on CINEMA WORKS (inactive since 1980) → a Possible pick now needs a
+    deliberate `y` (Enter = No)
+  - **Lost context:** every report now records how the company was identified (note,
+    level, evidence, chosen by the user)
+- Also seen: the model returns different fields for the same note on different runs
+  ('Pool' / '<UNKNOWN>' / ''); the decision field `is_specific` stayed stable
+- Parking lot: search by street (the model reliably extracts "Race Track Rd")
 
 ---
 
