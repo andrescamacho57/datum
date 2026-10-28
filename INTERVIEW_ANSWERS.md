@@ -133,6 +133,23 @@ SDK call to Anthropic's REST API; the key lives in an environment variable, neve
 
 ---
 
+## "Tell me about a change you decided NOT to ship"
+
+> I tested two improvements to Datum's company search against my baseline. One let vague
+> notes still search when a registered name matched exactly — it fixed "really good beer"
+> but turned "the pool guy" into a confident match to a company literally named POOL LLC.
+> Same score as before, 6 out of 10, but it traded a cheap error for an expensive one.
+> Asking a contractor "can you add the city?" costs seconds; showing the wrong company as
+> fact costs trust. So I kept the simpler version. Credit risk taught me that — you don't
+> judge a decision model by accuracy alone, you weigh what each kind of mistake costs.
+> I also saw that at 10 test cases each change flipped about one case either way, so the
+> right move was to stop tuning and grow the test set.
+
+**Why it works:** shows judgment over metric-chasing, ties back to the Amex background,
+and knows the limits of a small evaluation set.
+
+---
+
 ## "Why bulk files instead of an API or scraping?"
 
 > The state publishes the entire register as bulk files over SFTP, free, with record

@@ -184,6 +184,29 @@ match more weight than a tie-break. Re-score.
 component-level evaluation, teaching to the test, freezing model outputs, deterministic
 tie-breaking, virtual environments and activation
 
+### Day 6 — 2026-10-28: Search v2 tested, v1 kept
+
+- `12_score_search_v2.sql`: retrieve top-20 candidates once, re-rank cheaply; tested two
+  changes separately against v1 as the control
+
+  | | top-1 | recall@5 | gained | lost |
+  |---|---|---|---|---|
+  | v1 (control) | 6/10 | 9/10 | — | — |
+  | v2a: vague note still searched if an exact registered name exists | 6/10 | 9/10 | really good beer | pool guy → **POOL LLC** (confident wrong) |
+  | v2b: v2a + city ranks first | 5/10 | 9/10 | — | Surfside (invented city promoted SURFSIDE TRUST) |
+
+- Hughes is **genuinely ambiguous**: HUGHES FINANCIAL GROUP and HUGHES FINANCIAL PARTNERS
+  are both in Ponte Vedra Beach. The note can't tell them apart → a shortlist case
+- The invented city "Surfside" was harmless while city only broke ties, harmful once city
+  got weight: upstream errors change cost when downstream rules change
+- **Decision: keep v1.** Errors aren't equal: an unnecessary "can you add the city?" costs
+  seconds; a confident wrong company costs trust (and maybe money). v1 makes the cheap
+  error, v2a the expensive one
+- At 10 cases each rule change flips ~1 case each way → stop tuning; grow the test set
+
+**Concepts learned:** retrieve-then-rerank, asymmetric error costs, inherent ambiguity,
+component interactions, when an eval set is too small to decide
+
 ---
 
 ## Next

@@ -531,3 +531,31 @@ JSON reply. Same idea as `boto3` for AWS.
 it's per terminal session, not per folder. Plain `python` exists only inside one —
 macOS itself has `python3`.
 
+---
+
+## Choosing Between Search Versions
+
+**Retrieve, then re-rank.** Do the expensive search once and keep a small candidate pool
+(top 20 of 13M). Then try ranking and decision rules on the pool for almost nothing.
+That's how real search engines are built, and it lets you test changes one at a time.
+
+**Errors don't cost the same.** Count types, not just totals:
+- *Unnecessary question* ("can you add the city?") → costs the contractor seconds
+- *Miss* (right company not in the shortlist) → costs a retry
+- *Confident wrong answer* (POOL LLC for "the pool guy") → costs trust, maybe money
+
+v1 and v2a both scored 6/10, but v1's error was the cheap kind and v2a's the expensive
+kind. Same idea as credit risk: a false approval costs more than a false decline, so you
+don't judge a model by accuracy alone.
+
+**Some cases are ambiguous by nature.** "hughes financial ponte vedra" fits two real
+companies in the same city. No ranking fixes that; the right product answer is a
+shortlist and a confirmation. That's why recall@5 matters more than top-1 here.
+
+**Components interact.** The extractor's invented city ("Surfside") cost nothing while
+city only broke ties, and broke a case once city got weight. A change downstream can
+expose an error upstream — re-check the whole chain after any change.
+
+**Know when the eval set is too small to decide.** At 10 cases, each rule change flipped
+about one case each way. That's noise, not signal. Stop tuning; get more cases.
+
