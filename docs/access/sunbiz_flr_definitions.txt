@@ -1,0 +1,90 @@
+Florida Department of State / Division of Corporations / Data Downloads /
+
+Federal Tax Lien File Definitions
+This file describes the contents of the four fixed length ASCII text files files provided as downloads for Federal Tax Liens. These definitions are true for both daily and quarterly (full) files.
+
+Lien Data File
+Lien Debtor File
+Lien Secured Party File
+Lien Event File
+Lien Data File
+Record Length: 82 characters.
+
+Field #	Field Name	Description	Start Position	Length
+1	LIEN_DATA_DOC_NUMBER	The Lien document number (filing   number)	1	12
+2	LIEN_DATA_FILING_DATE	Date filed with our office	13	8
+3	LIEN_DATA_PAGES	Number of pages filed	21	5
+4	LIEN_DATA_TOTAL_PAGES	Total number of pages filed	26	5
+5	LIEN_DATA_FILING_STATUS	Status (Terminated (T) Lapsed (L) and Active (A)	31	1
+6	LIEN_DATA_FILING_TYPE	Filing type LIEN (U) or FLR (F)	32	1
+7	LIEN_DATA_ASSESSMENT_DATE	DATE FOR FLR'S	33	8
+8	LIEN_DATA_CANCELLATION_DATE	Date filing was cancelled	41	8
+9	LIEN_DATA_EXPIRATION_DATE	Date filing will expire	49	8
+10	LIEN_DATA_TRANS_UTILITY	Transmitting Utility (Y?N)	57	1
+11	LIEN_DATA_FILING_EVENT_COUNT	Total events filed against filing	58	5
+12	LIEN_DATA_FILING_TOTAL_DEB_CTR	Total number of debtors associated with filing	63	5
+13	LIEN_DATA_FILING_TOTAL_SEC_CTR	Total number of secureds associated with filing	68	5
+14	LIEN_DATA_FILING_CUR_DEB_CTR	Number of debtors associated with filing	73	5
+15	LIEN_DATA_FILING_CUR_SEC_CTR	Number of secured associated with filing	78	5
+Lien Debtor File
+Record Length: 206 characters.
+
+Field #	Field Name	Description	Start Position	Length
+1	LIEN_DEB_DATA_FILING_TYPE	Type of filing	1	1
+2	LIEN_DEB_DATA_DOC_NUMBER	Filing document number	2	12
+3	LIEN_DEB_DATA_NAME	Debtor Name	14	55
+4	LIEN_DEB_DATA_NAME_FORMAT	Name format (C) corporate (P) personal	69	1
+5	LIEN_DEB_DATA_ADDRESS1	1st line of address	70	44
+6	LIEN_DEB_DATA_ADDRESS2	2nd line of address	114	44
+7	LIEN_DEB_DATA_CITY	City	158	28
+8	LIEN_DEB_DATA_STATE	State	186	2
+9	LIEN_DEB_DATA_ZIP_CODE	Zip	188	9
+10	LIEN_DEB_DATA_COUNTRY	Country	197	2
+11	LIEN_DEB_DATA_SEQ_CTR	Sequence number of debtor	199	5
+12	LIEN_DEB_DATA_REL_TO_FILING	Relation to filing (C) current	204	1
+13	LIEN_DEB_DATA_ORIG_PARTY	Original debtor	205	1
+14	LIEN_DEB_DATA_FILING_STATUS	Filing status (A) active (L) lapsed (T) terminated	206	1
+Return to Top
+
+Lien Secured Party File
+Record Length: 206 characters.
+
+Field #	Field Name	Description	Start Position	Length
+1	LIEN_SEC_DATA_FILING_TYPE	Type of filing	1	1
+2	LIEN_SEC_DATA_DOC_NUMBER	Filing document number	2	12
+3	LIEN_SEC_DATA_NAME	Secured Party Name	14	55
+4	LIEN_SEC_DATA_NAME_FORMAT	Name format (C) corporate (P) personal	69	1
+5	LIEN_SEC_DATA_ADDRESS1	1st line of address	70	44
+6	LIEN_SEC_DATA_ADDRESS2	2nd line of address	114	44
+7	LIEN_SEC_DATA_CITY	City	158	28
+8	LIEN_SEC_DATA_STATE	State	186	2
+9	LIEN_SEC_DATA_ZIP_CODE	Zip	188	9
+10	LIEN_SEC_DATA_COUNTRY	Country	197	2
+11	LIEN_SEC_DATA_SEQ_CTR	Sequence number of secured party	199	5
+12	LIEN_SEC_DATA_REL_TO_FILING	Relation to filing (C) current	204	1
+13	LIEN_SEC_DATA_ORIG_PARTY	Original secured party	205	1
+14	LIEN_SEC_DATA_FILING_STATUS	Filing status (A) active (L) lapsed (T) terminated	206	1
+Return to Top
+
+Lien Event File
+Record Length: 135 characters.
+
+Field #	Field Name	Description	Start Position	Length
+1	LIEN_EVT_DATA_KEY	Internal index key	1	1
+2	LIEN_EVT_DATA_EVENT_DOC_NUMBER	Number assigned to event document	2	12
+3	LIEN_EVT_DATA_FILING_DOC_NUMBER	Number assigned to original document 	14	12
+4	LIEN_EVT_DATA_ACTION_CTR	Number of actions event consisted of	26	1
+5	LIEN_EVT_DATA_SEQ_NUMBER	Event sequence	27	1
+6	LIEN_EVT_DATA_FILING_PAGES	Number of pages event form contained	28	1
+7	LIEN_EVT_DATA_FILING_DATE	Date event was filed	29	8
+8	LIEN_EVT_DATA_CREATE_DATE	Date the record was created	37	8
+9	LIEN_EVT_DATA_FIL_DOC_KEY_IND	Internal index key	45	1
+10	LIEN_EVT_DATA_ACT_KEY_IND	Internal index key	46	1
+11	LIEN_EVT_DATA_ACT_EVENT_NUMBER	Tracking number for the event	47	12
+12	LIEN_EVT_DATA_ACT_SEQ_NUMBER	Action sequence	59	1
+13	LIEN_EVT_DATA_ACT_ACTION_CODE	Action code	60	3
+14	LIEN_EVT_DATA_ACT_VERBAGE	Description/label of event	63	70
+15	LIEN_EVT_DATA_ACT_OLD_NAME_SEQ	Old Name Sequence	133	1
+16	LIEN_EVT_DATA_ACT_NEW_NAME_SEQ	New Name Sequence	134	1
+17	LIEN_EVT_DATA_ACT_NAME_TYPE	Name Type "D" (Debtor) or "S" (Secured Party)	135	1
+Return to Top
