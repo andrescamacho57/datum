@@ -21,6 +21,9 @@ from pathlib import Path        # build file paths that work on any operating sy
 
 import anthropic                # Anthropic's SDK: wraps the HTTPS (REST) calls to the Claude API
 
+from dotenv import load_dotenv   # python-dotenv's function that reads NAME=value lines from a .env file into the environment
+load_dotenv()                    # look for a .env file, starting in this file's folder (src/datum) and walking up to ~/datum, then load it
+
 # --- Settings -------------------------------------------------------------------------
 REPO_ROOT = Path(__file__).resolve().parents[2]          # this file is src/datum/extract.py → go up 2 folders to ~/datum
 TEST_SET = REPO_ROOT / "pipeline" / "seeds" / "test_set.csv"            # input: the 10 test cases
@@ -44,6 +47,9 @@ Return ONLY what the note says or clearly implies. Never invent a legal company 
 
 # The exact shape we want back. Using a "tool" with a JSON schema forces structured output:
 # the model must fill these fields instead of writing free text we'd have to parse.
+# EXTRACT_TOOL = {...} - A normal Python dictionary assigned to a variable you named EXTRACT_TOOL.
+
+# Name, description, input schema are fields Anthropic’s API recognizes as a tool definition.
 EXTRACT_TOOL = {
     "name": "record_search_fields",                      # the tool's name (we force the model to call it)
     "description": "Record the search fields extracted from the note.",
@@ -55,27 +61,70 @@ EXTRACT_TOOL = {
             "street": {"type": "string"},
             "is_specific": {"type": "boolean"},
         },
-        "required": ["business_name", "city", "street", "is_specific"],
-    },
+        "required": ["business_name", "city", "street", "is_specific"], #means “all four fields must be present.”
+    },  # type, properties, required - fields for the JSON Schema, a standard for describing how data must be structured.
 }
 
 
-def extract_fields(client: anthropic.Anthropic, note: str) -> dict:
+
+def extract_fields(client: anthropic.Anthropic, note: str) -> dict:  # 1. Define the function and its inputs - creates a function named extract_fields.
+    # client is an Anthropic SDK client—the Python object used to communicate with Claude’s API.
+    # note is the text you want Claude to read.
+    # : anthropic.Anthropic and : str are type hints describing the expected inputs.
+    # -> dict is a type hint saying the function should return a Python dictionary.Type hints describe expectations; Python doesn’t automatically enforce them.
     """Send one note to Claude and return the extracted fields as a Python dict."""
-    response = client.messages.create(                   # one HTTPS POST to the Messages API
-        model=MODEL,
-        max_tokens=300,                                  # cap on the reply length (a few fields need very little)
-        system=SYSTEM_PROMPT,
-        tools=[EXTRACT_TOOL],                            # offer the tool...
+    response = client.messages.create(  # 2. Send the request to Claude. One HTTPS POST to the Messages API
+        # This calls the SDK’s create method. The SDK sends the API request, 
+        # waits for the reply, and stores the result in response.
+        # Everything inside the parentheses configures that request:
+        model=MODEL,                # Use the model specified by the MODEL variable.
+        max_tokens=300,             # cap on the reply length (a few fields need very little). Limit the generated reply to 300 tokens. Tokens are pieces of text, not exactly words.
+        system=SYSTEM_PROMPT,       # Follow the instructions stored in SYSTEM_PROMPT.
+        tools=[EXTRACT_TOOL],       # offer the tool...Here is the tool definition describing the fields to fill in.
+        # You pass the dictionary to the SDK when making a request
+        # The SDK sends that definition to Claude through the API. 
         tool_choice={"type": "tool", "name": "record_search_fields"},  # ...and require the model to use it
         # No temperature setting: the installed SDK rejects it for this model. Repeatability
         # comes from saving the output to a CSV instead: the eval always scores that saved file.
-        messages=[{"role": "user", "content": note}],    # the contractor's note is the user message
+        
+        # It follows the same pattern:
+        # - tool_choice= is a named argument to create().
+        # - Its value is a dictionary.
+        # - That dictionary contains two key–value pairs.
+        # Together, they tell the API:
+        # “Require Claude to use the specific tool named record_search_fields.”
+        
+        messages=[{"role": "user", "content": note}],    # the contractor's note is the user message. This is a list of a dictionary with two key-value pairs being passed as the argument named messages. 
     )
+    # 3. Look through the response
+    # Claude’s response contains a list of content blocks. A block might contain text or a request to use a tool.
+    # This loop examines those blocks one at a time.
     for block in response.content:                       # the reply is a list of content blocks
-        if block.type == "tool_use":                     # find the tool call...
+        if block.type == "tool_use":                     # find the tool call...This asks: “Is this block a tool call?”
             return block.input                           # ...its input IS our structured fields
     raise ValueError(f"No fields returned for: {note!r}")  # should never happen with tool_choice forced
+
+
+# This function takes a written note, sends it to Claude, 
+# and returns the extracted fields as a Python dictionary.
+
+# For example:
+
+# Input note:
+# "Find Acme LLC at 123 Main Street in Boston"
+
+# Expected return value:
+# {
+#     "business_name": "Acme LLC",
+#     "city": "Boston",
+#     "street": "123 Main Street",
+#     "is_specific": True
+# }
+
+# The dictionary itself doesn’t run a function or search for a business. 
+# It describes the fields Claude should supply; your code then reads those 
+# values.
+
 
 
 def main() -> None:
