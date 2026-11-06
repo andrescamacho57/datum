@@ -232,11 +232,23 @@ to `data/reports/` (git-ignored)
 
 ## Next
 
-1. Start the 50-name hand-checked test set (`evals/`): input as a contractor would
-   type it → expected document number, verified on search.sunbiz.org
-2. Name matching against `entity_lookup`, measured on that set (target ≥ 90%)
-3. Fictitious names (DBAs) and federal tax liens from Sunbiz
-4. Move the snapshot date into raw at COPY time before the January 2027 snapshot
+**MVP sprint, re-planned Nov 2 at 3–5 hours a day: launch-ready Fri Nov 13** (full plan: `docs/mvp_plan_nov8.md`). Interviews start Nov 10.
+
+| Date | Ships |
+|---|---|
+| Mon Nov 2 | Duval Chapter 119 request sent; federal lien files pulled and inspected |
+| Tue Nov 3 | Claude Code harness (CLAUDE.md commands, skills, reviewer subagent, hooks) + DBPR/Duval recon |
+| Wed Nov 4 | #1 IRS federal tax liens: raw → staging → intermediate links, linkage eval |
+| Thu Nov 5 | #3 DBPR licenses (first Python class, `DbprFile`); lookup eval grown to 50 |
+| Fri Nov 6 | Flags mart + Postgres serving layer (pg_trgm) |
+| Sat Nov 7 | FastAPI web app |
+| Sun Nov 8 | #4 Report v1 with risk flags |
+| Mon Nov 9 | #2 Duval pilot for demo companies |
+| Nov 10–12 | Deploy + CI, break-it test, 5 hand-verified demo reports (around interviews) |
+| Fri Nov 13 | v0.1.0 launch-ready |
+
+Later: name matching to 90% on 50 real inputs (Nov 12), dissolutions via the events file,
+move the snapshot date into raw at COPY time before the January 2027 snapshot.
 
 ---
 
