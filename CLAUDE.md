@@ -43,3 +43,13 @@ Refresh fixtures in their own commit. Don't mock what you can fixture.
 No refactor mixed with a behavior change, no fixture refresh mixed with a parser
 fix. New logic arrives with its test. Find something unrelated mid-task — note
 it, finish the current concern first.
+
+## Commands that prove work
+
+Run these and show the output before claiming something works.
+
+- Activate env: `source .venv/bin/activate`
+- dbt, from `pipeline/`: `cd pipeline && dbt build --select <model>`
+- Snowflake script: `snow sql -c datum -f snowflake/NN_name.sql`
+- Tests: `pytest`
+- Secrets live in `.env`, `~/.dbt/profiles.yml`, `~/.snowflake/` and `*.p8` files. Never read them.
