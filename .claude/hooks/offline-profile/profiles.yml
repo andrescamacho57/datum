@@ -1,0 +1,16 @@
+# Placeholder dbt profile for the Stop hook's offline `dbt parse`. It holds NO real credentials.
+# The account "invalid.invalid" can never resolve, so any attempt to connect would fail loudly.
+# Verified 2026-11-06 (dbt 2.0.9): `dbt parse` succeeds against it, so parse does not connect.
+datum:  # profile name must match `profile:` in pipeline/dbt_project.yml
+  target: dev  # the only target; dbt requires one to be named
+  outputs:  # connection settings per target
+    dev:  # the target selected above
+      type: snowflake  # adapter type, so the project's Snowflake models parse
+      account: invalid.invalid  # deliberately unresolvable: proves parse never connects
+      user: nobody  # fake user
+      password: not-a-real-password  # fake password, not a secret
+      role: nobody  # fake role
+      database: nodb  # fake database
+      warehouse: nowh  # fake warehouse
+      schema: public  # fake schema
+      threads: 1  # one thread is plenty for parsing
