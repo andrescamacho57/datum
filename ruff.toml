@@ -1,0 +1,16 @@
+# Ruff config for the repo; the Stop hook (.claude/hooks/offline-checks.sh) runs `ruff check src` against it.
+# Goal: lint for bugs only. Import order and style are not the hook's job, so they stay off.
+# Linter settings live under the [lint] table.
+[lint]
+# Pin the rule set explicitly rather than inherit ruff's default, which grows between versions (0.17 adds I001 and ~400 more).
+select = [
+    # E4: import statement errors, e.g. module-level import not at top of file (E402).
+    "E4",
+    # E7: statement errors, e.g. bare except (E722), ambiguous names (E741), `== None` (E711).
+    "E7",
+    # E9: syntax and IO errors, e.g. a file ruff cannot parse (E999).
+    "E9",
+    # F: Pyflakes, e.g. undefined names (F821), unused imports (F401), unused variables (F841).
+    "F",
+# End of the selected rule families.
+]
