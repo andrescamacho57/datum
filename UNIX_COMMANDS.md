@@ -110,9 +110,34 @@ Reading `ls -l`: `drwxr-xr-x  5 root  staff  160 Jul  4  2024 .config`
 
 ---
 
+## Added Nov 4–6
+
+| Command | What it does |
+|---|---|
+| `sftp> ls 202611*` | On the SFTP server: list only November 2026 files (`*` = anything after) |
+| `sftp> pwd` | Show which folder you're in *on the server* |
+| `for z in *.zip; do unzip -l "$z"; done` | List what's inside every zip without extracting; the date column is the snapshot date |
+| `awk '{print length($0)}' FILE \| sort -n \| uniq -c` | Count lines by length: one length = clean fixed-width file |
+| `grep -c "LLC" FILE` | Count lines containing text (`-c` = count) |
+| `git check-ignore -v .env` | Ask git whether a file is ignored, and by which rule |
+| `printf '\n.env\n' >> .gitignore` | Append a line safely (`>>` appends; `>` would erase the file) |
+| `unset NAME` / `echo "${NAME:-not set}"` | Remove a variable from this shell / print it or a fallback |
+| `git log --oneline -5` | Last 5 commits, one line each |
+| `git status` | Also says "ahead of origin/main by N" (N unpushed commits) or "up to date" |
+| `curl -fsSL https://claude.ai/install.sh \| bash` | Install the Claude Code CLI (native installer) |
+| `claude --version` / `claude doctor` | Check the install / read-only health check |
+| `ruff check src` | Lint the Python in `src/` with the rules in `ruff.toml` |
+| `bash tests/hooks/test_block_secrets.sh` | Run a shell-script test |
+
+**Gotcha:** zsh globs are case-sensitive. `*.txt` does not match `FLRF.TXT`; use `*.(txt|TXT)` or list both.
+
+---
+
 ## Habits Worth Keeping
 
 - Look before you load: count, peek, measure, checksum
 - `unzip -l` before `unzip`; `df -h` before anything big
 - Delete large local copies once they're safely in Snowflake
 - When two tools disagree, look at the bytes (`od -c`)
+- Globs are case-sensitive: check that a loop actually covered every file
+- Long prompts go in a file (`docs/prompts/`), not the terminal paste buffer

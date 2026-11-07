@@ -271,3 +271,34 @@ Chip Huyen on evaluation (eval set first).
 - Write the pre-load checks as a script from day one, instead of running them by hand.
 - Order "newest" by the source's own date from the start, not by load time.
 - Install the CLI tools (snow) before the first load instead of using the web upload.
+
+---
+
+## "How do you work safely with an AI coding agent?"
+
+**Decision:** I give it rules, locks and an automatic inspector, and I keep review for the parts that matter.
+- **Rules** in CLAUDE.md: the exact commands that prove work runs.
+- **Locks:** deny rules and a pre-command hook block any access to secrets (API key, Snowflake key, dbt credentials).
+- **Inspector:** a Stop hook runs the linter and `dbt parse` before the agent can say "done." If they fail, it has to fix them.
+
+**Why:** rules are requests, hooks are code. Anything that must never fail goes in code. The checks are
+offline and free, so they can run on every turn. I *proved* `dbt parse` doesn't connect to Snowflake by
+running it against a fake account: it still succeeded.
+
+**Tradeoff:** the secrets hook matches text, so it's a guardrail, not a security boundary. I tested it
+with 13 cases and documented what it can't catch.
+
+---
+
+## "How do you link a lien to the right company when the record has no ID?"
+
+**Decision:** I link on normalized name plus ZIP code, and only show a lien as fact when the link is
+CONFIRMED (same name without suffixes and same ZIP, or the only company with that name). Anything weaker
+shows as "possible match: verify."
+
+**Why:** I inspected the state's lien files before building. They carry no Sunbiz document number, no tax ID
+and no amount. And accusing the wrong company of an IRS lien is the most expensive error the product can make.
+
+**Tradeoff:** coverage. Some real liens won't link, so I measure CONFIRMED coverage and hand-check
+20 links, with zero wrong allowed.
+

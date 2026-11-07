@@ -228,31 +228,65 @@ to `data/reports/` (git-ignored)
   ('Pool' / '<UNKNOWN>' / ''); the decision field `is_specific` stayed stable
 - Parking lot: search by street (the model reliably extracts "Race Track Rd")
 
+### Day 7 — 2026-11-04 to 11-06: Lien recon, Duval bulk feed, Claude Code harness
+
+**Duval (county liens)**
+- Phoned the Clerk; told to email public.info@duvalclerk.com. Sent the Chapter 119 request Nov 4, 2:13 PM
+- **Clerk replied in 51 minutes: the full bulk recording index (every public recorded document), free, over their secure FTP server.** Accepted Nov 5 and asked for the layout, update frequency, terms of use and account requirements
+- New decision d21 replaces d17: Duval liens come from the bulk feed, not hand collection
+
+**Federal tax liens (Sunbiz)**
+- Pulled the four quarterly files (snapshot **2026-10-03**) and the 2026-11-04 dailies; saved the official layout
+- Every line is exactly its documented length: filings 82, debtors 206, events 135, secured 206 (+CRLF in quarterly, LF in daily)
+- **20,444 liens, all active:** the quarterly filings file drops released liens. Releases arrive as `COR` events in the daily events file
+- **No document number, no FEIN, no dollar amount** anywhere → linking to companies must use name + ZIP5 (d19)
+- Debtors are businesses: 22,171 of 22,173 corporate; ~6,400 LLCs (LLC liens do land here). 28 old liens have impossible expiry years (2510, 9211)
+- Written up in `docs/access/sunbiz_flr.md`
+- My `wc`/`awk` loops skipped the quarterly files: zsh globs are case-sensitive, and `*.txt` doesn't match `FLRF.TXT`
+
+**Secrets and tooling**
+- `ANTHROPIC_API_KEY` moved from `~/.zshrc` to `~/datum/.env` (gitignored); `extract.py` loads it with python-dotenv
+- Installed the Claude Code CLI (native installer); ruff and pytest into `.venv`
+
+**Claude Code harness (built by Claude Code, reviewed here)**
+- `CLAUDE.md`: "Commands that prove work" section
+- Secrets locked: deny rules in `.claude/settings.json` + a PreToolUse hook that blocks any shell command mentioning `.env`, `profiles.yml`, `.snowflake` or `.p8` (13 test cases)
+- Stop hook: `ruff check src` + `dbt parse` before Claude may finish. Proved `dbt parse` never connects by running it against a fake account (`invalid.invalid`): it succeeded
+- `ruff.toml` pins lint rules to E4/E7/E9/F: ruff 0.17's default grew to 407 rules, including import-order style
+- Prompts now live in `docs/prompts/` (pasting long prompts into the terminal was unreliable)
+
+**Decisions:** d15 (MVP scope, launch-ready Nov 13), d16, d18, d19, d20, d21 approved; d17 replaced by d21.
+Use the Claude Code VS Code panel by default; the terminal only for CLI-only features.
+
+**Concepts learned:** hooks (PreToolUse, Stop), deny rules, guardrail vs boundary, pin tool defaults,
+proving a negative with a fake profile, snapshot vs event files, case-sensitive globs, secrets in `.env`
+
 ---
 
 ## Next
 
-**MVP sprint, re-planned Nov 2 at 3–5 hours a day: launch-ready Fri Nov 13** (full plan: `docs/mvp_plan_nov8.md`). Interviews start Nov 10.
+**Re-baselined Nov 6.** The re-plan decision comes Sat Nov 7: Nov 13 launch-ready has no buffer left.
 
 | Date | Ships |
 |---|---|
-| Mon Nov 2 | Duval Chapter 119 request sent; federal lien files pulled and inspected |
-| Tue Nov 3 | Claude Code harness (CLAUDE.md commands, skills, reviewer subagent, hooks) + DBPR/Duval recon |
-| Wed Nov 4 | #1 IRS federal tax liens: raw → staging → intermediate links, linkage eval |
-| Thu Nov 5 | #3 DBPR licenses (first Python class, `DbprFile`); lookup eval grown to 50 |
-| Fri Nov 6 | Flags mart + Postgres serving layer (pg_trgm) |
-| Sat Nov 7 | FastAPI web app |
-| Sun Nov 8 | #4 Report v1 with risk flags |
-| Mon Nov 9 | #2 Duval pilot for demo companies |
-| Nov 10–12 | Deploy + CI, break-it test, 5 hand-verified demo reports (around interviews) |
-| Fri Nov 13 | v0.1.0 launch-ready |
+| Sat Nov 7 | Federal liens: raw load (`docs/prompts/02_federal_liens_raw.md`), counts match, then staging |
+| Sun Nov 8 | Federal liens: link to companies (name + ZIP5, CONFIRMED only) + 20-link hand check |
+| Mon Nov 9 | DBPR licenses; Duval bulk access if the Clerk has set it up |
+| Nov 10–12 | Interviews start (problem-focused, demo not required); report v1 with lien flags |
+| Fri Nov 13 | Launch-ready target (at risk: Postgres serving, web app and deploy not started) |
 
-Later: name matching to 90% on 50 real inputs (Nov 12), dissolutions via the events file,
+Later: name matching to 90% on 50 real inputs, dissolutions via the corporate events file,
 move the snapshot date into raw at COPY time before the January 2027 snapshot.
 
 ---
 
 ## Parking Lot (deliberately not doing yet)
+
+- **Hook test gap:** `tests/hooks/test_offline_checks.sh` runs without `ruff.toml`, so nothing proves
+  unsorted imports pass. Fix: link `ruff.toml` into the temp project, add an unsorted-imports case
+- **Harness extras deferred:** skills (teach-mode, new-snowflake-script, close-out), CLAUDE.local.md,
+  pre-push hook protecting `main`
+- `FLRreadme.txt` (2013) on the Sunbiz server: not pulled yet
 
 - **Automate the daily pull in Python** (SFTP with `paramiko`, load with the Snowflake
   connector) instead of manual `sftp` + upload
@@ -267,6 +301,10 @@ move the snapshot date into raw at COPY time before the January 2027 snapshot.
 ---
 
 ## Open Questions
+
+- Does a federal lien `COD` (certificate of discharge) clear the lien, or release specific property only?
+- Exact per-record Sunbiz URL for a federal lien (for report citations)
+- Duval bulk feed: layout, update frequency, terms of use (asked Nov 5)
 
 - **Events file recon** (`doc/cor/events/yyyymmddce.txt`): needed to catch dissolutions
   between quarterly snapshots. Before launch.

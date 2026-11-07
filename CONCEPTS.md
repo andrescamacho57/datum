@@ -559,3 +559,62 @@ expose an error upstream — re-check the whole chain after any change.
 **Know when the eval set is too small to decide.** At 10 cases, each rule change flipped
 about one case each way. That's noise, not signal. Stop tuning; get more cases.
 
+---
+
+## The Claude Code Harness (Nov 6)
+
+**In one line:** rules and safety rails for the robot that writes code, so it can work with less babysitting.
+
+Think of Claude Code as a new hire:
+
+| Piece | New-hire version | Datum file |
+|---|---|---|
+| Onboarding note | "Here's how to prove your work runs. Never touch the safe." | `CLAUDE.md` → Commands that prove work |
+| Lock on the safe | Even if they forget the note, the door is locked | `.claude/settings.json` deny rules + `.claude/hooks/block-secrets.sh` |
+| Inspector at the door | Before they say "done," someone checks the work | `.claude/hooks/offline-checks.sh` (the Stop hook) |
+
+**Hook** = a script Claude Code runs automatically at a set moment.
+- **PreToolUse** runs *before* a command. Exit code 2 = block it.
+- **Stop** runs when Claude is about to *finish its turn*. Exit code 2 = "not done yet": Claude gets the
+  error and must fix it. A loop guard (`stop_hook_active`) stops it from forcing Claude forever.
+
+**Rules vs hooks:** CLAUDE.md is a *request* (usually followed). Hooks and deny rules are *code* (always run).
+Anything that must never fail (secrets, checks) belongs in code. Building Effective Agents: give the agent
+ground truth from its environment at each step instead of letting it grade its own work.
+
+**Guardrail vs boundary:** the secrets hook matches text, so `cat .e*` slips through. It's a guardrail
+(catches ordinary mistakes), not a boundary (stops a determined attacker). Real boundaries are OS-level
+(sandboxing, file permissions). Both are worth having; know which one you have.
+
+**Why the Stop hook runs `dbt parse`, not `dbt build`:** hooks run on every turn, so they must be cheap.
+`parse` checks the project fits together without touching Snowflake ($0). `build` would wake the warehouse
+and bill ~60 seconds of compute every time Claude stops.
+
+**Proving a negative:** to show `dbt parse` never connects, run it against a fake account
+(`invalid.invalid`). If it succeeds, it can't have connected: there was nothing to connect to.
+
+---
+
+## ruff and Pinning Tool Defaults
+
+**ruff** = a spell-checker for Python. It reads code without running it and flags mistakes:
+undefined names (F821), unused imports (F401), syntax errors (E9).
+
+**`ruff.toml`** = its settings: "only flag real bugs." ruff 0.17 raised its built-in default from about 60
+rules to 407, including import *order* (style). Without the file, the Stop hook would make Claude reshuffle
+imports in the middle of unrelated tasks.
+
+**Lesson:** don't depend on a tool's defaults; pin them in config. Defaults change between versions,
+the same reason you pin package versions.
+
+---
+
+## Snapshot Files vs Event Files (federal liens)
+
+- The **quarterly filings file is a snapshot of what's active**: all 20,444 rows are status A. Released
+  liens simply disappear from it.
+- The **events file is a log of changes**: releases (`COR`), discharges (`COD`), refilings.
+- Current state between snapshots = latest snapshot + new daily filings − daily releases.
+- Same pattern as the corporate files: snapshot (quarterly) + deltas (daily). Know which kind of file
+  you hold before you model it.
+
