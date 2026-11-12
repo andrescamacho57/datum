@@ -1,0 +1,103 @@
+# ---------------------------------------------------------------------------
+# _duval__models.yml: TESTS for the four Duval County staging models.
+#
+# Each test is a SQL query that looks for BAD rows: zero bad rows = PASS.
+#
+# New here: the `relationships` test. It checks that every value in one
+# model's column also exists in another model's column: "every party
+# belongs to a document we have". Rows that point at nothing are orphans.
+# ---------------------------------------------------------------------------
+
+version: 2
+# dbt's property-file format version. Always 2.
+
+models:
+
+  - name: stg_duval__documents
+    description: One row per recorded document per daily file. Trailer rows removed.
+
+    columns:
+
+      - name: instrument_number
+        data_tests:
+          - not_null
+          # Every document must have its instrument number: parties, links
+          # and any citation hang off it.
+
+      - name: recorded_date
+        data_tests:
+          - not_null
+          # Fails if a recording date didn't parse as MM/DD/YYYY.
+
+      - name: doc_type_code
+        data_tests:
+          - not_null
+          # A document with no type can't be counted as a lien, release...
+
+      - name: file_date
+        data_tests:
+          - not_null
+          # Fails if a file name stopped carrying its date at characters 2–9.
+
+  - name: stg_duval__parties
+    description: One row per party per document per daily file. Most names are individuals; nothing here goes past staging as is.
+
+    columns:
+
+      - name: instrument_number
+        data_tests:
+          - not_null
+          # Every party must say which document it is on.
+
+          - relationships:
+              arguments:
+                to: ref('stg_duval__documents')
+                field: instrument_number
+              config:
+                severity: warn
+          # Every party's document should be in the documents model.
+          # `to` + `field` name the column to look the value up in.
+          # warn, not error: the Clerk re-indexes old documents, so a party
+          # row can arrive for a document whose own row was in a file before
+          # 2025-01-01, which we didn't load. Orphans are counted, not fatal.
+
+      - name: party_role
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['FRM', 'TO']
+              config:
+                severity: warn
+          # FRM or TO. warn, because a blank role appears on a few rows in
+          # the Clerk's files; NULLs pass, anything else is reported.
+
+  - name: stg_duval__links
+    description: One row per document per daily file, with the earlier document it refers to, if any.
+
+    columns:
+
+      - name: instrument_number
+        data_tests:
+          - not_null
+          # Every link row must name the new document.
+
+          - relationships:
+              arguments:
+                to: ref('stg_duval__documents')
+                field: instrument_number
+              config:
+                severity: warn
+          # Every link's new document should be in the documents model.
+          # warn for the same re-indexing reason as parties. (The EARLIER
+          # document, linked_instrument_number, is not tested: it is often
+          # years older than anything we loaded.)
+
+  - name: stg_duval__doc_types
+    description: One row per document type code per daily file, with its family.
+
+    columns:
+
+      - name: doc_type_code
+        data_tests:
+          - not_null
+          # Every lookup row must have a code.
