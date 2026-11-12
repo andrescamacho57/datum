@@ -1,0 +1,40 @@
+# ---------------------------------------------------------------------------
+# _dbpr__sources.yml: tells dbt about the DBPR raw tables, which dbt did not
+# build. They were created and filled by snowflake/14_dbpr_raw.sql.
+#
+# DBPR = Florida Department of Business and Professional Regulation. This is
+# a second source system next to Sunbiz, so it gets its own file and its own
+# `name`. In SQL: source('dbpr', 'dbpr_licenses'), in double curly braces.
+# Where the files come from and what they hold: docs/access/dbpr.md.
+# ---------------------------------------------------------------------------
+
+version: 2
+# dbt's property-file format version. Always 2.
+
+sources:
+
+  - name: dbpr
+    # Our label for the source system: the FIRST argument of source().
+
+    database: datum
+    # The Snowflake database where the raw tables live.
+
+    schema: raw
+    # The schema inside it: datum.raw.
+
+    tables:
+
+      - name: dbpr_licenses
+        # datum.raw.dbpr_licenses.
+        description: >
+          One row per line of DBPR's construction licensee file
+          (CONSTRUCTIONLICENSE_1.csv), one text column per field, untouched.
+          The state leaves out null-and-void, delinquent and involuntarily
+          inactive licenses, so "not in this table" does not mean "never licensed".
+
+      - name: dbpr_discipline
+        # datum.raw.dbpr_discipline.
+        description: >
+          One row per data line of DBPR's licensed-contractor discipline files
+          (contractor_disc_lic_<fiscal year>.csv, five fiscal years), one text
+          column per field, untouched. Respondents are individuals.
