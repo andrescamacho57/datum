@@ -97,6 +97,15 @@ Quarterly files end lines with `\r\n` (CRLF), daily files with `\n` (LF), same a
 7. **Data quality:** 28 active liens (from 2008–2012 filings) have impossible expiration years (2510, 9211…) and a few assessment years look mistyped (8200, 9201). Dates still parse as MMDDYYYY, so staging should test for a sane year range (`warn`, not `error`).
 8. Filing years in the active snapshot: mostly 2017–2026, a long tail back to 2007 (refiled liens).
 
+## Verified after loading (Nov 12, 2026, leg A1)
+
+Loaded by `snowflake/13_federal_liens_raw.sql`; all eight per-file row counts and line lengths match the table above.
+
+9. **The status on a debtor or secured-party row is not reliable.** All 20,486 filings rows (snapshot + daily) say `A`, but 5 debtor rows and 4 secured-party rows on those same liens say `T`, `L` or `C`. Read a lien's status from the filings file only.
+10. **Undocumented status `C`:** one debtor row and one secured-party row in the snapshot hold `C` at position 206. The layout lists only A / L / T. Meaning unknown; not guessed. The staging test on that column is `warn`.
+11. **One active lien has a cancellation date** (the other 20,485 hold `00000000`). What a cancellation date on an active lien means is open.
+12. Staging keeps 22,171 of 22,173 snapshot debtors (2 personal-format rows stay in raw) and all 46 daily debtors.
+
 ## Implications for the build
 - Raw: one table per file kind (decision d9), loaded with the existing `fixed_width` format.
 - Staging: cut by the positions above; parse dates with `TRY_TO_DATE(x, 'MMDDYYYY')`; keep only debtors with name_format `C` (Datum is businesses only).
