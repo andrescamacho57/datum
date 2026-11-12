@@ -267,13 +267,15 @@ proving a negative with a fake profile, snapshot vs event files, case-sensitive 
 
 **Re-baselined Nov 6.** The re-plan decision comes Sat Nov 7: Nov 13 launch-ready has no buffer left.
 
+**Nov 11:** dates are targets, not deadlines. When work slips, the dates move and the scope stays; nothing is cut to hit a date.
+
 | Date | Ships |
 |---|---|
 | Sat Nov 7 | Federal liens: raw load (`docs/prompts/02_federal_liens_raw.md`), counts match, then staging |
 | Sun Nov 8 | Federal liens: link to companies (name + ZIP5, CONFIRMED only) + 20-link hand check |
 | Mon Nov 9 | DBPR licenses; Duval bulk access if the Clerk has set it up |
 | Nov 10–12 | Interviews start (problem-focused, demo not required); report v1 with lien flags |
-| Fri Nov 13 | Launch-ready target (at risk: Postgres serving, web app and deploy not started) |
+| Launch-ready | Date moves as needed (Postgres serving, web app and deploy not started yet) |
 
 Later: name matching to 90% on 50 real inputs, dissolutions via the corporate events file,
 move the snapshot date into raw at COPY time before the January 2027 snapshot.

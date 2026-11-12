@@ -1,13 +1,15 @@
-# Datum MVP Sprint: Oct 30 – Nov 8, 2026
+# Datum MVP Sprint (started Oct 30, 2026)
 
 **Owner:** Andres Camacho · **Written:** Oct 30, 2026 · **Status:** proposed, waiting on your approval of §2
 **Lives at:** `~/datum/docs/mvp_plan_nov8.md` (source of truth), copied to the Datum project. Timeline mirrored on Mission Control.
 
-> **The goal in one sentence:** by **Sunday, Nov 8**, a private, mobile-friendly web app where a contractor types what they know about a commercial client and gets a one-page report: who the company legally is, plus **risk flags from four public sources** (Sunbiz company record, IRS federal tax liens, DBPR contractor licenses and discipline, Duval recorded liens as a pilot), with every line linked to its official record. Interviews start **Monday, Nov 10**, in Jacksonville.
+> **Dates are targets, not deadlines (decided Nov 11).** When work slips, the date moves and the scope stays. Nothing in this plan is cut to hit a date. The dates below are the original targets, kept for history; the current timeline lives on Mission Control.
+
+> **The goal in one sentence:** a private, mobile-friendly web app where a contractor types what they know about a commercial client and gets a one-page report: who the company legally is, plus **risk flags from four public sources** (Sunbiz company record, IRS federal tax liens, DBPR contractor licenses and discipline, Duval recorded liens as a pilot), with every line linked to its official record. Interviews started **Monday, Nov 10**, in Jacksonville.
 
 ---
 
-## Re-plan, Mon Nov 2: 3–5 hours a day, launch-ready Fri Nov 13
+## Re-plan, Mon Nov 2: 3–5 hours a day (original launch-ready target Fri Nov 13; extends as needed)
 
 Oct 30 – Nov 1 were off, and 3–5 focused hours a day is the realistic pace. **Same scope, same order, dates moved.** Interviews still start Mon Nov 10. Those first conversations are about the contractor's problem and don't need the demo; the demo joins once it's ready.
 
@@ -22,9 +24,9 @@ Oct 30 – Nov 1 were off, and 3–5 focused hours a day is the realistic pace. 
 | Sun Nov 8 | 3–5 | Day 7 | #4 Report v1 with flags |
 | Mon Nov 9 | 2–3 | Day 4 | #2 Duval pilot for the demo companies (hand-collected) |
 | Tue Nov 10 – Thu Nov 12 | evenings | Days 8–9 | Deploy + CI; break-it test; 5 hand-verified demo reports (around interviews) |
-| **Fri Nov 13** | | Day 10 | **v0.1.0 launch-ready** |
+| **Fri Nov 13 (target; extends as needed)** | | Day 10 | **v0.1.0 launch-ready** |
 
-**Cut order is unchanged (§9).** Cut first if the pace slips: the overnight loop, the Claude PR review, DBPR discipline. The Duval pilot moved to the end because its records request needs time to come back; the hand-collected pilot doesn't depend on it.
+**If the pace slips, the dates move (§9).** Nothing is cut to hit a date. The Duval pilot moved to the end because its records request needs time to come back; the hand-collected pilot doesn't depend on it.
 
 ---
 
@@ -48,8 +50,8 @@ Oct 30 – Nov 1 were off, and 3–5 focused hours a day is the realistic pace. 
   - **Claude Code** writes and runs the code against checks.
   - **This chat** owns architecture, tier-1 reviews, teaching, decisions, dashboards and close-outs.
   - When you want a review, paste Claude Code's summary (or the diff) here.
-- **If a day slips,** the next day starts by finishing it. Don't skip ahead. If you're a full day behind by Wed Nov 4, apply the cut order in §9.
-- **Assumes about 5 focused hours a day** 🔴 (assumed). With less time, the cut order decides what moves.
+- **If a day slips,** the next day starts by finishing it. Don't skip ahead. If you're behind, extend the remaining dates by the slip and update Mission Control.
+- **Assumes about 5 focused hours a day** 🔴 (assumed). With less time, the dates move; the scope and the order of work stay.
 
 ---
 
@@ -87,7 +89,7 @@ The spec comes first, so Claude Code always has a target ("spec-driven developme
 
 | # | Decision | Why | Revisit |
 |---|---|---|---|
-| d15 | **MVP by Nov 8:** web app + Sunbiz + federal tax liens + DBPR licenses/discipline + Duval lien pilot + risk flags with citations. Interviews start Nov 10 | A Sunbiz-only report isn't worth a contractor's time; collating several sources is the product. You're in NYC until Nov 9, so build time is now | Nov 8 close-out |
+| d15 | **MVP (original target Nov 8; dates extend as needed since Nov 11):** web app + Sunbiz + federal tax liens + DBPR licenses/discipline + Duval lien pilot + risk flags with citations. Interviews start Nov 10 | A Sunbiz-only report isn't worth a contractor's time; collating several sources is the product. You're in NYC until Nov 9, so build time is now | Nov 8 close-out |
 | d16 | **Risk flags from public records, not a numeric score or bureau data, in v1** | (1) Business FICO (FICO SBSS) blends the owner's personal credit, which is FCRA (Fair Credit Reporting Act) territory. (2) Bureau reports cost $40–200+ each ✅ (research log). (3) A score needs outcome data (who actually didn't pay), and we have none. (4) It breaks your first commitment: "No black-box score" | After 20 interviews, or once outcome data exists |
 | d17 | **Duval liens: a human-collected pilot plus a Chapter 119 (Florida public records law) request for the full index. No automated retriever until counsel reviews the click-through gate** | The recon found no bulk file and no API. Automating the disclaimer gate is legally unresolved (`docs/access/duval-official-records.md`). The approved scope already says "one county's liens, piloted with human review" | When the Clerk answers or counsel weighs in |
 | d21 | **Replaces d17 (approved Nov 5). Duval liens come from the Clerk's free bulk recording index over secure FTP. Individuals' records stay in raw; staging keeps only parties that match a company** | The Clerk offered the full index at no cost (email, Nov 4): the official channel, complete, and no click-through gate | If their terms restrict commercial use, or access isn't live by Nov 9 (then hand-collect for the demo) |
@@ -522,7 +524,7 @@ This puts the roadmap chat's [Agentic Engineering Playbook](https://claude.ai/ar
    - $50 gift cards ready.
 5. **[Here]** Close-out + dashboards.
 
-**Done when:** v0.1.0 is tagged, **5 interviews are on the calendar for Nov 10–14**, and the study guide is updated.
+**Done when:** v0.1.0 is tagged, **5 interviews are on the calendar**, and the study guide is updated.
 
 ---
 
@@ -539,29 +541,24 @@ You can't stand at supply-house counters until Nov 10, so this week books the in
   - Cold emails include your mailing address and an opt-out line 🟡 (CAN-SPAM, the U.S. commercial email law).
   - Log every touch in `research_log.md` §6.
 - **Mon Nov 2:** call Winsupply of River City and arrange the counter visit for Tue Nov 10 or Thu Nov 12.
-- **Target:** **5 interviews booked by Nov 8** (new milestone D7).
+- **Target:** **5 interviews booked** (milestone D7; original target Nov 8, moves if needed).
 
 ---
 
-## 9. Risks and cut order
+## 9. Risks, and what happens when work slips
 
 | Risk | Likelihood | Fallback |
 |---|---|---|
 | Duval has no CSV export | Medium | Hand-collected pilot seed for demo companies plus 20 recent liens (still human review, per scope) |
 | Federal lien debtor file has no document number | Medium | Name + ZIP linking with the CONFIRMED rule; expect lower coverage, keep precision |
 | Postgres too big for the Railway plan | Low–medium | Slim columns; or Supabase Pro (8 GB) 🟡 |
-| A day takes 2× longer | High | Cut order below |
+| A day takes 2× longer | High | Extend the dates; keep the scope (decided Nov 11) |
 | Wrong company flagged | Low with d19 | Linkage eval gate (0 wrong among CONFIRMED) + hand-verified demo reports |
 | Legal: showing Duval data or report wording | Medium | Pilot label, facts-only wording, hand verification; lawyer before any public launch (X2) |
 
-**Cut order** (first to go → last):
-1. Unattended loop
-2. Claude PR review action
-3. DBPR discipline (keep license status)
-4. DBAs stretch
-5. Duval bulk export (keep the manual pilot)
+**When work slips (decided Nov 11):** extend the dates. Scope and order of work stay the same. The web app gets built because a tangible product gives contractors a taste of Datum and gives us a real starting point to iterate on. Order can still change for correctness, which isn't a cut: for example, the linking rule is fixed before lien flags appear in the report.
 
-**Never cut:**
+**Always required, whatever the date:**
 - provenance on every fact
 - private access
 - hand-verified demo reports
@@ -587,7 +584,7 @@ You can't stand at supply-house counters until Nov 10, so this week books the in
 
 - **Week 3 (Oct 26–Nov 1):** the flyer and counter visit move to Nov 10 (you're in NYC). Federal tax liens, DBPR and the 50-case eval come in.
 - **Week 4 (Nov 2–8):** "Entity model" becomes **MVP sprint**: Duval pilot, Postgres serving, web app, report, deploy.
-- **Week 5 (Nov 9–15):** interviews start; matching to 90% keeps its Nov 12 target.
+- **Week 5 (Nov 9–15):** interviews start; matching to 90% (original target Nov 12; moves if needed).
 - **Weeks 6–7:**
   - Report v0 and the app skeleton are pulled forward into this sprint.
   - Week 6 keeps the Airflow daily load and the AI side-by-side.
