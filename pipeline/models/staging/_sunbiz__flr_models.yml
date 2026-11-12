@@ -1,0 +1,147 @@
+# ---------------------------------------------------------------------------
+# _sunbiz__flr_models.yml: TESTS for the four federal tax lien staging models.
+#
+# Each test is a SQL query that looks for BAD rows: zero bad rows = PASS.
+# These tests guard the parsing. If a field position were off by one, the
+# status column would hold something other than A/L/T, or the document number
+# would come out blank, and the test would say so.
+#
+# Two more tests live in pipeline/tests/ as their own .sql files ("singular"
+# tests), because they check a rule the built-in tests can't express:
+#   - assert_flr_filings_unique_per_file.sql   (one row per lien per file)
+#   - warn_flr_filings_year_out_of_range.sql   (assessment/expiration year 1990–2040)
+# ---------------------------------------------------------------------------
+
+version: 2
+# dbt's property-file format version. Always 2.
+
+models:
+# A list of models. Each item names one model and the checks on its columns.
+
+  - name: stg_sunbiz__flr_filings
+    # Must match the file name stg_sunbiz__flr_filings.sql, without the .sql.
+    description: One row per federal lien per state file (quarterly snapshot or daily), cut into columns.
+
+    columns:
+
+      - name: filing_doc_number
+        data_tests:
+          - not_null
+          # Fails if any lien has no document number. Everything else
+          # (debtors, events, citations) hangs off this number.
+          # `unique` is NOT here on purpose: the same lien can appear in the
+          # snapshot and in a daily file. Uniqueness per source file is
+          # checked by pipeline/tests/assert_flr_filings_unique_per_file.sql.
+
+      - name: filing_status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['A', 'L', 'T']
+          # Fails if the status is anything but A (active), L (lapsed) or
+          # T (terminated). An unexpected value usually means the positions
+          # shifted, so this also guards the parsing.
+
+      - name: filing_date
+        data_tests:
+          - not_null
+          # Fails if a filing date didn't parse as MMDDYYYY. The report cites
+          # this date, so a lien without one can't be shown.
+
+      - name: published_on
+        data_tests:
+          - not_null
+          # Fails if a daily file's name didn't start with a date.
+
+  - name: stg_sunbiz__flr_debtors
+    description: One row per CORPORATE debtor per lien per state file. Personal-format rows are filtered out.
+
+    columns:
+
+      - name: filing_doc_number
+        data_tests:
+          - not_null
+          # Every debtor must say which lien it belongs to.
+
+      - name: debtor_name
+        data_tests:
+          - not_null
+          # A debtor row with no name can't be linked to a company.
+
+      - name: name_format
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['C']
+          # Proves the businesses-only filter works: only C (corporate) rows
+          # may leave this model. If a P (personal) row ever got through,
+          # this fails before anything downstream can use it.
+
+      - name: filing_status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['A', 'L', 'T']
+              config:
+                severity: warn
+          # Character 206 is the LAST position of the line, so this is the
+          # most sensitive check that the whole 206-character cut lines up.
+          # warn, not error: on the 2026-10-03 snapshot ONE debtor row holds
+          # 'C', a value the state's layout doesn't document. The line is the
+          # right length and every other field lines up, so it's the state's
+          # data, not our cut. We report it and don't guess what C means.
+          # Also found: 5 debtor rows say T, L or C while their lien's row in
+          # the filings file says A. The copy of the status on a party row
+          # can be stale, so the lien's status is ALWAYS read from
+          # stg_sunbiz__flr_filings, never from here.
+
+  - name: stg_sunbiz__flr_events
+    description: One row per action of an event (release, discharge, amendment) on a lien, per state file.
+
+    columns:
+
+      - name: filing_doc_number
+        data_tests:
+          - not_null
+          # Every event must say which lien it acts on.
+
+      - name: event_doc_number
+        data_tests:
+          - not_null
+          # Every event has its own document number.
+
+      - name: action_code
+        data_tests:
+          - not_null
+          # The code (COR, COD...) is what Phase B reads to decide whether a
+          # lien was released. Blank would make that rule silently wrong.
+
+      - name: event_filing_date
+        data_tests:
+          - not_null:
+              config:
+                severity: warn
+          # "Was the release filed AFTER the lien?" needs this date. warn
+          # (report, don't block) because the quarterly events file is 20
+          # years of history and an old unparseable date shouldn't stop a build.
+
+  - name: stg_sunbiz__flr_secured
+    description: One row per secured party (creditor, almost always the IRS) per lien per state file.
+
+    columns:
+
+      - name: filing_doc_number
+        data_tests:
+          - not_null
+          # Every secured party must say which lien it belongs to.
+
+      - name: filing_status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['A', 'L', 'T']
+              config:
+                severity: warn
+          # Same end-of-line position check as the debtors model, and warn
+          # for the same reason: one snapshot row holds the undocumented 'C'.
+          # Read a lien's status from stg_sunbiz__flr_filings, not from here.
