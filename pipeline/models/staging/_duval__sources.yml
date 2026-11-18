@@ -1,0 +1,55 @@
+# ---------------------------------------------------------------------------
+# _duval__sources.yml: tells dbt about the Duval County raw tables, which dbt
+# did not build. They were created and filled by
+# snowflake/15_duval_recording_index_raw.sql.
+#
+# Source system: the Duval County Clerk's daily recording index (every
+# document recorded in the county's Official Records). In SQL:
+# source('duval', 'duval_documents'), in double curly braces.
+# Layouts: docs/access/duval-recording-index.md.
+#
+# Not for display: the Clerk has not yet said whether terms of use apply.
+# Nothing from these tables is shown outside this repo until Andres says so.
+# ---------------------------------------------------------------------------
+
+version: 2
+# dbt's property-file format version. Always 2.
+
+sources:
+
+  - name: duval
+    # Our label for the source system: the FIRST argument of source().
+
+    database: datum
+    # The Snowflake database where the raw tables live.
+
+    schema: raw
+    # The schema inside it: datum.raw.
+
+    tables:
+
+      - name: duval_documents
+        # datum.raw.duval_documents.
+        description: >
+          One row per line of a daily documents file (d files): one recorded
+          document, plus one EOF trailer row per file. Untouched.
+
+      - name: duval_parties
+        # datum.raw.duval_parties.
+        description: >
+          One row per line of a daily parties file (p files): one party on one
+          document, plus one EOF trailer row per file. Untouched. Most parties
+          are individuals.
+
+      - name: duval_links
+        # datum.raw.duval_links.
+        description: >
+          One row per line of a daily links file (l files): a document and the
+          earlier document it refers to (NONE when it refers to nothing), plus
+          one EOF trailer row per file. Untouched.
+
+      - name: duval_doc_types
+        # datum.raw.duval_doc_types.
+        description: >
+          One row per line of a daily document-type lookup file (m files):
+          type code and its family, plus one EOF trailer row per file. Untouched.
