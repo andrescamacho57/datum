@@ -38,7 +38,7 @@ except ModuleNotFoundError:                 # run as a script: Python puts src/d
 SOURCE = "dbpr"                                            # this source's name in the fetch manifest
 REPO_ROOT = Path(__file__).resolve().parents[2]            # this file is src/datum/dbpr.py → go up 2 folders to ~/datum
 RAW_DIR = REPO_ROOT / "data" / "raw" / "dbpr"              # where downloads land; data/ is gitignored
-USER_AGENT = "datum-dbpr/0.1 (Andrescamacho57@gmail.com)"  # tells the state who is downloading and how to reach us
+USER_AGENT = "datum-dbpr/0.1 (andres@datumriskservices.com)"  # tells the state who is downloading and how to reach us
 TIMEOUT_SECONDS = 120                                      # give up on a stalled download instead of hanging forever
 PAUSE_SECONDS = 2                                          # wait between files: sequential and unhurried
 ENCODING = "latin-1"                                       # one byte = one character, so no byte can fail to decode
