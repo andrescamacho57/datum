@@ -12,7 +12,9 @@ from pathlib import Path                    # file paths
 
 import pytest                               # the test runner; pytest.raises checks that an error IS raised
 
-from datum.dbpr import DISCIPLINE_FILES, DISCIPLINE_HEADER, LICENSE_FILE, DbprFile, DbprValidationError, backfill_manifest
+from datum.dbpr import (
+    DISCIPLINE_FILES, DISCIPLINE_HEADER, LICENSE_FILE, DbprFile, DbprValidationError, backfill_manifest, looks_like_header,
+)
 from datum.manifest import read_manifest, sha256_of
 
 FIXTURES = Path(__file__).parent / "fixtures" / "dbpr"     # tests/fixtures/dbpr/
@@ -58,6 +60,20 @@ def test_changed_header_is_rejected():
     # If the state renames or moves a column, loading by position would put data in the wrong column.
     with pytest.raises(DbprValidationError, match="header changed"):
         discipline_spec("contractor_disc_lic_bad_header.csv").validate(FIXTURES)
+
+
+def test_license_file_that_starts_with_a_header_row_is_rejected():
+    # Ruling R25. The license file has no header. If the state ever adds one, every column count
+    # still fits (22 labels), so only this check stops the labels loading as one bad data row.
+    with pytest.raises(DbprValidationError, match="row 1 looks like a header row"):
+        license_spec("construction_license_with_header.csv").validate(FIXTURES)
+
+
+def test_a_real_data_row_never_looks_like_a_header():
+    # The rule: a header is all labels, so every filled cell has a letter. Data always has all-digit cells.
+    assert looks_like_header(["Board Number", "Occupation Code", "Address Line 1", ""]) is True
+    assert looks_like_header(["06", "QB", "ACME BUILDERS INC", "", "32256", "26"]) is False   # 06, 32256 and 26 have no letter
+    assert looks_like_header(["", "", ""]) is False                # an empty row is not a header either
 
 
 def test_too_few_rows_is_rejected():

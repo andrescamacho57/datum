@@ -8,7 +8,8 @@ What this module does, in order:
     1. download: one HTTPS request per file, saved under data/raw/dbpr/ (gitignored). Every
        downloaded file gets one row in the fetch manifest (manifest.py, ruling R23).
     2. validate: BEFORE anything is loaded into Snowflake, check the file is the shape we
-       expect: the right number of columns on every row, enough rows, and a complete
+       expect: the right header (or NO header, for the license file, which must start
+       with data), the right number of columns on every row, enough rows, and a complete
        last line. A file that fails is reported loudly and must not be loaded.
 
 Run from ~/datum with the project's virtual environment active:
@@ -48,6 +49,18 @@ DISCIPLINE_BASE = "https://www2.myfloridalicense.com/pro/cilb/reports/"         
 
 class DbprValidationError(Exception):
     """Raised when a downloaded file is not the shape we expect. The file must not be loaded."""
+
+
+def looks_like_header(row: list[str]) -> bool:
+    """True when a row reads like column names, not data: every filled cell contains a letter.
+
+    A data row always has cells with no letter at all (the board number 06, a ZIP code, a
+    county code, a date), so it can never pass this. A header row is all labels ("Board
+    Number", "Address Line 1"), so it always does. Checked against all 263,337 real rows on
+    2026-11-18: none looks like a header.
+    """
+    filled = [cell.strip() for cell in row if cell.strip()]        # ignore empty cells: they say nothing either way
+    return bool(filled) and all(any(ch.isalpha() for ch in cell) for cell in filled)   # at least one cell, and a letter in each
 
 
 @dataclass(frozen=True)                     # frozen = fields can't be changed after creation: a spec is a fact, not a variable
@@ -107,6 +120,11 @@ class DbprFile:
                 if found != self.expected_header:                  # the state changed, added or dropped a column
                     raise DbprValidationError(f"{self.file_name}: header changed.\n  expected {self.expected_header}\n  found    {found}")
                 continue                                           # the header isn't data: don't count it
+            if row_number == 1 and self.expected_header is None and looks_like_header(row):   # a file that should start with data starts with labels (ruling R25)
+                raise DbprValidationError(
+                    f"{self.file_name}: row 1 looks like a header row, but this file is expected to have none. "
+                    "Loading it would put the column names into the table as one bad data row."
+                )
             if len(row) != self.expected_columns:                  # a row with too few or too many fields
                 raise DbprValidationError(f"{self.file_name}: row {row_number} has {len(row)} columns, expected {self.expected_columns}")
             data_rows += 1                                         # a healthy data row
