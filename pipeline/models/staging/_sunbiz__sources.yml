@@ -72,3 +72,28 @@ sources:
           Includes inactive companies (9.17M I vs 3.82M A on the first load).
         # `>` lets a YAML value continue over several lines; they're joined
         # into one sentence with spaces.
+
+      # --- Federal tax lien (FLR) files, loaded by snowflake/13_federal_liens_raw.sql ---
+      # Four more tables from the same source system (same SFTP server, same
+      # fixed-width style), so they join this list instead of starting a new
+      # source. Each holds the quarterly snapshot (2026-10-03) AND the daily
+      # files, told apart by source_file. Layouts: docs/access/sunbiz_flr.md.
+
+      - name: sunbiz_flr_filings
+        # datum.raw.sunbiz_flr_filings. In SQL: source('sunbiz', 'sunbiz_flr_filings').
+        description: One row per 82-character line of a federal lien filings file (one lien), untouched.
+
+      - name: sunbiz_flr_debtors
+        # datum.raw.sunbiz_flr_debtors.
+        description: >
+          One row per 206-character line of a federal lien debtors file (one
+          debtor on one lien), untouched. Includes the few rows marked personal;
+          staging keeps corporate rows only.
+
+      - name: sunbiz_flr_events
+        # datum.raw.sunbiz_flr_events.
+        description: One row per 135-character line of a federal lien events file (one action on a lien, such as a release), untouched.
+
+      - name: sunbiz_flr_secured
+        # datum.raw.sunbiz_flr_secured.
+        description: One row per 206-character line of a federal lien secured-party file (one creditor on one lien), untouched.
