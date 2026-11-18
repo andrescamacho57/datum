@@ -180,15 +180,30 @@ def connect() -> paramiko.SSHClient:
     return client
 
 
-def list_remote(sftp: paramiko.SFTPClient) -> list[tuple[FlrDailyFile, int]]:
-    """List each of the four daily folders once and keep the in-scope files, with their sizes in bytes."""
-    in_scope = []                                                  # (description, size) pairs
+def list_all(sftp: paramiko.SFTPClient) -> list[tuple[FlrDailyFile, int]]:
+    """List each of the four daily folders once: every daily lien file of any date, with its size in bytes."""
+    found = []                                                     # (description, size) pairs
     for kind in KINDS:                                             # four folders, four listing requests
         for entry in sftp.listdir_attr(kind.remote_dir):           # one request returns every name and size in the folder
             daily_file = FlrDailyFile.from_name(entry.filename)    # None for year folders and anything else
-            if daily_file is not None and daily_file.kind is kind and daily_file.file_date >= SNAPSHOT_DATE:
-                in_scope.append((daily_file, entry.st_size or 0))
-    return sorted(in_scope, key=lambda pair: (pair[0].file_date, pair[0].name))   # oldest first
+            if daily_file is not None and daily_file.kind is kind: # a lien daily of this folder's own kind
+                found.append((daily_file, entry.st_size or 0))
+    return sorted(found, key=lambda pair: (pair[0].file_date, pair[0].name))   # oldest first
+
+
+def list_remote(sftp: paramiko.SFTPClient) -> list[tuple[FlrDailyFile, int]]:
+    """The files from list_all() that are in scope: dated on or after the snapshot."""
+    return [(daily_file, size) for daily_file, size in list_all(sftp) if daily_file.file_date >= SNAPSHOT_DATE]
+
+
+def last_dates_before_snapshot(listing: list[tuple[FlrDailyFile, int]], how_many: int = 3) -> list[date]:
+    """The newest few file dates BEFORE the snapshot date, oldest first.
+
+    Why look: the snapshot is only complete if nothing was published between its last
+    record and its own date. Seeing the last dailies before it shows where that edge is.
+    """
+    before = sorted({daily_file.file_date for daily_file, _ in listing if daily_file.file_date < SNAPSHOT_DATE})   # a set drops repeats across kinds
+    return before[-how_many:]                                      # the last few; fewer if the folder holds fewer
 
 
 def download_missing(sftp: paramiko.SFTPClient, raw_dir: Path = RAW_DIR, manifest_path: Path = MANIFEST_PATH) -> tuple[int, int]:
@@ -276,10 +291,13 @@ def main(argv: list[str]) -> int:
         try:
             sftp = client.open_sftp()                              # start the file-transfer channel on it
             if command == "probe":                                 # look, don't fetch
-                listing = list_remote(sftp)
+                everything = list_all(sftp)                        # four listing requests, nothing downloaded
+                listing = [pair for pair in everything if pair[0].file_date >= SNAPSHOT_DATE]
                 print(f"connected over SFTP; {len(listing)} in-scope daily files, {sum(size for _, size in listing)} bytes")
                 if listing:
                     print(f"first {listing[0][0].name}, last {listing[-1][0].name}")
+                print(f"last file dates before the {SNAPSHOT_DATE} snapshot: "
+                      + (", ".join(day.isoformat() for day in last_dates_before_snapshot(everything)) or "none in these folders"))
                 return 0
             downloaded, skipped = download_missing(sftp)
             print(f"downloaded {downloaded} files, skipped {skipped} already on disk")

@@ -17,7 +17,7 @@ import pytest                               # the test runner; pytest.raises che
 from datum.manifest import read_manifest
 from datum.sunbiz_flr import (
     KINDS, SNAPSHOT_DATE, FlrDailyFile, FlrInspectionError, backfill_manifest, download_missing,
-    inspect_all, inspect_file, local_files, missing_business_days,
+    inspect_all, inspect_file, last_dates_before_snapshot, local_files, missing_business_days,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "sunbiz_flr"   # tests/fixtures/sunbiz_flr/
@@ -96,6 +96,14 @@ def test_inspect_all_prints_the_table_and_quarantines_bad_files(tmp_path, capsys
     assert "OK    3 files on 1 days" in printed
     assert "2026-11-05, 2026-11-06" in printed and "2026-11-04," not in printed   # quiet business days are listed; the day with files isn't
     assert sorted(p.name for p in (tmp_path / "rejected").iterdir()) == ["20261105flrf.txt", "20261106flrf.txt"]
+
+
+def test_last_dates_before_snapshot_shows_the_edge():
+    # Files of two kinds on the same day count once; dates on or after the snapshot are not "before".
+    names = ("20260921flrf.txt", "20260923flrf.txt", "20260923flre.txt", "20261001flrf.txt", "20261001flre.txt", "20261019flrf.txt")
+    listing = [(FlrDailyFile.from_name(name), 100) for name in names]
+    assert last_dates_before_snapshot(listing, how_many=2) == [date(2026, 9, 23), date(2026, 10, 1)]
+    assert last_dates_before_snapshot(listing[-1:]) == []                 # nothing before the snapshot in this listing
 
 
 class StandInServer:
