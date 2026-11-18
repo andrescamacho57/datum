@@ -10,6 +10,10 @@
 #                rulings say, before any real data is involved. The company
 #                and party names in them are invented.
 #
+# More checks are single-file tests in pipeline/tests/:
+#   assert_no_name_columns_past_staging.sql
+#   assert_no_confirmed_link_before_company_filed.sql
+#   assert_link_rows_are_consistent.sql
 # ---------------------------------------------------------------------------
 
 version: 2
@@ -34,6 +38,65 @@ models:
       - name: match_key_company_count
         data_tests:
           - not_null
+
+  - name: int_federal_lien_links
+    description: One row per corporate federal-lien debtor per candidate company, with the link outcome. No names.
+
+    columns: &link_columns
+    # &link_columns names this block (a YAML "anchor"). The three models
+    # below reuse it with *link_columns, so all four link models get exactly
+    # the same tests without the list being typed four times.
+
+      - name: source_record_id
+        data_tests:
+          - not_null
+
+      - name: party_seq
+        data_tests:
+          - not_null
+
+      - name: link_status
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['CONFIRMED', 'AMBIGUOUS', 'NO_MATCH']
+          # Three outcomes, never a yes/no (CLAUDE.md rule 3).
+
+      - name: matched_on
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['name_zip', 'unique_name']
+          # NULL (not CONFIRMED) is allowed; any other text is a bug.
+
+      - name: document_number
+        data_tests:
+          - not_null:
+              config:
+                where: "link_status <> 'NO_MATCH'"
+          # `where` narrows the rows the test looks at. Every CONFIRMED or
+          # AMBIGUOUS row must name a company.
+
+          - relationships:
+              arguments:
+                to: ref('entity_lookup')
+                field: document_number
+              config:
+                where: "link_status <> 'NO_MATCH'"
+          # ... and that company must exist in entity_lookup.
+
+  - name: int_dbpr_license_links
+    description: One row per DBPR contractor license with a business name, or QB business record, per candidate company. No names.
+    columns: *link_columns
+
+  - name: int_dbpr_discipline_links
+    description: One row per DBPR discipline complaint per candidate company, reached through the license. Built, not displayed (R12). No names.
+    columns: *link_columns
+
+  - name: int_duval_party_links
+    description: One row per TO-side business party on an allowlisted Duval lien, warrant or judgment per candidate company. Not for display (R20). No names.
+    columns: *link_columns
 
 
 unit_tests:
@@ -60,3 +123,103 @@ unit_tests:
           - {document_number: C4, match_key: 'SMITH M D',     zip5: null,    match_key_company_count: 1}   # P A stripped; a blank ZIP is NULL
           - {document_number: C5, match_key: 'INC',           zip5: null,    match_key_company_count: 1}   # a name that IS a suffix is left alone; a foreign code is not a ZIP
           - {document_number: C6, match_key: 'LINCOLN GROUP', zip5: null,    match_key_company_count: 1}   # the INC inside LINCOLN is not a suffix
+
+  - name: lien_links_follow_rulings_r1_and_r2
+    description: >
+      Nine debtors, one per branch of the linking rule: name and ZIP, ZIP
+      differs, older than the company, two companies at one ZIP, unique name,
+      no entity word, several companies, no company, unknown filing date.
+    model: int_federal_lien_links
+    given:
+      - input: ref('stg_sunbiz__flr_filings')
+        rows:
+          - {filing_doc_number: L1, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: L2, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: L3, filing_date: 2015-01-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: L4, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: L5, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: L6, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: L7, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: L8, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: L9, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+      - input: ref('stg_sunbiz__flr_debtors')
+        rows:
+          - {filing_doc_number: L1, debtor_seq: 1, debtor_name: 'Acme, L.L.C.', zip5: '32256', published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: L2, debtor_seq: 1, debtor_name: 'BOLT INC',     zip5: '32256', published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: L3, debtor_seq: 1, debtor_name: 'CEDAR CORP',   zip5: '32256', published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: L4, debtor_seq: 1, debtor_name: 'DELTA LLC',    zip5: '32256', published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: L5, debtor_seq: 1, debtor_name: 'ECHO LLC',     zip5: null,    published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: L6, debtor_seq: 1, debtor_name: 'FOXTROT',      zip5: null,    published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: L7, debtor_seq: 1, debtor_name: 'GOLF LLC',     zip5: null,    published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: L8, debtor_seq: 1, debtor_name: 'HOTEL LLC',    zip5: '32256', published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: L9, debtor_seq: 1, debtor_name: 'INDIA LLC',    zip5: '32256', published_on: 2026-10-03, loaded_at: 2026-11-12}
+      - input: ref('int_company_match_keys')
+        rows:
+          - {document_number: C01, match_key: 'ACME',    zip5: '32256', file_date: 2020-01-01}   # same name and ZIP as L1
+          - {document_number: C02, match_key: 'ACME',    zip5: '33101', file_date: 2001-01-01}   # a namesake at another ZIP
+          - {document_number: C03, match_key: 'BOLT',    zip5: '33101', file_date: 2001-01-01}   # right name, wrong ZIP
+          - {document_number: C04, match_key: 'CEDAR',   zip5: '32256', file_date: 2019-06-01}   # filed AFTER lien L3 (2015)
+          - {document_number: C05, match_key: 'DELTA',   zip5: '32256', file_date: 2001-01-01}   # two companies,
+          - {document_number: C06, match_key: 'DELTA',   zip5: '32256', file_date: 2002-01-01}   # same name, same ZIP
+          - {document_number: C07, match_key: 'ECHO',    zip5: '32256', file_date: 2001-01-01}   # the only ECHO
+          - {document_number: C08, match_key: 'FOXTROT', zip5: '32256', file_date: 2001-01-01}   # the only FOXTROT
+          - {document_number: C09, match_key: 'GOLF',    zip5: '32256', file_date: 2001-01-01}   # two GOLFs,
+          - {document_number: C10, match_key: 'GOLF',    zip5: '33101', file_date: 2001-01-01}   # and the debtor has no ZIP
+          - {document_number: C11, match_key: 'INDIA',   zip5: '32256', file_date: null}         # no filing date on record
+    expect:
+      rows:
+          - {source_record_id: L1, party_seq: 1, document_number: C01,  link_status: CONFIRMED, matched_on: name_zip,    link_reason: name_zip}
+          - {source_record_id: L2, party_seq: 1, document_number: C03,  link_status: AMBIGUOUS, matched_on: null,        link_reason: zip_differs}
+          - {source_record_id: L3, party_seq: 1, document_number: C04,  link_status: AMBIGUOUS, matched_on: null,        link_reason: before_company_filed}
+          - {source_record_id: L4, party_seq: 1, document_number: C05,  link_status: AMBIGUOUS, matched_on: null,        link_reason: several_companies_same_zip}
+          - {source_record_id: L4, party_seq: 1, document_number: C06,  link_status: AMBIGUOUS, matched_on: null,        link_reason: several_companies_same_zip}
+          - {source_record_id: L5, party_seq: 1, document_number: C07,  link_status: CONFIRMED, matched_on: unique_name, link_reason: unique_name}
+          - {source_record_id: L6, party_seq: 1, document_number: C08,  link_status: AMBIGUOUS, matched_on: null,        link_reason: no_entity_word}
+          - {source_record_id: L7, party_seq: 1, document_number: C09,  link_status: AMBIGUOUS, matched_on: null,        link_reason: several_companies}
+          - {source_record_id: L7, party_seq: 1, document_number: C10,  link_status: AMBIGUOUS, matched_on: null,        link_reason: several_companies}
+          - {source_record_id: L8, party_seq: 1, document_number: null, link_status: NO_MATCH,  matched_on: null,        link_reason: no_company_with_this_match_key}
+          - {source_record_id: L9, party_seq: 1, document_number: C11,  link_status: AMBIGUOUS, matched_on: null,        link_reason: date_unknown}
+
+  - name: duval_links_keep_only_to_side_businesses_on_allowlisted_documents
+    description: >
+      What may enter the Duval link model: TO-side parties with a
+      legal-entity word, on LN / WRT / JDG / CCCJUDG documents, and no
+      judgment the State of Florida brought. Everything else stays out.
+    model: int_duval_party_links
+    given:
+      - input: ref('duval_doc_type_allowlist')
+        rows:
+          - {doc_type_code: LN,      used_for: flag,   flag_type: duval_lien}
+          - {doc_type_code: JDG,     used_for: flag,   flag_type: duval_judgment}
+          - {doc_type_code: RELEASE, used_for: closes, flag_type: null}
+      - input: ref('stg_duval__documents')
+        rows:
+          - {instrument_number: I1, doc_type_code: LN,      recorded_date: 2025-02-01, file_date: 2025-02-02, loaded_at: 2026-11-12}
+          - {instrument_number: I2, doc_type_code: JDG,     recorded_date: 2025-02-01, file_date: 2025-02-02, loaded_at: 2026-11-12}
+          - {instrument_number: I3, doc_type_code: JDG,     recorded_date: 2025-02-01, file_date: 2025-02-02, loaded_at: 2026-11-12}
+          - {instrument_number: I4, doc_type_code: LN,      recorded_date: 2025-02-01, file_date: 2025-02-02, loaded_at: 2026-11-12}
+          - {instrument_number: I5, doc_type_code: MTG,     recorded_date: 2025-02-01, file_date: 2025-02-02, loaded_at: 2026-11-12}
+          - {instrument_number: I6, doc_type_code: RELEASE, recorded_date: 2025-02-01, file_date: 2025-02-02, loaded_at: 2026-11-12}
+          - {instrument_number: I7, doc_type_code: LN,      recorded_date: 1775-01-01, file_date: 2025-02-02, loaded_at: 2026-11-12}
+      - input: ref('stg_duval__parties')
+        rows:
+          - {instrument_number: I1, party_role: FRM, party_seq: 1, party_name: 'CITY OF EXAMPLE',     file_date: 2025-02-02}   # FRM side: the lienholder, never linked
+          - {instrument_number: I1, party_role: TO,  party_seq: 1, party_name: 'ALPHA ROOFING, LLC',  file_date: 2025-02-02}   # kept
+          - {instrument_number: I2, party_role: FRM, party_seq: 1, party_name: 'FLORIDA STATE OF',    file_date: 2025-02-02}   # the State brought this judgment
+          - {instrument_number: I2, party_role: TO,  party_seq: 1, party_name: 'BRAVO INC',           file_date: 2025-02-02}   # so its parties stay out
+          - {instrument_number: I3, party_role: FRM, party_seq: 1, party_name: 'EXAMPLE CREDIT UNION', file_date: 2025-02-02}
+          - {instrument_number: I3, party_role: TO,  party_seq: 1, party_name: 'BRAVO INC',           file_date: 2025-02-02}   # kept: a civil judgment
+          - {instrument_number: I4, party_role: TO,  party_seq: 1, party_name: 'EXAMPLE PERSON',      file_date: 2025-02-02}   # no entity word: stays in staging
+          - {instrument_number: I5, party_role: TO,  party_seq: 1, party_name: 'ALPHA ROOFING, LLC',  file_date: 2025-02-02}   # a mortgage: not on the allowlist
+          - {instrument_number: I6, party_role: TO,  party_seq: 1, party_name: 'ALPHA ROOFING, LLC',  file_date: 2025-02-02}   # a release: allowlisted to CLOSE, not to flag
+          - {instrument_number: I7, party_role: TO,  party_seq: 1, party_name: 'CHARLIE CORP',        file_date: 2025-02-02}   # kept, but its 1775 date is a placeholder
+      - input: ref('int_company_match_keys')
+        rows:
+          - {document_number: C01, match_key: 'ALPHA ROOFING', zip5: '32256', file_date: 2020-01-01}
+          - {document_number: C02, match_key: 'BRAVO',         zip5: '32256', file_date: 2020-01-01}
+          - {document_number: C03, match_key: 'CHARLIE',       zip5: '32256', file_date: 2020-01-01}
+    expect:
+      rows:
+          - {source_record_id: I1, party_seq: 1, document_number: C01, link_status: CONFIRMED, matched_on: unique_name, link_reason: unique_name,  source_date: 2025-02-01}
+          - {source_record_id: I3, party_seq: 1, document_number: C02, link_status: CONFIRMED, matched_on: unique_name, link_reason: unique_name,  source_date: 2025-02-01}
+          - {source_record_id: I7, party_seq: 1, document_number: C03, link_status: AMBIGUOUS, matched_on: null,        link_reason: date_unknown, source_date: null}
