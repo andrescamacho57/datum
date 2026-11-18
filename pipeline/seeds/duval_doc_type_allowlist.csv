@@ -1,0 +1,13 @@
+doc_type_code,used_for,flag_type
+LN,flag,duval_lien
+WRT,flag,duval_tax_warrant
+JDG,flag,duval_judgment
+CCCJUDG,flag,duval_judgment
+RELEASE,closes,
+CAN,closes,
+CANNF,closes,
+WDL,closes,
+WDLNF,closes,
+SAT,closes,
+SATNF,closes,
+PTL REL,partial_release,

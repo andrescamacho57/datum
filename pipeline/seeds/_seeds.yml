@@ -1,0 +1,56 @@
+# ---------------------------------------------------------------------------
+# _seeds.yml: descriptions and TESTS for the reference seeds.
+#
+# A seed is a small CSV file in pipeline/seeds/ that `dbt seed` (or `dbt
+# build`) loads as a table. These two are lookup tables the linking rules
+# depend on. They are seeds, not SQL, so a change to them is a one-line diff
+# anyone can review.
+# ---------------------------------------------------------------------------
+
+version: 2
+
+seeds:
+
+  - name: dbpr_license_type_map
+    description: >
+      Ruling R14. DBPR's discipline files name a license kind in words
+      ("Certified General Contractor"); its license file uses a code (CGC).
+      One row per kind seen in the discipline files, with its code. Drafted
+      2026-11-18 from the 19 distinct values in the five discipline files.
+    columns:
+      - name: license_type
+        data_tests:
+          - not_null
+          - unique
+          # One code per kind: a kind listed twice would double every
+          # complaint against it.
+      - name: occupation_code
+        data_tests:
+          - not_null
+          - unique
+
+  - name: duval_doc_type_allowlist
+    description: >
+      Ruling R16. The ONLY Duval document type codes allowed past staging,
+      and what each is used for: "flag" (can become a flag on a company),
+      "closes" (a release or satisfaction that closes a lien or judgment),
+      "partial_release" (shown as an event; does not close). Any code not
+      listed here stays in staging, including every criminal, family and
+      personal record type.
+    columns:
+      - name: doc_type_code
+        data_tests:
+          - not_null
+          - unique
+      - name: used_for
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['flag', 'closes', 'partial_release']
+      - name: flag_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['duval_lien', 'duval_tax_warrant', 'duval_judgment']
+          # Empty on "closes" and "partial_release" rows.
