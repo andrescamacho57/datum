@@ -106,6 +106,28 @@ Loaded by `snowflake/13_federal_liens_raw.sql`; all eight per-file row counts an
 11. **One active lien has a cancellation date** (the other 20,485 hold `00000000`). What a cancellation date on an active lien means is open.
 12. Staging keeps 22,171 of 22,173 snapshot debtors (2 personal-format rows stay in raw) and all 46 daily debtors.
 
+## Daily files since the snapshot (Nov 18, 2026, leg B0, ruling R8)
+
+Downloaded by `src/datum/sunbiz_flr.py` (one connection, the state's published public login, 0.5-second pause between files) and loaded by `snowflake/17_federal_liens_dailies.sql`.
+
+| File date | Filings | Debtors | Events | Secured |
+|---|---|---|---|---|
+| 2026-10-19 | 44 | 45 | 23 | 44 |
+| 2026-10-29 | 70 | 72 | 0 (empty file) | 70 |
+| 2026-10-30 | 131 | 147 | 60 | 131 |
+| 2026-11-04 | 42 | 46 | 29 | 42 |
+| 2026-11-09 | 71 | 79 | 30 | 71 |
+| 2026-11-16 | 72 | 77 | 37 | 72 |
+| **Total** | **430** | **466** | **179** | **430** |
+
+24 files on 6 days. Every line is the documented length (82 / 206 / 135 / 206).
+
+13. **The state publishes lien dailies about once a week, not daily.** Between 2026-10-03 and 2026-11-17 there are files for 6 days only. The other 26 business days have no file in any of the four folders (listed in `docs/legs/b0-close-gaps.md`).
+14. **The snapshot has no gap at its edge.** The last daily files before the snapshot are dated 2026-09-23, 2026-09-30 and 2026-10-01; the snapshot's own last filing date and last event date are both 2026-10-01. Nothing was published between the snapshot's last record and the first daily after it (2026-10-19).
+15. **A daily file can be empty.** `20261029flre.txt` is 0 bytes: liens were filed that day and nothing was released. It loads zero rows.
+16. **Daily events are almost all releases:** 178 `COR` and 1 `AGI` (amendment) in the six days.
+17. **176 of the 178 daily releases point at a lien we hold** (171 in the snapshot, 5 in an earlier daily). The other 2, both filed 2026-10-30, release liens from 2014 and 2018 (`14FLR0013922`, `18FLR0008457`) that are not in the snapshot: it holds active liens only, so those two had already left it. They cannot make a loaded lien look open.
+
 ## Implications for the build
 - Raw: one table per file kind (decision d9), loaded with the existing `fixed_width` format.
 - Staging: cut by the positions above; parse dates with `TRY_TO_DATE(x, 'MMDDYYYY')`; keep only debtors with name_format `C` (Datum is businesses only).
