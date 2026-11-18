@@ -1,0 +1,55 @@
+# ---------------------------------------------------------------------------
+# _datum__models.yml: TESTS for the staging model over Datum's own
+# bookkeeping table, the fetch manifest.
+#
+# These tests are how CLAUDE.md rule 3 ("every fact carries a source URL and
+# a UTC fetch timestamp") is enforced in the data: a manifest row without an
+# address or a fetch time fails the build.
+#
+# Two more checks are single-file tests in pipeline/tests/:
+#   assert_fetch_manifest_one_row_per_file.sql
+#   assert_every_raw_file_has_a_fetch_manifest_row.sql
+# ---------------------------------------------------------------------------
+
+version: 2
+
+models:
+
+  - name: stg_datum__fetch_manifest
+    description: One row per fetched file per source, the latest fetch, with its address, UTC fetch time, size and checksum.
+
+    columns:
+
+      - name: source
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['dbpr', 'duval', 'sunbiz_flr']
+          # A new downloader must be added here on purpose.
+
+      - name: source_file
+        data_tests:
+          - not_null
+          # The join key to the raw tables.
+
+      - name: source_url
+        data_tests:
+          - not_null
+          # Rule 3: no fetched file without the address it came from.
+
+      - name: fetched_at_utc
+        data_tests:
+          - not_null
+          # Rule 3: no fetched file without a fetch time. Also catches a
+          # timestamp written in a format the model can't read.
+
+      - name: sha256
+        data_tests:
+          - not_null
+
+      - name: is_approximate
+        data_tests:
+          - not_null
+          # TRUE or FALSE, never unknown: a reader must be able to tell a
+          # measured fetch time from one estimated from a file's date.

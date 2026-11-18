@@ -1,0 +1,33 @@
+# ---------------------------------------------------------------------------
+# _datum__sources.yml: tells dbt about raw tables that hold Datum's OWN
+# bookkeeping, not a public-records source.
+#
+# So far there is one: the fetch manifest, created and filled by
+# snowflake/18_fetch_manifest.sql from the CSV that the downloaders write
+# (src/datum/manifest.py). In SQL: source('datum', 'fetch_manifest'), in
+# double curly braces.
+# ---------------------------------------------------------------------------
+
+version: 2
+# dbt's property-file format version. Always 2.
+
+sources:
+
+  - name: datum
+    # Our label for the source system: the FIRST argument of source().
+
+    database: datum
+    # The Snowflake database where the raw tables live.
+
+    schema: raw
+    # The schema inside it: datum.raw.
+
+    tables:
+
+      - name: fetch_manifest
+        # datum.raw.fetch_manifest.
+        description: >
+          One row per line of the fetch manifest: one file downloaded from a
+          source, with its exact address, UTC fetch time, size and checksum.
+          The manifest is one growing file loaded whole each time, so a file
+          can appear here more than once; staging keeps one row per file.
