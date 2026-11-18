@@ -1,10 +1,16 @@
 -- 06_load_sunbiz_cor_quarterly.sql: load the quarterly FULL corporate snapshot into raw.
+
 -- Run after 04 (stage exists) and after PUT uploaded cordata0-9 (done 2026-10-22, all UPLOADED).
 -- Run from the VS Code terminal:  snow sql -c datum -f snowflake/06_load_sunbiz_cor_quarterly.sql
 -- Expected: 12,987,601 rows (file size / 1442 bytes per line, exact for all 10 files).
 
 USE ROLE SYSADMIN;                                         -- the role that owns DATUM
 USE WAREHOUSE datum_wh;                                    -- the cost-capped warehouse (never COMPUTE_WH)
+
+-- recall used PUT to upload the file(s) to the stage, e.g.:
+--   cd ~/datum/data/raw/sunbiz/quarterly
+--   snow sql -c datum -q "PUT file://$PWD/cordata*.txt @datum.raw.sunbiz_cor_quarterly_stage AUTO_COMPRESS=TRUE PARALLEL=8"
+-- Note: quarterly lines end in CRLF (\r\n). Snowflake strips both, so each loads as 1440 characters (verified 2026-10-22).                 
 
 LIST @datum.raw.sunbiz_cor_quarterly_stage;                -- expect 10 files, cordata0.txt.gz ... cordata9.txt.gz
 

@@ -1,10 +1,13 @@
 -- 04_sunbiz_cor_quarterly_stage.sql: stage for the quarterly FULL corporate snapshot.
+
 -- One stage per file type (decision 2026-10-12): the quarterly snapshot is a different
 -- kind of file from the daily delta, even though each line has the same 1440-byte layout.
 --
 -- Upload from the VS Code terminal (PUT only runs from a client on your machine):
+
 --   cd ~/datum/data/raw/sunbiz/quarterly
 --   snow sql -c datum -q "PUT file://$PWD/cordata*.txt @datum.raw.sunbiz_cor_quarterly_stage AUTO_COMPRESS=TRUE PARALLEL=8"
+
 -- Note: quarterly lines end in CRLF (\r\n). Snowflake strips both, so each loads as 1440 characters (verified 2026-10-22).
 
 USE ROLE SYSADMIN;                                         -- the role that owns DATUM
