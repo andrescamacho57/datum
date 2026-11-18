@@ -11,11 +11,18 @@ What this module does, in order:
     2. verify: every file ends with a trailer line `EOF|<row count>`. Count the rows above
        the trailer and compare. A mismatch fails that file loudly, and the file is moved to
        data/raw/duval/rejected/ so that an upload of data/raw/duval/*.16 can't include it.
+    3. repair (ruling R15): a rejected file is usually broken by a line break inside a legal
+       description, which spreads one record over two or three lines. The repair writes a
+       mended COPY to data/raw/duval/repaired/ under the same file name: a line that does not
+       start a record is joined to the line above with one space, and blank lines are dropped.
+       The copy is kept only if its row count now equals the EOF trailer. The file as the
+       Clerk sent it stays in rejected/, untouched.
 
 Run from ~/datum with the project's virtual environment active:
     python src/datum/duval.py probe       # connect, list the folder, print counts only
     python src/datum/duval.py download    # fetch what's missing, then verify everything
     python src/datum/duval.py verify      # verify the files on disk (no network)
+    python src/datum/duval.py repair      # mend the files in rejected/ into repaired/ (no network)
 
 Needs DUVAL_FTP_USER and DUVAL_FTP_PASSWORD in .env. They are read into memory and
 never printed, logged or written anywhere.
@@ -41,6 +48,7 @@ load_dotenv()                               # look for .env from this file's fol
 REPO_ROOT = Path(__file__).resolve().parents[2]            # this file is src/datum/duval.py → go up 2 folders to the repo root
 RAW_DIR = REPO_ROOT / "data" / "raw" / "duval"             # where downloads land; data/ is gitignored
 REJECTED = "rejected"                                      # sub-folder of RAW_DIR for files that failed verification
+REPAIRED = "repaired"                                      # sub-folder of RAW_DIR for mended copies of rejected files (ruling R15)
 KNOWN_HOSTS = REPO_ROOT / "data" / "duval_known_hosts"     # the server's identity key, saved on first contact (see connect)
 HOST = "ftp.duvalclerk.com"                                # the Clerk's file server
 PORT = 22                                                  # the standard SFTP port
@@ -52,6 +60,10 @@ TIMEOUT_SECONDS = 60                                       # give up on a stalle
 # File names look like d2026110501id.16: a kind letter, the date as YYYYMMDD, "01", "id" or "d", ".16".
 FILE_NAME = re.compile(r"^([dplm])(\d{8})01(?:id|d)\.16$")  # group 1 = kind letter, group 2 = the date digits
 KINDS = {"d": "documents", "p": "parties", "l": "links", "m": "doc_types"}   # kind letter → what the file holds
+# Every data line of a documents or parties file starts with a fixed marker. A line without it is
+# the tail of the record above, cut off by a line break inside a text field. Links and doc-type
+# files have no marker, so in those only blank lines can be repaired.
+RECORD_PREFIX = {"documents": b"DDA|", "parties": b"DPA|"}  # kind → the bytes that start every record
 
 
 class DuvalVerificationError(Exception):
@@ -103,6 +115,81 @@ def verify_file(path: Path) -> VerifyReport:
     if rows != eof_count:                                          # the Clerk says N rows, we see a different number
         raise DuvalVerificationError(f"{path.name}: {rows} rows in the file, but the trailer says EOF|{eof_count}")
     return VerifyReport(path.name, rows, eof_count)
+
+
+@dataclass(frozen=True)
+class RepairReport:
+    """What repair_file() did to a file whose mended copy passed verification."""
+
+    name: str                               # which file was repaired
+    rows: int                               # data rows in the repaired copy (equal to the EOF trailer, or we raised)
+    lines_joined: int                       # continuation lines glued back onto the record above
+    blank_lines_dropped: int                # empty lines removed
+
+
+def repair_lines(lines: list[bytes], prefix: bytes | None) -> tuple[list[bytes], int, int]:
+    """Mend the data lines of one file. Returns (mended lines, lines joined, blank lines dropped).
+
+    prefix is the marker every record starts with (b"DDA|"), or None when the kind has no marker.
+    """
+    mended: list[bytes] = []                                       # the records, rebuilt
+    joined = dropped = 0                                           # two counters for the report
+    for line in lines:
+        if line.strip() == b"":                                    # an empty line holds no data: drop it
+            dropped += 1
+            continue
+        starts_record = prefix is None or line.startswith(prefix)  # without a marker, every non-blank line is a record
+        if starts_record or not mended:                            # the first line has nothing above it to join to (it may also carry a byte-order mark)
+            mended.append(line)
+        else:                                                      # the tail of the record above
+            mended[-1] = mended[-1] + b" " + line                  # one space where the line break was (ruling R15)
+            joined += 1
+    return mended, joined, dropped
+
+
+def repair_file(path: Path, repaired_dir: Path) -> RepairReport:
+    """Write a mended copy of one rejected file into repaired_dir. Raises if the copy still fails its EOF check.
+
+    The original is only read, never changed. A copy that fails is deleted, so repaired/ only
+    ever holds files that are safe to load.
+    """
+    duval_file = DuvalFile.from_name(path.name)                    # the name tells us the kind
+    if duval_file is None:                                         # not one of the four index files
+        raise DuvalVerificationError(f"{path.name}: not a Duval index file name")
+    lines = path.read_bytes().split(b"\r\n")                       # same split as verify_file: CRLF line endings
+    if lines and lines[-1] == b"":                                 # the empty piece after the final CRLF
+        lines.pop()
+    if not lines or not lines[-1].startswith(b"EOF|"):             # no trailer means a cut-off download: nothing to repair against
+        raise DuvalVerificationError(f"{path.name}: no EOF trailer on the last line, cannot repair")
+    trailer = lines[-1]                                            # keep the Clerk's count exactly as sent
+    mended, joined, dropped = repair_lines(lines[:-1], RECORD_PREFIX.get(duval_file.kind))   # mend everything above the trailer
+    repaired_dir.mkdir(parents=True, exist_ok=True)                # create repaired/ on first use
+    target = repaired_dir / path.name                              # same file name, so staging still reads the date from it
+    partial = target.with_name(target.name + ".part")              # write under a temporary name first
+    partial.write_bytes(b"\r\n".join([*mended, trailer]) + b"\r\n")   # same shape as the Clerk's files: CRLF after every line
+    try:
+        report = verify_file(partial)                              # the mended rows must now equal the trailer
+    except DuvalVerificationError as error:
+        partial.unlink()                                           # a copy that still fails must not sit where the upload looks
+        raise DuvalVerificationError(str(error).replace(partial.name, path.name) + " (after repair)") from None
+    partial.replace(target)                                        # only a verified copy gets the real name
+    return RepairReport(path.name, report.rows, joined, dropped)
+
+
+def repair_all(raw_dir: Path = RAW_DIR) -> int:
+    """Repair every file in raw_dir/rejected/ into raw_dir/repaired/. Prints one line per file. Returns the failure count."""
+    failures = 0
+    for path in sorted((raw_dir / REJECTED).glob("*.16")):         # every quarantined file, by name
+        try:
+            report = repair_file(path, raw_dir / REPAIRED)         # raises if the copy still disagrees with its trailer
+        except DuvalVerificationError as error:
+            failures += 1
+            print(f"FAIL  {error}")                                # loud: this file stays out of the load
+            continue
+        print(f"OK    {report.name}: {report.rows} rows = EOF count; "
+              f"joined {report.lines_joined} line(s), dropped {report.blank_lines_dropped} blank line(s)")
+    print(f"{failures} file(s) could not be repaired and stay out")
+    return failures
 
 
 def local_files(raw_dir: Path = RAW_DIR) -> list[tuple[Path, DuvalFile]]:
@@ -191,11 +278,13 @@ def verify_all(raw_dir: Path = RAW_DIR, quarantine: bool = False) -> int:
 
 
 def main(argv: list[str]) -> int:
-    """Command line: probe | download | verify."""
+    """Command line: probe | download | verify | repair."""
     command = argv[1] if len(argv) > 1 else ""                     # the word after the script name
-    if command not in ("probe", "download", "verify"):
-        print("usage: python src/datum/duval.py probe|download|verify")
+    if command not in ("probe", "download", "verify", "repair"):
+        print("usage: python src/datum/duval.py probe|download|verify|repair")
         return 2                                                   # 2 = "you called me wrong", by Unix convention
+    if command == "repair":                                        # no network: mend what verification rejected
+        return 1 if repair_all() else 0                            # non-zero exit code when any file could not be repaired
     if command in ("probe", "download"):                           # these two need the network
         client = connect()                                         # the ONE connection
         try:
