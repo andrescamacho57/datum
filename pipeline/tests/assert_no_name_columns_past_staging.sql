@@ -30,6 +30,8 @@
 -- depends_on: {{ ref('int_dbpr_license_links') }}
 -- depends_on: {{ ref('int_dbpr_discipline_links') }}
 -- depends_on: {{ ref('int_duval_party_links') }}
+-- depends_on: {{ ref('int_federal_liens_status') }}
+-- depends_on: {{ ref('int_duval_document_status') }}
 
 {% set a_model = ref('int_company_match_keys') %}
 {#- set stores a value in a Jinja variable. Here it is the relation object for
