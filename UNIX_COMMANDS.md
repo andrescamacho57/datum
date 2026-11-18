@@ -133,6 +133,28 @@ Reading `ls -l`: `drwxr-xr-x  5 root  staff  160 Jul  4  2024 .config`
 
 ---
 
+## Symbolic Links and Moved Folders (Nov 18)
+
+```bash
+ln -s "$HOME/Work Streams/datum" "$HOME/datum"   # make ~/datum a signpost to the repo's new home
+ls -l ~/datum                                    # shows: datum -> /Users/anfelca2/Work Streams/datum
+```
+
+- `ln` makes a link; `-s` makes it **symbolic** (a pointer by path, not a second copy of the data)
+- First argument = what it points to; second = where the signpost goes
+- Quotes keep `Work Streams` together; unquoted, the shell sees two arguments
+- `rm ~/datum` removes only the signpost, never the folder it points to
+
+## Counting Without a Warehouse (Nov 18)
+
+```bash
+LC_ALL=C awk -F'|' '$1=="DPA" { n[$5]++ } END { for (k in n) print k, n[k] }' p*.16
+```
+
+- `awk -F'|'` splits each line on the pipe character; `$1`, `$5` are the 1st and 5th fields
+- `n[$5]++` is a tally keyed by the field's value (here FRM / TO); `END { ... }` runs after the last line
+- `LC_ALL=C` treats the file as plain bytes, so odd characters can't stop it
+
 ## Habits Worth Keeping
 
 - Look before you load: count, peek, measure, checksum
@@ -141,3 +163,5 @@ Reading `ls -l`: `drwxr-xr-x  5 root  staff  160 Jul  4  2024 .config`
 - When two tools disagree, look at the bytes (`od -c`)
 - Globs are case-sensitive: check that a loop actually covered every file
 - Long prompts go in a file (`docs/prompts/`), not the terminal paste buffer
+- A check that can't fail proves nothing: ask what input would make it fail
+- Don't move a folder that holds a `.venv`; if you must, leave a symbolic link at the old path

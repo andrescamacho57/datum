@@ -261,21 +261,55 @@ Use the Claude Code VS Code panel by default; the terminal only for CLI-only fea
 **Concepts learned:** hooks (PreToolUse, Stop), deny rules, guardrail vs boundary, pin tool defaults,
 proving a negative with a fake profile, snapshot vs event files, case-sensitive globs, secrets in `.env`
 
+### Day 8 — 2026-11-11 to 11-18: Phase A built by an agent, reviewed, and ruled on
+
+**How the work changed.** From Nov 11 the build split in two: Fable 5.2 builds Florida in Claude Code from
+`docs/prompts/florida_master.md`, one branch and pull request per leg; I review each leg and own the decisions,
+matching rules, privacy calls and hand checks. Georgia is on hold.
+
+**Phase A (built Nov 12, 1:38–8:56 AM, unattended; about 0.31 credits)**
+- **A1 federal tax liens:** script 13, 4 raw tables, 4 staging views. 20,444 filings, 22,173 debtors, 97,256 events,
+  20,448 secured parties; every line its documented length; all 29 daily releases join to the snapshot
+- **A2 DBPR licenses:** script 14, `dbpr.py` (download, then validate before loading), 2 raw tables, 2 staging views.
+  263,337 license rows and 6,457 discipline rows. The real key is occupation code + license number
+- **A3 Duval County:** script 15, `duval.py` (SFTP download, then check each file against its `EOF` count), 4 raw
+  tables, 4 staging views. 2,703 of 2,716 files loaded (3.6M rows); 13 set aside because a line break inside a
+  legal description split one record across lines
+- 49 dbt models and tests ran: 0 failures, 5 warnings, each explained in the leg reports (`docs/legs/`)
+
+**Review and rulings (Nov 12–18)**
+- Leg A1 check 2: the snapshot filter sits in the `ON` clause, not `WHERE`, or the check could never fail
+- Measured which side of a Duval record is the debtor instead of assuming it: **TO = debtor, FRM = creditor**,
+  the opposite of the grantor/grantee guess. Evidence table in `docs/phase_b_rulings.md`
+- 26 rulings (R1–R26) settle every open question from the three legs; 24 questions parked in
+  `docs/open_questions.md` for counsel, the sources, or after launch
+- Phase B brief rewritten as four stacked legs (B0 close gaps, B1 links, B2 flags, B3 hand-check samples)
+
+**Things that broke, and why**
+- Snowflake trial expired Nov 15. Added a card and upgraded the same account (pay only for use; no rebuild needed)
+- Moved the repo to `~/Work Streams/datum`. The virtual environment stores its own absolute path, so `pytest` and
+  `pip` pointed at a folder that no longer existed. Fix: a symbolic link `~/datum` → the new location
+- The A2 branch carried an early copy of `docs/decisions.json`, which conflicted with the newer one on `main`.
+  Fixed by merging `main` into the branch and keeping `main`'s copy
+- The repo is now public (for interviews). Scanned every branch and the full history: no secrets, no keys
+
+**Concepts learned:** LEFT JOIN filters in `ON` vs `WHERE`, a check that can't fail proves nothing, allowlist vs
+blocklist, verify a convention with the data, control totals (`EOF` trailers), add/add merge conflicts, stacked
+branches, virtual environments aren't relocatable, symbolic links, on-demand billing
+
 ---
 
 ## Next
 
-**Re-baselined Nov 6.** The re-plan decision comes Sat Nov 7: Nov 13 launch-ready has no buffer left.
+**Nov 18:** dates are targets, not deadlines. When work slips, the dates move and the scope stays.
 
-**Nov 11:** dates are targets, not deadlines. When work slips, the dates move and the scope stays; nothing is cut to hit a date.
-
-| Date | Ships |
+| Target | Ships |
 |---|---|
-| Sat Nov 7 | Federal liens: raw load (`docs/prompts/02_federal_liens_raw.md`), counts match, then staging |
-| Sun Nov 8 | Federal liens: link to companies (name + ZIP5, CONFIRMED only) + 20-link hand check |
-| Mon Nov 9 | DBPR licenses; Duval bulk access if the Clerk has set it up |
-| Nov 10–12 | Interviews start (problem-focused, demo not required); report v1 with lien flags |
-| Launch-ready | Date moves as needed (Postgres serving, web app and deploy not started yet) |
+| Nov 18 | Merge legs A1, A3, A2 into `main`; repoint the environment; kick off Phase B |
+| Nov 19–20 | Phase B legs B0–B3 (Fable, unattended); review each leg report |
+| Nov 21 | Hand-check `evals/link_sample_20.csv` (0 wrong allowed); verify the 40 draft test cases |
+| Nov 22–25 | Phase C: Postgres serving, FastAPI app, offline tests |
+| Launch-ready | Moves as needed; counsel review of Q1–Q6 in `docs/open_questions.md` comes first |
 
 Later: name matching to 90% on 50 real inputs, dissolutions via the corporate events file,
 move the snapshot date into raw at COPY time before the January 2027 snapshot.

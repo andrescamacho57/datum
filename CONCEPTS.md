@@ -618,3 +618,54 @@ the same reason you pin package versions.
 - Same pattern as the corporate files: snapshot (quarterly) + deltas (daily). Know which kind of file
   you hold before you model it.
 
+
+---
+
+## A Check That Can't Fail Proves Nothing (LEFT JOIN: ON vs WHERE)
+
+- A `LEFT JOIN` keeps every row from the left table and fills the right side with NULL when nothing matches.
+- A condition in `ON` decides **which right-side rows may match**. A condition in `WHERE` runs **after** the join.
+- Put a right-side filter in `WHERE` and every unmatched row (right side NULL) is thrown away: the LEFT JOIN
+  quietly becomes an inner join.
+- In script 13's CHECK 2 that would make "missing from snapshot" always 0. Before trusting a check, ask what
+  input would make it fail. (Chip Huyen: test the test.)
+
+---
+
+## Verify a Convention With the Data (Duval FRM / TO)
+
+- County indexes usually say grantor / grantee. I expected FRM = debtor. The data said the opposite.
+- Method: for each document type, count the most frequent names on each side. Institutions give it away: the City of
+  Jacksonville and the IRS are on the **FRM** side of liens, so FRM = creditor and **TO = debtor**.
+- Cheap (one pass with `awk` over files already on disk, no warehouse credits) and it changed the linking rule.
+- Evidence table: `docs/phase_b_rulings.md`.
+
+---
+
+## Allowlist vs Blocklist
+
+- **Blocklist:** name what's forbidden, allow the rest. A type nobody thought of slips through.
+- **Allowlist:** name what's allowed, forbid the rest. A new type is excluded until someone approves it.
+- Duval's index holds criminal sentences, domestic violence judgments, marriage and death records. Past staging,
+  only an allowlist of type codes exists (`LN`, `WRT`, civil `JDG`/`CCCJUDG`, plus releases and satisfactions).
+- Use an allowlist whenever the cost of a leak is much higher than the cost of a gap.
+
+---
+
+## Built But Not Displayed (a switch instead of a cut)
+
+- Discipline flags and Duval flags are built and tested, and carry `is_shown = false` through two dbt variables.
+- A dbt **variable** is a named setting in `dbt_project.yml` that models read with `{{ var('name') }}`.
+- Why: both wait on an outside answer (counsel; the Clerk). The work ships now and one line flips it on later.
+- This is how to honor "don't cut scope" and "don't show what isn't cleared" at the same time.
+
+---
+
+## Virtual Environments Aren't Relocatable; Symbolic Links
+
+- A `.venv` writes its own absolute path into `activate` and into the first line (the "shebang") of scripts like
+  `pytest` and `pip`. Move the folder and those lines point at nothing: `bad interpreter`.
+- Fixes: rebuild the environment from `requirements.txt`, or leave a **symbolic link** at the old path.
+- A symbolic link is a signpost: `~/datum` holds no files, it points at `~/Work Streams/datum`.
+- It also removed the space from every command path. Spaces in paths need quotes everywhere, or the shell reads
+  two words.

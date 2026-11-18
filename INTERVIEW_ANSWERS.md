@@ -302,3 +302,45 @@ and no amount. And accusing the wrong company of an IRS lien is the most expensi
 **Tradeoff:** coverage. Some real liens won't link, so I measure CONFIRMED coverage and hand-check
 20 links, with zero wrong allowed.
 
+
+---
+
+## "How do you know which party on a recorded lien is the debtor?"
+
+**Decision:** I measured it. For each document type I counted the most frequent names on each side of the
+index. The City of Jacksonville and the IRS sit on the "from" side of liens, so "from" is the creditor and "to"
+is the debtor. My linking rule flags a company only when it is on the "to" side.
+
+**Why:** the county publishes no layout, and my first guess (grantor = debtor) was backwards. A wrong guess
+would have flagged lienholders, such as banks and the city, as the ones in trouble.
+
+**Tradeoff:** it's an inference from counts until the Clerk confirms the layout, so the question stays in my
+open-questions log and the Duval flags stay switched off.
+
+---
+
+## "How do you keep sensitive records out of a product built on public data?"
+
+**Decision:** an allowlist at the staging boundary. Raw and staging hold the county's file as sent; past
+staging only named document types exist, people's names never travel, and judgments with the State of Florida
+as plaintiff are excluded.
+
+**Why:** the county's index mixes commercial liens with criminal sentences, domestic violence judgments and
+marriage records. A blocklist leaks whatever type I didn't think of; an allowlist can't.
+
+**Tradeoff:** coverage. Lis pendens and some warrant types are left out until I understand them, so the
+report can miss a real signal. A missing flag is the cheap error; a wrong one isn't.
+
+---
+
+## "You let an AI agent build part of your pipeline. How did you keep control?"
+
+**Decision:** the agent builds one leg per branch against checks written before it starts (row counts that
+must match the source's own totals, dbt tests), and writes a report with the commands and their output. I
+review the report and the diff, and I keep the matching rules, privacy calls and hand checks for myself.
+
+**Why:** loading a file has a known right answer, so it can be checked by a machine. Deciding who counts as
+"the debtor" or what's too sensitive to show can't.
+
+**Tradeoff:** I understand agent-built code less well at first, so I pay that back in review: each report
+ends with three questions I have to be able to answer.
