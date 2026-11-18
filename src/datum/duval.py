@@ -11,6 +11,7 @@ What this module does, in order:
     2. verify: every file ends with a trailer line `EOF|<row count>`. Count the rows above
        the trailer and compare. A mismatch fails that file loudly, and the file is moved to
        data/raw/duval/rejected/ so that an upload of data/raw/duval/*.16 can't include it.
+       Every downloaded file also gets one row in the fetch manifest (manifest.py, ruling R23).
     3. repair (ruling R15): a rejected file is usually broken by a line break inside a legal
        description, which spreads one record over two or three lines. The repair writes a
        mended COPY to data/raw/duval/repaired/ under the same file name: a line that does not
@@ -38,13 +39,20 @@ import time                                 # the short pause between downloads
 from dataclasses import dataclass           # writes __init__ and friends for a class of plain fields
 from datetime import date, datetime         # calendar dates, to compare a file's date with the start date
 from pathlib import Path                    # file paths that work on any operating system
+from urllib.parse import quote              # makes a path safe inside a URL (a space becomes %20)
 
 import paramiko                             # SFTP (file transfer over SSH) client library
 from dotenv import load_dotenv              # reads NAME=value lines from .env into the environment
 
+try:                                        # imported as datum.duval (pytest puts src/ on the import path)
+    from datum.manifest import MANIFEST_PATH, backfill, record_fetch
+except ModuleNotFoundError:                 # run as a script: Python puts src/datum/ on the path, so the sibling module is plain `manifest`
+    from manifest import MANIFEST_PATH, backfill, record_fetch
+
 load_dotenv()                               # look for .env from this file's folder upward (finds ~/datum/.env) and load it
 
 # --- Settings -------------------------------------------------------------------------
+SOURCE = "duval"                                           # this source's name in the fetch manifest
 REPO_ROOT = Path(__file__).resolve().parents[2]            # this file is src/datum/duval.py → go up 2 folders to the repo root
 RAW_DIR = REPO_ROOT / "data" / "raw" / "duval"             # where downloads land; data/ is gitignored
 REJECTED = "rejected"                                      # sub-folder of RAW_DIR for files that failed verification
@@ -89,6 +97,11 @@ class DuvalFile:
         except ValueError:                                         # eight digits that aren't a real date
             return None
         return cls(name=name, kind=KINDS[match.group(1)], file_date=file_date)
+
+    @property                               # read like a field: duval_file.source_url
+    def source_url(self) -> str:
+        """The exact address of this file on the Clerk's server, for the fetch manifest. It names no login."""
+        return f"sftp://{HOST}{quote(REMOTE_DIR)}/{self.name}"     # quote() turns the space in "Recording Indexes" into %20
 
 
 @dataclass(frozen=True)
@@ -233,7 +246,7 @@ def list_remote(sftp: paramiko.SFTPClient) -> list[tuple[DuvalFile, int]]:
     return sorted(in_scope, key=lambda pair: (pair[0].file_date, pair[0].name))   # oldest first
 
 
-def download_missing(sftp: paramiko.SFTPClient, raw_dir: Path = RAW_DIR) -> tuple[int, int]:
+def download_missing(sftp: paramiko.SFTPClient, raw_dir: Path = RAW_DIR, manifest_path: Path = MANIFEST_PATH) -> tuple[int, int]:
     """Fetch every in-scope file not already on disk at the same size. Returns (downloaded, skipped)."""
     raw_dir.mkdir(parents=True, exist_ok=True)                     # create data/raw/duval/ if needed
     downloaded = skipped = 0                                       # two counters
@@ -246,6 +259,7 @@ def download_missing(sftp: paramiko.SFTPClient, raw_dir: Path = RAW_DIR) -> tupl
         partial = target.with_name(target.name + ".part")          # download under a temporary name
         sftp.get(f"{REMOTE_DIR}/{duval_file.name}", str(partial))  # one file, over the one open connection
         partial.replace(target)                                    # rename only when the whole file arrived
+        record_fetch(SOURCE, target, duval_file.source_url, manifest_path=manifest_path)   # one manifest row: address, UTC time now, size, checksum
         downloaded += 1
         time.sleep(PAUSE_SECONDS)                                  # a short pause before the next file
     return downloaded, skipped
@@ -275,6 +289,23 @@ def verify_all(raw_dir: Path = RAW_DIR, quarantine: bool = False) -> int:
     already = len(list((raw_dir / REJECTED).glob("*.16"))) - (failures if quarantine else 0)   # rejected on an earlier run
     print(f"{failures} file(s) failed verification now; {max(already, 0)} more already in {REJECTED}/")
     return failures
+
+
+def backfill_manifest(raw_dir: Path = RAW_DIR, manifest_path: Path = MANIFEST_PATH) -> int:
+    """Add approximate fetch-manifest rows for index files that were on disk before the manifest existed.
+
+    Covers the files in raw_dir and the ones in rejected/, because both are files as the
+    Clerk sent them. The copies in repaired/ are ours, not fetched, so they get no row: a
+    repaired file's manifest row is the row of the original it was made from.
+    """
+    files: list[tuple[Path, str, Path | None]] = []                # (path, source URL, None = use the file's own modification time)
+    for path, duval_file in local_files(raw_dir):                  # files that passed verification
+        files.append((path, duval_file.source_url, None))
+    for path in sorted((raw_dir / REJECTED).glob("*.16")):         # files that failed it, kept as sent
+        duval_file = DuvalFile.from_name(path.name)
+        if duval_file is not None and duval_file.file_date >= START_DATE:
+            files.append((path, duval_file.source_url, None))
+    return backfill(SOURCE, files, manifest_path)
 
 
 def main(argv: list[str]) -> int:

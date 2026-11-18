@@ -10,12 +10,15 @@ Run from ~/datum:  pytest
 import shutil                               # copies fixture files into a temporary folder
 from datetime import date                   # calendar dates, to compare with a parsed file date
 from pathlib import Path                    # file paths
+from types import SimpleNamespace           # a quick object with named fields, for the stand-in's folder listing
 
 import pytest                               # the test runner; pytest.raises checks that an error IS raised
 
 from datum.duval import (
-    START_DATE, DuvalFile, DuvalVerificationError, local_files, repair_all, repair_file, repair_lines, verify_all, verify_file,
+    START_DATE, DuvalFile, DuvalVerificationError, backfill_manifest, download_missing, local_files,
+    repair_all, repair_file, repair_lines, verify_all, verify_file,
 )
+from datum.manifest import read_manifest
 
 FIXTURES = Path(__file__).parent / "fixtures" / "duval"    # tests/fixtures/duval/
 REJECTED = FIXTURES / "rejected"                           # files broken the way the Clerk's 13 rejected files are
@@ -154,3 +157,45 @@ def test_repair_all_repairs_what_it_can_and_reports_the_rest(tmp_path, capsys):
     assert "FAIL  d2026011601id.16" in printed
     assert sorted(p.name for p in (tmp_path / "repaired").iterdir()) == ["d2026011501id.16", "l2026021901id.16"]
     assert len(list((tmp_path / "rejected").iterdir())) == 3              # the originals are all still there
+
+
+# --- Fetch manifest (ruling R23) --------------------------------------------------------
+
+
+def test_source_url_names_the_exact_file_and_no_login():
+    url = DuvalFile.from_name("d2026110501id.16").source_url
+    assert url == "sftp://ftp.duvalclerk.com/Recording%20Indexes/d2026110501id.16"   # the space in the folder name is written %20
+    assert "@" not in url                                                 # an address can carry a login before the host; this one must not
+
+
+class StandInServer:
+    """Plays the Clerk's SFTP server for download_missing(): lists and serves the good fixture files."""
+
+    def listdir_attr(self, remote_dir: str) -> list[SimpleNamespace]:
+        names = ("d2025010301id.16", "p2025010301id.16", "Thumbs.db")     # two index files and one file to ignore
+        return [SimpleNamespace(filename=n, st_size=(FIXTURES / n).stat().st_size if n.endswith(".16") else 1) for n in names]
+
+    def get(self, remote_path: str, local_path: str) -> None:
+        shutil.copy(FIXTURES / Path(remote_path).name, local_path)
+
+
+def test_download_writes_one_manifest_row_per_fetched_file(tmp_path, monkeypatch):
+    monkeypatch.setattr("datum.duval.PAUSE_SECONDS", 0)                   # no need to wait between files in a test
+    raw_dir, manifest = tmp_path / "raw", tmp_path / "fetch_manifest.csv"
+    assert download_missing(StandInServer(), raw_dir, manifest) == (2, 0)
+    records = read_manifest(manifest)
+    assert [(r.source, r.file_name, r.is_approximate) for r in records] == [
+        ("duval", "d2025010301id.16", False), ("duval", "p2025010301id.16", False),
+    ]
+    assert download_missing(StandInServer(), raw_dir, manifest) == (0, 2)  # already on disk at the same size: no request, no new row
+    assert len(read_manifest(manifest)) == 2
+
+
+def test_backfill_covers_verified_and_rejected_files_but_not_repaired_copies(tmp_path):
+    shutil.copy(FIXTURES / "d2025010301id.16", tmp_path / "d2025010301id.16")       # a file that passed
+    shutil.copytree(REJECTED, tmp_path / "rejected")                                # three files as sent, quarantined
+    repair_all(tmp_path)                                                            # makes repaired/ copies of two of them
+    manifest = tmp_path / "fetch_manifest.csv"
+    assert backfill_manifest(tmp_path, manifest) == 4                               # 1 verified + 3 rejected; repaired copies were never fetched
+    assert all(r.is_approximate for r in read_manifest(manifest))
+    assert backfill_manifest(tmp_path, manifest) == 0                               # nothing new the second time

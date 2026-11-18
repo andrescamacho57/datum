@@ -5,7 +5,8 @@ files of construction licensees and of discipline cases against licensed contrac
 Where the files live, their layouts and the site's terms: docs/access/dbpr.md.
 
 What this module does, in order:
-    1. download: one HTTPS request per file, saved under data/raw/dbpr/ (gitignored).
+    1. download: one HTTPS request per file, saved under data/raw/dbpr/ (gitignored). Every
+       downloaded file gets one row in the fetch manifest (manifest.py, ruling R23).
     2. validate: BEFORE anything is loaded into Snowflake, check the file is the shape we
        expect: the right number of columns on every row, enough rows, and a complete
        last line. A file that fails is reported loudly and must not be loaded.
@@ -27,7 +28,13 @@ from pathlib import Path                    # file paths that work on any operat
 
 import truststore                           # verifies HTTPS certificates against the operating system's trusted list (already in the venv)
 
+try:                                        # imported as datum.dbpr (pytest puts src/ on the import path)
+    from datum.manifest import MANIFEST_PATH, backfill, record_fetch
+except ModuleNotFoundError:                 # run as a script: Python puts src/datum/ on the path, so the sibling module is plain `manifest`
+    from manifest import MANIFEST_PATH, backfill, record_fetch
+
 # --- Settings -------------------------------------------------------------------------
+SOURCE = "dbpr"                                            # this source's name in the fetch manifest
 REPO_ROOT = Path(__file__).resolve().parents[2]            # this file is src/datum/dbpr.py → go up 2 folders to ~/datum
 RAW_DIR = REPO_ROOT / "data" / "raw" / "dbpr"              # where downloads land; data/ is gitignored
 USER_AGENT = "datum-dbpr/0.1 (Andrescamacho57@gmail.com)"  # tells the state who is downloading and how to reach us
@@ -66,8 +73,8 @@ class DbprFile:
         """Where this file lives on disk."""
         return raw_dir / self.file_name     # e.g. data/raw/dbpr/CONSTRUCTIONLICENSE_1.csv
 
-    def download(self, raw_dir: Path = RAW_DIR) -> Path:
-        """Fetch the file with ONE request and save it. No retry: a failure is reported, not hidden."""
+    def download(self, raw_dir: Path = RAW_DIR, manifest_path: Path = MANIFEST_PATH) -> Path:
+        """Fetch the file with ONE request, save it and add its fetch-manifest row. No retry: a failure is reported, not hidden."""
         raw_dir.mkdir(parents=True, exist_ok=True)                 # create data/raw/dbpr/ if it isn't there yet
         target = self.path(raw_dir)                                # the final file name
         partial = target.with_name(target.name + ".part")          # download under a temporary name first
@@ -76,6 +83,7 @@ class DbprFile:
         with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS, context=tls) as response:   # open the connection (raises on HTTP errors like 404)
             partial.write_bytes(response.read())                   # write the bytes exactly as received: raw stays raw
         partial.replace(target)                                    # rename only after the whole file arrived, so a half file never has the real name
+        record_fetch(SOURCE, target, self.url, manifest_path=manifest_path)   # one manifest row: address, UTC time now, size, checksum
         return target                                              # hand back the path for the next step
 
     def validate(self, raw_dir: Path = RAW_DIR) -> ValidationReport:
@@ -136,6 +144,12 @@ DISCIPLINE_FILES = tuple(                                           # one spec p
     for fiscal_year in DISCIPLINE_FISCAL_YEARS
 )
 FILES: tuple[DbprFile, ...] = (LICENSE_FILE, *DISCIPLINE_FILES)     # everything `download` and `validate` work through, in order
+
+
+def backfill_manifest(raw_dir: Path = RAW_DIR, manifest_path: Path = MANIFEST_PATH) -> int:
+    """Add approximate fetch-manifest rows for DBPR files that were on disk before the manifest existed."""
+    files = [(f.path(raw_dir), f.url, None) for f in FILES if f.path(raw_dir).exists()]   # (path, source URL, None = the file's own modification time)
+    return backfill(SOURCE, files, manifest_path)
 
 
 def main(argv: list[str]) -> int:
