@@ -11,6 +11,9 @@ models:
     staging:                            # applies to everything in models/staging/
       +schema: staging                  # builds into schema DEV_STAGING (target schema + "_" + this)
       +materialized: view               # a saved query: no storage cost, always reflects raw
+    intermediate:                       # applies to everything in models/intermediate/
+      +schema: intermediate             # builds into schema DEV_INTERMEDIATE: where sources meet (a lien's debtor matched to a company)
+      +materialized: table              # stored results: the link models join 13M companies, so compute once, not on every query
     marts:                              # applies to everything in models/marts/
       +schema: marts                    # builds into schema DEV_MARTS
       +materialized: table              # stored results: fast to query
@@ -26,3 +29,14 @@ seeds:
       +column_types:
         case_id: integer                # join key to test_set
         is_specific: boolean            # Python writes True/False; load it as a real TRUE/FALSE
+    dbpr_license_type_map:              # settings for seeds/dbpr_license_type_map.csv (ruling R14)
+      +schema: reference                # loads into schema DEV_REFERENCE: small lookup tables the pipeline depends on, apart from eval data
+      +column_types:
+        license_type: varchar           # the license kind in words, as the discipline files write it
+        occupation_code: varchar        # the same kind as the license file's code
+    duval_doc_type_allowlist:           # settings for seeds/duval_doc_type_allowlist.csv (ruling R16)
+      +schema: reference                # DEV_REFERENCE
+      +column_types:
+        doc_type_code: varchar          # the Clerk's document type code, e.g. LN
+        used_for: varchar               # flag, closes or partial_release
+        flag_type: varchar              # the flag a "flag" code produces; empty for the others
