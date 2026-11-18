@@ -1,0 +1,62 @@
+# ---------------------------------------------------------------------------
+# _intermediate__models.yml: TESTS for the intermediate (linking) models.
+#
+# Two kinds of test live here:
+#   data_tests   run against the real tables after they are built. Each is a
+#                query that looks for bad rows; zero rows = pass.
+#   unit_tests   run the model's SQL against a handful of made-up rows written
+#                in this file, and compare the result with the rows we expect.
+#                They prove the RULE (R1, R2, the allowlist) does what the
+#                rulings say, before any real data is involved. The company
+#                and party names in them are invented.
+#
+# ---------------------------------------------------------------------------
+
+version: 2
+
+models:
+
+  - name: int_company_match_keys
+    description: One row per company with its match key (name_key minus one trailing legal suffix), 5-digit ZIP code, status, filing date, and how many companies of any status share the match key.
+
+    columns:
+
+      - name: document_number
+        data_tests:
+          - not_null
+          - unique
+          # One row per company, like entity_lookup.
+
+      - name: match_key
+        data_tests:
+          - not_null
+
+      - name: match_key_company_count
+        data_tests:
+          - not_null
+
+
+unit_tests:
+
+  - name: match_key_strips_one_trailing_legal_suffix
+    description: >
+      The match key is the name_key minus ONE trailing legal suffix; the ZIP
+      code is 5 digits or NULL; the count covers every status.
+    model: int_company_match_keys
+    given:
+      - input: ref('entity_lookup')
+        rows:
+          - {document_number: C1, name_key: 'ACME L L C',    principal_zip: '32256-1234', status_code: A, file_date: 2020-01-01}
+          - {document_number: C2, name_key: 'ACME INC',      principal_zip: '33101',      status_code: I, file_date: 2001-05-05}
+          - {document_number: C3, name_key: 'ACME CO INC',   principal_zip: '32256',      status_code: A, file_date: 2010-01-01}
+          - {document_number: C4, name_key: 'SMITH M D P A', principal_zip: ' ',          status_code: A, file_date: 2010-01-01}
+          - {document_number: C5, name_key: 'INC',           principal_zip: 'K1A 0B1',    status_code: A, file_date: 2010-01-01}
+          - {document_number: C6, name_key: 'LINCOLN GROUP', principal_zip: null,         status_code: A, file_date: 2010-01-01}
+    expect:
+      rows:
+          - {document_number: C1, match_key: 'ACME',          zip5: '32256', match_key_company_count: 2}   # L L C stripped; the inactive ACME INC counts too
+          - {document_number: C2, match_key: 'ACME',          zip5: '33101', match_key_company_count: 2}
+          - {document_number: C3, match_key: 'ACME CO',       zip5: '32256', match_key_company_count: 1}   # only INC is stripped, CO stays
+          - {document_number: C4, match_key: 'SMITH M D',     zip5: null,    match_key_company_count: 1}   # P A stripped; a blank ZIP is NULL
+          - {document_number: C5, match_key: 'INC',           zip5: null,    match_key_company_count: 1}   # a name that IS a suffix is left alone; a foreign code is not a ZIP
+          - {document_number: C6, match_key: 'LINCOLN GROUP', zip5: null,    match_key_company_count: 1}   # the INC inside LINCOLN is not a suffix

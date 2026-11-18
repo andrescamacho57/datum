@@ -1,0 +1,228 @@
+{#
+  ---------------------------------------------------------------------------
+  company_matching.sql: the MACROS that link a source record to a company.
+
+  What a macro is: a named, reusable piece of SQL. A model calls it inside
+  double curly braces, and dbt pastes the macro's SQL in its place before
+  sending the query to Snowflake. Everything between the curly-brace-hash
+  marks, like this block, is a Jinja comment: dbt removes it, so Snowflake
+  never sees it.
+
+  Why these are macros and not SQL repeated in each model: four link models
+  (federal liens, DBPR licenses, DBPR discipline, Duval parties) must apply
+  the SAME rule. Linking a lien to the wrong company is the most expensive
+  mistake Datum can make (decision d19), so the rule lives in exactly one
+  place, where one review and one set of tests covers all four.
+
+  The rule itself is rulings R1 and R2 in docs/phase_b_rulings.md.
+
+  To see the SQL a macro produces: run `dbt compile --select <model>` from
+  pipeline/ and open the file under pipeline/target/compiled/.
+  ---------------------------------------------------------------------------
+#}
+
+
+{% macro name_key(column) -%}
+    {#- A simplified name: capitals, with every run of punctuation and spaces
+        turned into one space. "Acme, L.L.C." becomes "ACME L L C". This is the
+        same expression entity_lookup uses for its name_key column, so a source
+        name and a company name are simplified the same way. -#}
+    trim(regexp_replace(upper({{ column }}), '[^A-Z0-9]+', ' '))
+{%- endmacro %}
+
+
+{% macro legal_suffixes() -%}
+    {#- The legal-form endings removed from the END of a name to make its match
+        key, written the way they look inside a name_key (L.L.C. is "L L C").
+        Longer forms come first, so "P L L C" is tried before "L L C".
+        Kept to legal forms only (R1: "LLC, INC, CORP, CO, LTD, LP, LLP, PLLC,
+        PA, PC and similar"). Words such as ASSOCIATION, TRUST or GROUP are part
+        of a name, not a legal form, and stay. -#}
+    L L L P|P L L C|L L C|L L P|INCORPORATED|CORPORATION|COMPANY|LIMITED|LLLP|PLLC|LLC|LLP|INC|CORP|LTD|PLC|CO|LC|LP|PA|PC|PL|L C|L P|P A|P C|P L
+{%- endmacro %}
+
+
+{% macro entity_words() -%}
+    {#- The words that mark a name as a business (R1: "the source name contains
+        a legal-entity word"). Shorter than the suffix list on purpose: the
+        two-letter spaced forms (L C, L P, P A, P C, P L) are left out, because
+        in a person's name they can be two initials ("SMITH L C"), and reading
+        initials as "this is a company" is the mistake R1 exists to prevent. -#}
+    P L L C|L L C|INCORPORATED|CORPORATION|COMPANY|LIMITED|LLLP|PLLC|LLC|LLP|INC|CORP|LTD|PLC|CO|LC|LP|PA|PC|PL
+{%- endmacro %}
+
+
+{% macro match_key(name_key_column) -%}
+    {#- The name_key minus ONE trailing legal suffix: "ACME L L C" and
+        "ACME INC" both become "ACME". Only one suffix is removed, so
+        "ACME CO INC" becomes "ACME CO", not "ACME".
+        The pattern reads: a space, one of the suffixes, then $ = the end of
+        the text. A name that IS only a suffix ("INC") has no space before it
+        and is left alone. -#}
+    trim(regexp_replace({{ name_key_column }}, ' ({{ legal_suffixes() }})$', ''))
+{%- endmacro %}
+
+
+{% macro has_entity_word(name_key_column) -%}
+    {#- TRUE when the name contains a legal-entity word as a whole word.
+        regexp_like must match the WHOLE text, so the pattern is: optionally
+        anything followed by a space, then one of the words, then optionally a
+        space followed by anything. "ACME INC OF FLORIDA" is TRUE; "LINCOLN"
+        is FALSE, because INC there is inside a longer word. -#}
+    regexp_like({{ name_key_column }}, '(.* )?({{ entity_words() }})( .*)?')
+{%- endmacro %}
+
+
+{% macro link_to_companies(names_relation, use_zip) %}
+    {#-
+      The linking rule (R1 and R2), as the tail of a query. A link model
+      prepares one CTE of source names and calls this macro after it.
+
+      names_relation: the name of a CTE with exactly these columns
+          source_record_id   the source record's identifier (a lien number, a license number ...)
+          party_seq          which party on that record (1 when the record has one name)
+          source_name_key    the party's name, simplified with name_key(); used here and NOT output (R4)
+          source_zip5        the party's 5-digit ZIP code, or NULL
+          source_date        the record's date
+      use_zip: true when the source carries an address. false for Duval, whose
+          records have none, so only the unique-name branch applies (R3).
+
+      One output row per source party per candidate company:
+          CONFIRMED  exactly one row for that party
+          AMBIGUOUS  one row per possible company
+          NO_MATCH   one row, document_number NULL
+    -#}
+    keyed as (
+        -- Turn each source name into the same match key companies have.
+        select
+            source_record_id,
+            party_seq,
+            source_date,
+            {% if use_zip -%}
+            case when regexp_like(source_zip5, '[0-9]{5}') then source_zip5 end as source_zip5,
+            -- Only a real 5-digit ZIP counts. Anything else is treated as "no ZIP".
+            {%- else -%}
+            cast(null as varchar) as source_zip5,
+            -- This source has no address: every row takes the unique-name branch (R3).
+            {%- endif %}
+            {{ match_key('source_name_key') }} as source_match_key,
+            {{ has_entity_word('source_name_key') }} as source_has_entity_word
+        from {{ names_relation }}
+    ),
+
+    candidates as (
+        -- Every company whose match key equals the source's. A LEFT JOIN, so
+        -- a source party with no such company is kept, with NULLs on the
+        -- company side: that row becomes NO_MATCH.
+        select
+            k.source_record_id,
+            k.party_seq,
+            k.source_date,
+            k.source_zip5,
+            k.source_has_entity_word,
+            c.document_number,
+            c.zip5      as company_zip5,
+            c.file_date as company_file_date,
+            count(c.document_number) over (partition by k.source_record_id, k.party_seq) as candidate_count,
+            -- How many companies share this party's match key. count(column)
+            -- skips NULLs, so a party with no company gets 0.
+            count_if(c.zip5 = k.source_zip5) over (partition by k.source_record_id, k.party_seq) as same_zip_count
+            -- How many of those companies are also at the party's ZIP code.
+            -- "over (partition by ...)" computes the count per source party
+            -- and writes it on each of that party's rows (a window function).
+        from keyed as k
+        left join {{ ref('int_company_match_keys') }} as c
+            on  c.match_key = k.source_match_key
+            and k.source_match_key <> ''
+            -- An empty key (a name made only of punctuation) matches nothing.
+    ),
+
+    r1 as (
+        -- Ruling R1, as one label per row. Read the branches top to bottom:
+        -- the first one that fits wins.
+        select
+            *,
+            case
+                when document_number is null then 'no_company_with_this_match_key'
+                -- No company in Florida, of any status, has this match key.
+
+                when source_zip5 is not null and same_zip_count = 1 and company_zip5 = source_zip5 then 'name_zip'
+                -- The source has a ZIP code, and exactly one company with this
+                -- match key is at that ZIP code: this row is that company.
+
+                when source_zip5 is not null and same_zip_count = 1 then 'drop_other_zip'
+                -- Same party, but this row is a namesake at ANOTHER ZIP code.
+                -- The ZIP code already singled out one company, so the
+                -- namesakes are dropped below, not offered as possible matches.
+
+                when source_zip5 is not null and same_zip_count > 1 then 'several_companies_same_zip'
+                -- Two or more companies share the match key AND the ZIP code:
+                -- the address can't tell them apart.
+
+                when source_zip5 is not null then 'zip_differs'
+                -- The name matches, but no company with this match key is at
+                -- the source's ZIP code. R1's unique-name branch is only for
+                -- sources WITHOUT a ZIP code, so this is never CONFIRMED.
+
+                when candidate_count > 1 then 'several_companies'
+                -- No ZIP code to go on, and more than one company (of any
+                -- status) has this match key.
+
+                when not source_has_entity_word then 'no_entity_word'
+                -- One company has this match key, but the source name has no
+                -- LLC / INC / CORP ... It may be a person whose name equals a
+                -- company's once "LLC" is stripped.
+
+                else 'unique_name'
+                -- No ZIP code, exactly one company in Florida has this match
+                -- key, and the source name carries a legal-entity word.
+            end as r1_outcome
+        from candidates
+    ),
+
+    decided as (
+        -- Ruling R2 on top of R1: a record dated before the company's own
+        -- filing date on Sunbiz is never CONFIRMED.
+        select
+            source_record_id,
+            party_seq,
+            document_number,
+            source_date,
+            case
+                when r1_outcome = 'no_company_with_this_match_key' then 'NO_MATCH'
+                when r1_outcome not in ('name_zip', 'unique_name')  then 'AMBIGUOUS'
+                when source_date is null or company_file_date is null then 'AMBIGUOUS'
+                -- R2 can't be checked without both dates. Unknown is not
+                -- "after", so the link is not confirmed.
+                when source_date < company_file_date                then 'AMBIGUOUS'
+                -- The record is older than the company: a company can't owe a
+                -- lien from before it existed. Usually a dissolved company
+                -- whose name a newer one took.
+                else 'CONFIRMED'
+            end as link_status,
+            case
+                when r1_outcome not in ('name_zip', 'unique_name')            then r1_outcome
+                when source_date is null or company_file_date is null         then 'date_unknown'
+                when source_date < company_file_date                          then 'before_company_filed'
+                else r1_outcome
+            end as link_reason
+            -- WHY the row got its status: the R1 branch, or the R2 reason that
+            -- overrode it. For a CONFIRMED row it equals matched_on.
+        from r1
+        where r1_outcome <> 'drop_other_zip'
+    )
+
+    select
+        source_record_id,
+        party_seq,
+        document_number,
+        -- The company's Sunbiz document number. NULL on a NO_MATCH row.
+        link_status,
+        -- CONFIRMED, AMBIGUOUS or NO_MATCH. Never a yes/no (CLAUDE.md rule 3).
+        case when link_status = 'CONFIRMED' then link_reason end as matched_on,
+        -- name_zip or unique_name on a CONFIRMED row; NULL otherwise.
+        link_reason,
+        source_date
+        -- The source record's date, carried so R2 can be re-checked by a test.
+    from decided
+{% endmacro %}
