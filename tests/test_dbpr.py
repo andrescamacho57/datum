@@ -12,7 +12,10 @@ from pathlib import Path                    # file paths
 
 import pytest                               # the test runner; pytest.raises checks that an error IS raised
 
-from datum.dbpr import DISCIPLINE_FILES, DISCIPLINE_HEADER, LICENSE_FILE, DbprFile, DbprValidationError
+from datum.dbpr import (
+    DISCIPLINE_FILES, DISCIPLINE_HEADER, LICENSE_FILE, DbprFile, DbprValidationError, backfill_manifest, looks_like_header,
+)
+from datum.manifest import read_manifest, sha256_of
 
 FIXTURES = Path(__file__).parent / "fixtures" / "dbpr"     # tests/fixtures/dbpr/
 
@@ -59,6 +62,20 @@ def test_changed_header_is_rejected():
         discipline_spec("contractor_disc_lic_bad_header.csv").validate(FIXTURES)
 
 
+def test_license_file_that_starts_with_a_header_row_is_rejected():
+    # Ruling R25. The license file has no header. If the state ever adds one, every column count
+    # still fits (22 labels), so only this check stops the labels loading as one bad data row.
+    with pytest.raises(DbprValidationError, match="row 1 looks like a header row"):
+        license_spec("construction_license_with_header.csv").validate(FIXTURES)
+
+
+def test_a_real_data_row_never_looks_like_a_header():
+    # The rule: a header is all labels, so every filled cell has a letter. Data always has all-digit cells.
+    assert looks_like_header(["Board Number", "Occupation Code", "Address Line 1", ""]) is True
+    assert looks_like_header(["06", "QB", "ACME BUILDERS INC", "", "32256", "26"]) is False   # 06, 32256 and 26 have no letter
+    assert looks_like_header(["", "", ""]) is False                # an empty row is not a header either
+
+
 def test_too_few_rows_is_rejected():
     # The real spec expects at least 200,000 rows; a 20-row file must fail it.
     with pytest.raises(DbprValidationError, match="20 data rows, expected at least 200000"):
@@ -81,9 +98,29 @@ def test_download_saves_the_bytes_unchanged_and_leaves_no_partial_file(tmp_path)
     # file:// makes urllib read a local file through the same code path as https://, so no network and no mock.
     source = FIXTURES / "construction_license_20.csv"
     spec = replace(license_spec("construction_license_20.csv"), url=source.as_uri())
-    saved = spec.download(tmp_path)
+    raw_dir, manifest = tmp_path / "raw", tmp_path / "fetch_manifest.csv"   # a test never writes to the real manifest in data/
+    saved = spec.download(raw_dir, manifest)
     assert saved.read_bytes() == source.read_bytes()               # raw stays raw: byte for byte
-    assert [p.name for p in tmp_path.iterdir()] == ["construction_license_20.csv"]   # the .part file was renamed away
+    assert [p.name for p in raw_dir.iterdir()] == ["construction_license_20.csv"]   # the .part file was renamed away
+
+
+def test_download_writes_one_fetch_manifest_row(tmp_path):
+    # Ruling R23: the file's address, a measured UTC fetch time, its size and its checksum.
+    source = FIXTURES / "construction_license_20.csv"
+    spec = replace(license_spec("construction_license_20.csv"), url=source.as_uri())
+    spec.download(tmp_path / "raw", tmp_path / "fetch_manifest.csv")
+    (record,) = read_manifest(tmp_path / "fetch_manifest.csv")     # exactly one row
+    assert (record.source, record.file_name, record.source_url) == ("dbpr", "construction_license_20.csv", source.as_uri())
+    assert (record.size_bytes, record.sha256, record.is_approximate) == (source.stat().st_size, sha256_of(source), False)
+
+
+def test_backfill_adds_an_approximate_row_for_each_file_on_disk(tmp_path):
+    # Only the license file is "on disk" here; the five discipline files are absent and get no row.
+    (tmp_path / LICENSE_FILE.file_name).write_bytes((FIXTURES / "construction_license_20.csv").read_bytes())
+    manifest = tmp_path / "fetch_manifest.csv"
+    assert backfill_manifest(tmp_path, manifest) == 1
+    (record,) = read_manifest(manifest)
+    assert (record.file_name, record.source_url, record.is_approximate) == (LICENSE_FILE.file_name, LICENSE_FILE.url, True)
 
 
 def test_specs_match_what_the_state_publishes():

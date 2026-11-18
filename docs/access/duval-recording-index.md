@@ -137,7 +137,58 @@ The file's date is not the recording date. Of 753,259 loaded document rows, 170,
 
 They sit in `data/raw/duval/rejected/`. Not loaded: 18,386 document records (2.4% of the 771,645 in scope) and 2,563 link rows. The effect is visible downstream: all 45,173 party rows and all 14,464 link rows that have no matching document are from those 12 days. Outside those days there are zero orphans.
 
-A repair is possible (join the broken lines into one record in a copy, keep the original) and has not been done: the brief says a mismatch fails the file.
+A repair is possible (join the broken lines into one record in a copy, keep the original) and has not been done: the brief says a mismatch fails the file. **Update 2026-11-18: repaired and loaded under ruling R15. See the next section.**
+
+## Repaired files (2026-11-18, leg B0, ruling R15)
+
+All 13 rejected files were repaired **in a copy** and loaded. The files as the Clerk sent them are still in `data/raw/duval/rejected/`, byte for byte.
+
+**The rule** (`repair_file()` in `src/datum/duval.py`, run with `python src/datum/duval.py repair`):
+
+1. Every record in a documents file starts with `DDA|` (parties: `DPA|`). A line that does not start with that marker is the tail of the record above it, so it is joined to that line with **one space**.
+2. Blank lines are dropped.
+3. The trailer line `EOF|<count>` is kept exactly as sent.
+4. The repaired copy is written to `data/raw/duval/repaired/` under the **same file name**, and is kept only if its row count now equals the trailer. A copy that still disagrees is deleted and the file stays out.
+
+Links files have no record marker, so for them the only repair is dropping blank lines.
+
+**What a broken record looks like** (from `d2026011501id.16`; three lines in the file, one record):
+
+```
+DDA|16|2004349401|MTG|MORTGAGE|L12 B4 TIMUQUANA ACRES
+                                                          ← a blank line
+|OR|12125|334||6|11/03/2004|8210|35500.00|
+```
+
+Repaired: `DDA|16|2004349401|MTG|MORTGAGE|L12 B4 TIMUQUANA ACRES |OR|12125|334||6|11/03/2004|8210|35500.00|`. The one extra space sits at the end of the legal description, and staging trims it.
+
+**Result per file** (output of `python src/datum/duval.py repair`, then CHECK 1 of `snowflake/16_duval_repaired_load.sql`):
+
+| File | Rows after repair | EOF count | Lines joined | Blank lines dropped |
+|---|---|---|---|---|
+| `d2025090201id.16` | 460 | 460 | 2 | 0 |
+| `d2025090301id.16` | 1,369 | 1,369 | 1 | 0 |
+| `d2026010901id.16` | 1,172 | 1,172 | 2 | 0 |
+| `d2026011501id.16` | 520 | 520 | 2 | 1 |
+| `d2026021901id.16` | 2,492 | 2,492 | 2 | 0 |
+| `d2026022501id.16` | 2,668 | 2,668 | 1 | 0 |
+| `d2026031401id.16` | 253 | 253 | 1 | 0 |
+| `d2026040801id.16` | 3,206 | 3,206 | 1 | 1 |
+| `d2026061101id.16` | 1,343 | 1,343 | 1 | 0 |
+| `d2026072801id.16` | 1,371 | 1,371 | 1 | 0 |
+| `d2026081201id.16` | 1,665 | 1,665 | 3 | 0 |
+| `d2026101601id.16` | 1,867 | 1,867 | 1 | 0 |
+| `l2026021901id.16` | 2,563 | 2,563 | 0 | 1 |
+
+18 lines joined and 3 blank lines dropped in all. 18,386 document records and 2,563 link rows came back, which are exactly the numbers reported missing above.
+
+**After loading** (`snowflake/16_duval_repaired_load.sql`, 2026-11-18): 684 files of each kind, 2025-01-01 through 2026-11-16 (20 new files for 2026-11-12 to 2026-11-16 were downloaded the same day and all passed verification). 2,736 files, every one equal to its EOF count: documents 777,263 rows, parties 2,065,331, links 796,436, doc types 58,140. **Orphans: 0 party rows and 0 link rows** without a document (before the repair: 45,173 and 14,464).
+
+**What to know when reading the data:**
+- Nothing in the raw tables marks a row as repaired. This table is the record.
+- A repaired file's row in the fetch manifest (`datum.raw.fetch_manifest`) describes the file **as sent**: its checksum is the checksum of the file in `rejected/`, not of the repaired copy.
+- If the Clerk re-issues one of these files, download it again, check it with `verify`, and prefer the Clerk's version.
+- A newly downloaded file that fails verification lands in `rejected/`; run `repair` again and it is handled the same way. `repair` is safe to rerun.
 
 ## Other things found in the files
 
@@ -150,7 +201,7 @@ A repair is possible (join the broken lines into one record in a copy, keep the 
 
 - Terms of use (asked 2026-11-05, unanswered).
 - Is the ssh-dss fingerprint above the Clerk's? Worth confirming with their IT contact.
-- May the 12 documents files be repaired by joining broken lines?
-- Which document type codes are criminal and must be excluded after staging?
+- ~~May the 12 documents files be repaired by joining broken lines?~~ Answered 2026-11-18: yes, in a copy (ruling R15, "Repaired files" above).
+- ~~Which document type codes are criminal and must be excluded after staging?~~ Answered 2026-11-18: an allowlist, not an exclusion list (ruling R16 in `docs/phase_b_rulings.md`).
 - What is field 10 of the documents file?
 - How should a citation point at a record? There is no per-record URL; the instrument number can be searched at the Clerk's Official Records site.

@@ -10,12 +10,18 @@ Run from ~/datum:  pytest
 import shutil                               # copies fixture files into a temporary folder
 from datetime import date                   # calendar dates, to compare with a parsed file date
 from pathlib import Path                    # file paths
+from types import SimpleNamespace           # a quick object with named fields, for the stand-in's folder listing
 
 import pytest                               # the test runner; pytest.raises checks that an error IS raised
 
-from datum.duval import START_DATE, DuvalFile, DuvalVerificationError, local_files, verify_all, verify_file
+from datum.duval import (
+    START_DATE, DuvalFile, DuvalVerificationError, backfill_manifest, download_missing, local_files,
+    repair_all, repair_file, repair_lines, verify_all, verify_file,
+)
+from datum.manifest import read_manifest
 
 FIXTURES = Path(__file__).parent / "fixtures" / "duval"    # tests/fixtures/duval/
+REJECTED = FIXTURES / "rejected"                           # files broken the way the Clerk's 13 rejected files are
 
 
 def test_file_name_gives_kind_and_date():
@@ -92,3 +98,104 @@ def test_quarantine_moves_failing_files_out_of_the_upload_folder(tmp_path):
         "d2025010301id.16", "l2025010301id.16", "m2025010301d.16", "p2025010301id.16",
     ]
     assert verify_all(tmp_path, quarantine=True) == 0                     # a second run finds nothing left to fail
+
+
+# --- Repair (ruling R15) ----------------------------------------------------------------
+
+
+def test_broken_record_fails_verification_before_repair():
+    # 14 records, but two are split by a line break and one of those also has a blank line: 17 lines.
+    with pytest.raises(DuvalVerificationError, match=r"17 rows in the file, but the trailer says EOF\|14"):
+        verify_file(REJECTED / "d2026011501id.16")
+
+
+def test_repair_joins_continuation_lines_with_one_space(tmp_path):
+    report = repair_file(REJECTED / "d2026011501id.16", tmp_path)
+    assert (report.rows, report.lines_joined, report.blank_lines_dropped) == (14, 2, 1)
+    repaired = (tmp_path / "d2026011501id.16").read_bytes().split(b"\r\n")
+    # The record that was spread over three lines (text, blank, rest) is one line again, with one space at the join.
+    assert b"DDA|16|2004349401|MTG|MORTGAGE|L12 B4 TIMUQUANA ACRES |OR|12125|334||6|11/03/2004|8210|35500.00|" in repaired
+    assert b"DDA|16|2004349407|MTG|MORTGAGE|SEC 23 4 27 |OR|12125|370||6|11/03/2004|8210|100000.00|" in repaired
+    assert all(line.startswith(b"DDA|") for line in repaired[:-2])        # every data line starts a record again
+    assert repaired[-2:] == [b"EOF|14", b""]                              # the Clerk's trailer is kept as sent
+    assert verify_file(tmp_path / "d2026011501id.16").rows == 14          # and the copy now passes the same check as any file
+
+
+def test_repair_drops_the_blank_line_in_a_links_file(tmp_path):
+    # Links rows have no record marker, so the only repair is dropping the blank line.
+    report = repair_file(REJECTED / "l2026021901id.16", tmp_path)
+    assert (report.rows, report.lines_joined, report.blank_lines_dropped) == (7, 0, 1)
+
+
+def test_repair_never_changes_the_file_as_sent(tmp_path):
+    original = REJECTED / "d2026011501id.16"
+    before = original.read_bytes()
+    repair_file(original, tmp_path)
+    assert original.read_bytes() == before                                # the evidence stays byte for byte
+
+
+def test_repair_that_still_disagrees_with_the_trailer_leaves_no_copy(tmp_path):
+    # Same 14 records, but the trailer claims 15: a record really is missing, and joining lines can't bring it back.
+    with pytest.raises(DuvalVerificationError, match=r"d2026011601id\.16: 14 rows in the file, but the trailer says EOF\|15 \(after repair\)"):
+        repair_file(REJECTED / "d2026011601id.16", tmp_path)
+    assert list(tmp_path.iterdir()) == []                                 # nothing was left where the upload would look
+
+
+def test_repair_keeps_a_first_line_that_starts_with_a_byte_order_mark():
+    # Three of the Clerk's files start with a byte-order mark, so line 1 doesn't begin with DDA|. It must not be glued to nothing.
+    lines = [b"\xef\xbb\xbfDDA|16|1|", b"DDA|16|2|LEGAL", b"|OR|", b"", b"DDA|16|3|"]
+    mended, joined, dropped = repair_lines(lines, b"DDA|")
+    assert mended == [b"\xef\xbb\xbfDDA|16|1|", b"DDA|16|2|LEGAL |OR|", b"DDA|16|3|"]
+    assert (joined, dropped) == (1, 1)
+
+
+def test_repair_all_repairs_what_it_can_and_reports_the_rest(tmp_path, capsys):
+    shutil.copytree(REJECTED, tmp_path / "rejected")                      # repair_all reads <raw_dir>/rejected/
+    assert repair_all(tmp_path) == 1                                      # the EOF|15 file can't be repaired
+    printed = capsys.readouterr().out
+    assert "OK    d2026011501id.16: 14 rows = EOF count; joined 2 line(s), dropped 1 blank line(s)" in printed
+    assert "FAIL  d2026011601id.16" in printed
+    assert sorted(p.name for p in (tmp_path / "repaired").iterdir()) == ["d2026011501id.16", "l2026021901id.16"]
+    assert len(list((tmp_path / "rejected").iterdir())) == 3              # the originals are all still there
+
+
+# --- Fetch manifest (ruling R23) --------------------------------------------------------
+
+
+def test_source_url_names_the_exact_file_and_no_login():
+    url = DuvalFile.from_name("d2026110501id.16").source_url
+    assert url == "sftp://ftp.duvalclerk.com/Recording%20Indexes/d2026110501id.16"   # the space in the folder name is written %20
+    assert "@" not in url                                                 # an address can carry a login before the host; this one must not
+
+
+class StandInServer:
+    """Plays the Clerk's SFTP server for download_missing(): lists and serves the good fixture files."""
+
+    def listdir_attr(self, remote_dir: str) -> list[SimpleNamespace]:
+        names = ("d2025010301id.16", "p2025010301id.16", "Thumbs.db")     # two index files and one file to ignore
+        return [SimpleNamespace(filename=n, st_size=(FIXTURES / n).stat().st_size if n.endswith(".16") else 1) for n in names]
+
+    def get(self, remote_path: str, local_path: str) -> None:
+        shutil.copy(FIXTURES / Path(remote_path).name, local_path)
+
+
+def test_download_writes_one_manifest_row_per_fetched_file(tmp_path, monkeypatch):
+    monkeypatch.setattr("datum.duval.PAUSE_SECONDS", 0)                   # no need to wait between files in a test
+    raw_dir, manifest = tmp_path / "raw", tmp_path / "fetch_manifest.csv"
+    assert download_missing(StandInServer(), raw_dir, manifest) == (2, 0)
+    records = read_manifest(manifest)
+    assert [(r.source, r.file_name, r.is_approximate) for r in records] == [
+        ("duval", "d2025010301id.16", False), ("duval", "p2025010301id.16", False),
+    ]
+    assert download_missing(StandInServer(), raw_dir, manifest) == (0, 2)  # already on disk at the same size: no request, no new row
+    assert len(read_manifest(manifest)) == 2
+
+
+def test_backfill_covers_verified_and_rejected_files_but_not_repaired_copies(tmp_path):
+    shutil.copy(FIXTURES / "d2025010301id.16", tmp_path / "d2025010301id.16")       # a file that passed
+    shutil.copytree(REJECTED, tmp_path / "rejected")                                # three files as sent, quarantined
+    repair_all(tmp_path)                                                            # makes repaired/ copies of two of them
+    manifest = tmp_path / "fetch_manifest.csv"
+    assert backfill_manifest(tmp_path, manifest) == 4                               # 1 verified + 3 rejected; repaired copies were never fetched
+    assert all(r.is_approximate for r in read_manifest(manifest))
+    assert backfill_manifest(tmp_path, manifest) == 0                               # nothing new the second time
