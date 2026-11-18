@@ -1,0 +1,101 @@
+# ---------------------------------------------------------------------------
+# _dbpr__models.yml: TESTS for the two DBPR staging models.
+#
+# Each test is a SQL query that looks for BAD rows: zero bad rows = PASS.
+# One more test lives in pipeline/tests/ as its own .sql file:
+#   - assert_dbpr_license_key_unique.sql  (occupation code + license number
+#     appears once)
+# ---------------------------------------------------------------------------
+
+version: 2
+# dbt's property-file format version. Always 2.
+
+models:
+
+  - name: stg_dbpr__licenses
+    description: One row per record in DBPR's construction licensee file, cleaned and typed.
+
+    columns:
+
+      - name: occupation_code
+        data_tests:
+          - not_null
+          # Every row must say what kind of record it is.
+
+          - accepted_values:
+              arguments:
+                values: ['CAC', 'CBC', 'CCC', 'CFC', 'CGC', 'CMC', 'CPC', 'CRC', 'CSC', 'CUC', 'CVC', 'SCC', 'PCC',
+                         'RA', 'RB', 'RC', 'RF', 'RG', 'RL', 'RM', 'RP', 'RQ', 'RR', 'RS', 'RU', 'RX', 'RV',
+                         'QB', 'FRO', 'PVDR', 'CRS1']
+          # The 31 codes DBPR lists for board 06 (construction) on its
+          # "Understanding DBPR Codes" page. A code outside this list means
+          # the state added a kind of record, and record_kind in the model
+          # would mislabel it, so this fails the build until someone looks.
+
+      - name: record_kind
+        data_tests:
+          - not_null
+          # Every row is labelled business / contractor_license /
+          # financial_officer / education.
+
+      - name: license_number
+        data_tests:
+          - not_null:
+              config:
+                where: "occupation_code <> 'QB'"
+          # Every record except QB must have a license number.
+          # `where:` narrows the rows a test looks at. QB ("Construction
+          # Business Information") rows are left out because the state's file
+          # gives them no number at all: 128,904 of 128,904 are blank
+          # (docs/access/dbpr.md). That is the file, not a parsing fault.
+
+      - name: licensee_name
+        data_tests:
+          - not_null
+          # A record with no name can't be shown or linked.
+
+      - name: primary_status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['C', 'P', 'S']
+          # C current, P probation, S suspended: the state's three codes.
+
+      - name: secondary_status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['A', 'I']
+          # A active, I inactive. NULLs pass: accepted_values only looks at
+          # rows that HAVE a value, and the state leaves this blank on many.
+
+  - name: stg_dbpr__discipline
+    description: One row per discipline line per complaint against a licensed contractor, five fiscal years.
+
+    columns:
+
+      - name: license_number
+        data_tests:
+          - not_null
+          # The only link from a discipline case back to a license.
+
+      - name: complaint_number
+        data_tests:
+          - not_null
+          # The case number is the record ID a report would cite.
+
+      - name: entered_date
+        data_tests:
+          - not_null
+          # Fails if an entered date didn't parse as MM/DD/YYYY.
+
+      - name: discipline_date
+        data_tests:
+          - not_null
+          # Fails if the combined column stopped starting with a date, which
+          # would mean the split into date + action is cutting in the wrong place.
+
+      - name: fiscal_year_code
+        data_tests:
+          - not_null
+          # Fails if a file arrives whose name has no four-digit year code.
