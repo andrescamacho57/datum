@@ -45,6 +45,18 @@ check "blocks snowflake dir"          2 '{"tool_input":{"command":"ls ~/.snowfla
 # A private-key file.
 check "blocks p8 key file"            2 '{"tool_input":{"command":"openssl pkey -in rsa_key.p8"}}'
 
+# --- Must block (exit 2) in any letter case. ---
+# The Mac's disk treats upper and lower case as the same name, so `cat .ENV` opens the dotenv file.
+# A pattern that only knew the lower-case spelling would let each of these four through.
+# The dotenv file, typed in capitals.
+check "blocks upper-case dotenv file" 2 '{"tool_input":{"command":"cat .ENV"}}'
+# The Snowflake config directory, typed in capitals.
+check "blocks upper-case snowflake dir" 2 '{"tool_input":{"command":"ls ~/.SNOWFLAKE/config.toml"}}'
+# dbt's credentials file, with a capital first letter.
+check "blocks capitalised profiles file" 2 '{"tool_input":{"command":"head ~/.dbt/Profiles.yml"}}'
+# A private-key file whose ending is in capitals.
+check "blocks upper-case p8 key file" 2 '{"tool_input":{"command":"openssl pkey -in RSA_KEY.P8"}}'
+
 # --- Known over-matches, pinned so a change to the pattern is a deliberate decision. ---
 # A commit message that merely mentions the dotenv file is blocked (plain substring match).
 check "pinned: blocks commit message" 2 '{"tool_input":{"command":"git commit -m \"load key from .env\""}}'

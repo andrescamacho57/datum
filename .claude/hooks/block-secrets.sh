@@ -30,15 +30,17 @@ command_text="$(printf '%s' "$payload" | jq -r '.tool_input.command // empty')" 
   exit 2
 }  # end of the parse-failure handler
 
-# Case-sensitive extended-regex of the four protected names; dots are escaped to be literal.
+# Extended regular expression of the four protected names; dots are escaped to be literal.
+# It is written in lower case, and grep's -i flag below makes it match any letter case.
 # .env covers .env and .env.local; profiles.yml is dbt's credentials file;
 # .snowflake is the ~/.snowflake config directory; .p8 is a private-key file.
 pattern='\.env|profiles\.yml|\.snowflake|\.p8'
 
-# If the command text mentions any protected name, refuse it.
-if printf '%s' "$command_text" | grep -Eq -- "$pattern"; then
+# If the command text mentions any protected name, in any letter case, refuse it.
+# -i is here because the Mac's disk does not tell upper case from lower: `cat .ENV` opens the dotenv file.
+if printf '%s' "$command_text" | grep -Eqi -- "$pattern"; then
   # Say what matched and why, so Claude does not retry with a variation.
-  echo "block-secrets: command mentions a secrets file (.env, profiles.yml, .snowflake, .p8). Secrets must never be read. Blocked." >&2
+  echo "block-secrets: command mentions a secrets file (.env, profiles.yml, .snowflake, .p8, in any letter case). Secrets must never be read. Blocked." >&2
   # Exit 2 blocks the tool call.
   exit 2
 fi  # end of the secrets-match check
