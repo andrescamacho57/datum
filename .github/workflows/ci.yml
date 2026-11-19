@@ -19,28 +19,6 @@ jobs:
       - uses: actions/checkout@v4              # copy the repo onto the machine
         with:
           persist-credentials: false           # do not leave this run's access token in .git/config, where a later step could read it
-      - name: Secret scan of the tracked files
-        env:
-          GITLEAKS_VERSION: "8.30.1"           # an exact release of gitleaks, a free open-source scanner for keys, tokens and passwords
-          GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"   # that release's checksum for Linux, from its own checksums file
-        run: |
-          set -euo pipefail                    # stop at the first failing command, including one in the middle of a pipe
-          curl -sSfL -o "$RUNNER_TEMP/gitleaks.tar.gz" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum --check   # stop here if the download is not byte for byte the pinned release
-          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
-          # One way to run the scanner, used twice below. The flags after the folder stop the commit under test from
-          # switching the scan off: the rules come from .github/gitleaks.toml and from no file in the scanned folder,
-          # and a "gitleaks:allow" comment on a line is not honoured. --redact keeps a found secret out of this public log.
-          scan() { "$RUNNER_TEMP/gitleaks" dir "$1" --config .github/gitleaks.toml --gitleaks-ignore-path "$RUNNER_TEMP/no-ignore-file" --ignore-gitleaks-allow --redact --no-banner; }
-          mkdir "$RUNNER_TEMP/canary" "$RUNNER_TEMP/flat"
-          # First prove the scanner can find something: plant a made-up token, built here from two halves so this file holds no token, and expect a finding.
-          printf 'token = "%s%s"\n' 'ghp_' '0123456789abcdefghijABCDEFGHIJ012345' > "$RUNNER_TEMP/canary/1.txt"
-          if scan "$RUNNER_TEMP/canary"; then echo "The scanner missed a planted fake token, so a clean result would prove nothing."; exit 1; fi
-          # Then copy every tracked file into one flat folder under a plain numbered name (1.txt, 2.txt, ...) and scan that.
-          # The scanner skips some files by name (images, PDFs, lock files) and obeys a file named .gitleaksignore in the folder
-          # it scans. Under a numbered name no file can ask to be skipped or excuse another. names.txt records which number is which path.
-          git ls-files -z | { n=0; while IFS= read -r -d '' f; do n=$((n+1)); cp -- "$f" "$RUNNER_TEMP/flat/$n.txt"; printf '%s.txt is %s\n' "$n" "$f" >> "$RUNNER_TEMP/names.txt"; done; }
-          if ! scan "$RUNNER_TEMP/flat"; then echo "Which numbered file is which:"; cat "$RUNNER_TEMP/names.txt"; exit 1; fi   # any finding fails the job
       - uses: actions/setup-python@v5          # install Python
         with:
           python-version: "3.12"               # the same version as the .venv on the Mac. No package cache is kept between runs (see the end of this file)
@@ -63,11 +41,6 @@ jobs:
 # Concept: CI is the "automated checks" layer of code review. A red check is the signal not to merge. Nothing
 # stops the merge button yet: that takes branch protection on main, which is a GitHub setting and not a file
 # (docs/review_process.md, "Not yet").
-# Design decision: the secret scan runs first, before anything is installed, so no later download can get between
-# the scanner and its checksum. The scanner is pinned twice: by version, and by the checksum of the download, so a
-# changed file under the same version number fails the step. It scans a copy of every tracked file as it is in
-# this commit, each under a numbered name, because the scanner's built-in rules skip some files by their name and
-# path. One cost: a rule that looks at a file's name and not its content cannot fire. It does not scan the git history.
 # Design decision: dbt is installed last, and only because the Stop hook's test needs it. The models are not built:
 # that needs Snowflake, and this job holds no secret. --version pins the dbt release to the one the Mac runs
 # (requirements.txt's header, 2.0.12). The installer script itself is NOT pinned: it is whatever dbt Labs serves
@@ -75,5 +48,7 @@ jobs:
 # checkout keeps no access token, why the job may only read the repo, and why no package cache is saved at the end
 # of the run: a cache is a way for one run to leave files for the next. What the installer could still do is make
 # the last step pass when it should not. Without the cache, installing the packages takes a little longer each run.
+# Not here: a secret scan. One was built on this branch with gitleaks and taken out again after review, because a
+# commit made on purpose to hide a secret could still get past it. The pull request that added this note explains.
 # Design decision: the Stop hook's test finds ruff on PATH here, because this machine has no .venv, and it counts
 # "no ruff found" as a failure when CI=true, so its cases cannot quietly skip.
