@@ -22,6 +22,13 @@
 -- it has been checked and Andres decides what may be published. The Duval rows fall under ruling
 -- R20 (nothing from Duval is shown outside this repo), and this repo is public.
 --
+-- The search pages are not written in this script. official_search_page is read from the seed table
+-- datum.dev_reference.search_page_sources, the same list the test
+-- assert_shown_flags_cite_an_approved_search_page checks shown flags against. A Snowflake script
+-- cannot read dbt variables, but it can read a table dbt loaded. So when a ruling changes an address
+-- (R27 changed DBPR's), the seed changes and this script follows with no edit. The seed must be
+-- loaded first: cd pipeline && dbt seed --select search_page_sources
+--
 -- How to check a row: open official_search_page, look up source_record_id, and compare the name
 -- and address on the official record with the company you find by typing document_number into
 -- company_search_page. Then fill in verdict (right / wrong / unsure), verified_on and notes.
@@ -64,11 +71,7 @@ SELECT e.entity_name                     AS "company_name_as_registered",   -- t
        s.matched_on                      AS "matched_on",                 -- how the link was confirmed
        s.source_date                     AS "source_record_date",           -- lien filed / license period began / document recorded
        k.file_date                       AS "company_filing_date",          -- the company's own filing date (ruling R2: never after the record's date)
-       CASE s.source                                                      -- where to look the record up (the same addresses as vars in pipeline/dbt_project.yml)
-         WHEN 'federal_lien' THEN 'https://dos.fl.gov/sunbiz/search/'
-         WHEN 'dbpr_license' THEN 'https://www.myfloridalicense.com/wl11.asp'
-         WHEN 'duval'        THEN 'https://or.duvalclerk.com/'
-       END                               AS "official_search_page",
+       p.search_page_url                 AS "official_search_page",         -- where to look the record up: read from the seed of approved search pages, never typed here
        'https://search.sunbiz.org/Inquiry/CorporationSearch/ByDocumentNumber' AS "company_search_page",   -- where to look the company up
        ''                                AS "verdict",                      -- for the checker: right / wrong / unsure
        ''                                AS "verified_on",                  -- for the checker: the date checked
@@ -78,11 +81,17 @@ JOIN datum.dev_marts.entity_lookup AS e                    -- the company's regi
   ON e.document_number = s.document_number
 JOIN datum.dev_intermediate.int_company_match_keys AS k    -- the company's filing date
   ON k.document_number = s.document_number
+JOIN datum.dev_reference.search_page_sources AS p          -- the one approved search page per source (rulings R9, R21, R27), loaded by dbt from pipeline/seeds/search_page_sources.csv
+  ON p.source = CASE s.source                              -- this script's label for a source -> the seed's name for the same source
+                  WHEN 'federal_lien' THEN 'sunbiz_flr'
+                  WHEN 'dbpr_license' THEN 'dbpr'
+                  WHEN 'duval'        THEN 'duval'
+                END                                        -- an inner join on purpose: a source with no seed row drops out, the file comes up short of 20 and the row count shows it
 WHERE s.pick <= s.rows_to_take                             -- the first 8, 6 and 6
 ORDER BY s.source, s.pick;                                 -- grouped by source, in draw order
 
 
--- Syntax: an alias in double quotes (AS "verdict") keeps its lower-case spelling; without the quotes Snowflake would print the column header as VERDICT. ROW_NUMBER() OVER (PARTITION BY a ORDER BY b) numbers the rows 1, 2, 3 ... separately inside each value of a, in the order of b. MD5(text) returns a 32-character checksum of the text. CASE x WHEN 'a' THEN ... END compares one expression with a list of values. DISTINCT removes repeated rows.
+-- Syntax: an alias in double quotes (AS "verdict") keeps its lower-case spelling; without the quotes Snowflake would print the column header as VERDICT. ROW_NUMBER() OVER (PARTITION BY a ORDER BY b) numbers the rows 1, 2, 3 ... separately inside each value of a, in the order of b. MD5(text) returns a 32-character checksum of the text. CASE x WHEN 'a' THEN ... END compares one expression with a list of values; here it sits inside a JOIN's ON condition, translating this script's source label into the seed's name for it. DISTINCT removes repeated rows.
 
 -- Concept: a hand-checked sample is how a matching rule is measured. The rule cannot grade itself: its tests only prove that it does what it was written to do. Twenty links checked against the official record estimate how often what it was written to do is actually right. Zero wrong in 20 does not prove zero wrong in 10,000, which is why the plan asks for at least 30 over time and for the count of wrong ones, not a pass mark.
 

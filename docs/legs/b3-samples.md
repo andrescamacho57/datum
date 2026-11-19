@@ -93,7 +93,7 @@ Nothing is lost by this: the scripts are in the pull request, the draw is fixed,
 | Each script is one statement with no `USE ROLE` / `USE WAREHOUSE` lines | Every statement prints a result, and those would land inside the CSV file. The `datum` connection already defaults to `SYSADMIN` and `datum_wh` | Breaks the pattern of scripts 01–18, and the header says why |
 | Draft cases: 10 per origin whose legal suffix is written differently, 10 per origin that differ only in punctuation; none identical to the registered name | An identical name tests nothing. Splitting evenly keeps the harder kind from being crowded out | All 40 are near-exact names. No typos, abbreviations or vague notes |
 | One case per company | 40 cases should exercise 40 lookups | A company with two interesting spellings appears once |
-| Search-page addresses are written into script 19 | A Snowflake script can't read dbt variables | The addresses live in two places (`pipeline/dbt_project.yml` and this script); the script says so |
+| Script 19 reads each source's search page from the seed table `datum.dev_reference.search_page_sources` (changed in review round 1, section 7) | A Snowflake script can't read dbt variables, but it can read the table dbt loads from `pipeline/seeds/search_page_sources.csv`. The script holds no address of its own for the three sources, so it cannot disagree with the rulings | The seed must be loaded before the script runs. A source with no seed row would leave the file short of 20 rows, which the row count shows. `company_search_page` (Sunbiz's search by document number) is still written in the script: it is where the company is looked up, and it is not one of the seed's three rows |
 
 ## 4. What I couldn't verify, and open questions for Andres
 
