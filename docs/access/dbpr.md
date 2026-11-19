@@ -117,7 +117,7 @@ Header, verbatim: `License Type, License Nbr, Respondent Name, Address Line 1, A
 
 - **One row per discipline line per complaint.** A complaint ending in a fine, costs and education is three rows. No exact duplicate rows.
 - **Every respondent is an individual** (all 6,457 names are `LAST, FIRST`). There is no business name in these files.
-- `License Nbr` is **not zero-padded** (`27000`) and the license kind is in **words** (`Certified Building Contractor`), while the licensee file pads to 7 digits (`0027000`) and uses a code (`CBC`). Joining the two needs a words-to-code map and padding. Not built in this leg.
+- `License Nbr` is **not zero-padded** (`12345`, a made-up example) and the license kind is in **words** (`Certified Building Contractor`), while the licensee file pads to 7 digits (`0012345`) and uses a code (`CBC`). Joining the two needs a words-to-code map and padding. Not built in this leg.
 - `Discipline Date - Description` is one field, `MM/DD/YYYY - text`. Staging splits it.
 - `Address Line 1` is the literal `Private Address` on 57 rows.
 - Dispositions seen: Final Order (most), Citation filed, Violation found - corrected, Dismissed, Mandate, Final Order of Local Discipline, a few others, and blank.

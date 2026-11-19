@@ -15,8 +15,8 @@
 -- reach a business, Phase B has to go license number → the license row in
 -- stg_dbpr__licenses → that row's dba_name.
 --
--- Join caution: license_number here is NOT zero-padded (27000) while the
--- license file pads to 7 digits (0027000), and the kind of license is given
+-- Join caution: license_number here is NOT zero-padded (12345, a made-up example) while the
+-- license file pads to 7 digits (0012345), and the kind of license is given
 -- in words here (license_type) but as a code there (occupation_code).
 --
 -- Becomes the view DATUM.DEV_STAGING.STG_DBPR__DISCIPLINE.
