@@ -297,17 +297,73 @@ matching rules, privacy calls and hand checks. Georgia is on hold.
 blocklist, verify a convention with the data, control totals (`EOF` trailers), add/add merge conflicts, stacked
 branches, virtual environments aren't relocatable, symbolic links, on-demand billing
 
+### Day 9 — 2026-11-18 to 11-19: Phase B built, a review process set up, and the first Deep review
+
+**The short version.** Phase B is on `main` except for its last leg. The build agent wrote four legs on
+Nov 18, and three of them are merged: B0 closed the gaps left by Phase A, B1 linked each record to a company,
+and B2 turned the confirmed links into flags. This was also the day the project got a written review
+process, and pull request 6 was the first change to go through all of it.
+
+**What merged, in order**
+- **Nov 18, pull request 4 (leg B0):** the Duval files that needed a line-break repair, the daily lien files,
+  the fetch manifest (the record of when each source file was downloaded), `requirements.txt`, and a DBPR
+  header check.
+- **Nov 18, pull request 5 (leg B1):** the four link models. Each link is CONFIRMED, AMBIGUOUS or NO_MATCH.
+- **Nov 19, pull request 8 (the review system):** `REVIEW.md`, the risk tiers, the `reviewer` helper agent on
+  Opus, the automated checks on GitHub, and `docs/review_log.csv`. I read `REVIEW.md` and pointed out that it
+  did not say why each path is in its tier, and that section was added before I merged.
+- **Nov 19, pull request 6 (leg B2):** the `company_flags` table that a report will read. The leg report
+  counts 24,465 flags on 12,295 companies, and 9,972 of those flags may be shown.
+
+**The Deep review of pull request 6**
+- **Round 1.** Three reviewers on Opus read the change separately, and a fourth tried to disprove what they
+  found. Two Important findings survived, along with three nits and one problem that was older than the change.
+  - A federal lien closed only when its release had a readable date. A release whose date could not be read
+    left the lien open, which means a contractor would have seen a lien that had been paid off.
+  - The DBPR flags cited a search page that no ruling allowed.
+- **Two rulings answered it.** R27 says a DBPR flag cites the address DBPR itself documents, always with the
+  license number. R28 says un-hiding a flag takes two reviewed edits, the switch and the test.
+- **The fix run.** The build agent fixed each finding in its own commit with a test that fails on the old
+  code: 16 commits, about 0.29 Snowflake credits. All 95,488 certificates of release in today's data have a
+  readable date, so the lien bug was real but had shown nothing wrong yet.
+- **Round 2.** One reviewer read only the fixes and found no Important finding and three nits. I read the three
+  files that hold the decisions, explained the lien rule back, and merged.
+
+**Pull request 7 (leg B3) is reviewed and still open.** It holds the two scripts that draw the samples for my
+hand checks. Its review found one Important finding: script 19 still sends the DBPR rows to the old search
+address, because the branch was written before R27. It gets fixed before I do the hand check.
+
+**Things that went wrong, and what they taught**
+- The Claude Code panel went quiet in the middle of the fix run and I said "fixed". It was not finished: it
+  was waiting on its own `reviewer` helper agent, and it added 5 more commits afterwards. A run is finished
+  when its last message says it pushed, not when the panel stops moving.
+- Claude (in the chat) pushed the first 11 commits early because of that. No harm was done, because the later
+  commits sat on top of the same history, but the lesson is the same one.
+- A helper agent uses the model named in its own file under `.claude/agents/`. If the file names no model,
+  the helper uses whatever model the main session is on.
+
+**Still open from the review of pull request 6**
+- The test that keeps people's names out of the marts skips the whole `ENTITY_LOOKUP` table. It should skip
+  only the two columns that hold registered business names.
+- A lien closed by a release with an unreadable date needs its own sentence in the report. I approved this
+  wording: "A certificate of release is on file. Its filing date could not be read from the state's file."
+- Question Q25 in `docs/open_questions.md`: a garnishee (for example a bank ordered to hand over a debtor's
+  money) sits on the same side of a Duval judgment as the debtor. It must be settled before Duval flags are shown.
+
+**Concepts learned:** risk tiers set by the files a change touches, fresh-context review, the
+builder-and-critic loop, deciding on whether a record exists and not on one of its values, a test that reads
+the same switch as the code it tests, `is distinct from`, `count_if`, a full ordering for `row_number()`
+
 ---
 
 ## Next
 
-**Nov 18:** dates are targets, not deadlines. When work slips, the dates move and the scope stays.
+**Nov 19:** dates are targets, not deadlines. When work slips, the dates move and the scope stays.
 
 | Target | Ships |
 |---|---|
-| Nov 18 | Merge legs A1, A3, A2 into `main`; repoint the environment; kick off Phase B |
-| Nov 19–20 | Phase B legs B0–B3 (Fable, unattended); review each leg report |
-| Nov 21 | Hand-check `evals/link_sample_20.csv` (0 wrong allowed); verify the 40 draft test cases |
+| Nov 19 | Fix and merge pull request 7 (leg B3); hand-check `evals/link_sample_20.csv` (0 wrong allowed) |
+| Nov 20–21 | Verify the 40 draft test cases; the two follow-ups from the review of pull request 6 |
 | Nov 22–25 | Phase C: Postgres serving, FastAPI app, offline tests |
 | Launch-ready | Moves as needed; counsel review of Q1–Q6 in `docs/open_questions.md` comes first |
 
