@@ -28,6 +28,16 @@ Datum checks a small trade contractor's commercial client before a job: is it a 
 - Comment every line. End each SQL script with `-- Syntax`, `-- Concept` and `-- Design decision` sections, like scripts 01–12. dbt models get the same header-and-inline style as `stg_sunbiz__cor.sql`.
 - Raw = one `line` (or one column per field for delimited files) plus `source_file` and `loaded_at`. Staging names and types the fields. Never change or drop existing tables, models or seeds; only add.
 
+**Writing** (added Nov 19, 2026; applies to everything Andres reads: leg reports, pull request text, review replies, your final message, commit messages and code comments)
+- Write the way a patient colleague would explain it out loud, sitting next to him. He reads these to learn, so each sentence has to make sense on its own, even to someone who was not there when the work happened.
+- Use complete sentences with a subject and a verb. Keep the connecting words that make them flow: "and so", "because", "which means", "the same day".
+- Don't write clipped fragments, or a label followed by a colon. Not: "Re-planned Nov 2: hand-collected first. No retriever until counsel reviews the gate." Instead: "On Nov 2 the plan changed. The records would be collected by hand first, and so there would be no automated retriever until a lawyer had reviewed the disclaimer page."
+- Say what each number counts and what each thing is. Spell out every acronym, and explain a technical term in a few words the first time it appears.
+- Lead with the answer and don't pad. Fuller means each sentence carries its own context, not that there are more sentences.
+- When there are several dated events, steps or open items, put each on its own line (bullets, a table or a timeline), never in one paragraph. Give a short summary first, then what is left, then the history.
+- Mark a claim you could not check: ✅ verified, 🟡 unsourced, 🔴 assumed.
+- Existing text: don't rewrite a file only to change its style. When you change a file for a real reason, bring the comments you touch up to this style. Never rewrite commit history or the text of a merged pull request.
+
 **Safety**
 - Never read, print or edit `.env`, `~/.dbt/profiles.yml`, `~/.snowflake/` or `*.p8`. Python reads secrets with `load_dotenv()`; nothing else touches them.
 - `data/` is gitignored. Raw data never goes to git.

@@ -696,3 +696,47 @@ Source: Anthropic, "How the Claude Code team does code review" (Oct 2026). Full 
   request waits on a person, share with an AI review, findings per review, rounds to pass, reverts.
 - **`REVIEW.md` vs `CLAUDE.md`:** `CLAUDE.md` tells the agent how to build. `REVIEW.md` tells the reviewer
   what "wrong" means here: the ways Datum fails (accuses, leaks, miscounts, reassures, asserts, exposes, bills).
+
+---
+
+## Decide on Whether a Record Exists, Not on One of Its Values (Nov 19)
+
+- The lien bug: the code closed a lien `when r.released_on is not null`. `released_on` came from
+  `try_to_date`, which returns NULL when the text is not a date. So a release with a damaged date looked
+  exactly like no release at all, and the lien stayed open on a report.
+- The fix asks a different question: does a release **event** exist? `count_if(condition) > 0` counts the rows
+  where the condition is true and turns the count into TRUE or FALSE. The date is kept for wording only.
+- The general rule: when a decision hangs on "did this happen", test for the row. A value inside the row can
+  be missing for reasons that have nothing to do with whether it happened.
+- Chip Huyen's "test the test" applies: the new unit test has a release with a NULL date, and it fails on the
+  old code.
+
+---
+
+## A Test That Reads the Same Switch as the Code Agrees With Anything (Nov 19)
+
+- `company_flags` hides Duval and discipline flags by reading two project variables (`show_duval`,
+  `show_dbpr_discipline`). The old test read the same variables to decide what should be hidden.
+- Flip a variable and both the model and the test change their minds together. The test stays green while
+  14,000 hidden flags become visible. It could never fail, so it proved nothing.
+- Ruling R28: the test compares `is_shown` with the word `false` written in the test itself. Now un-hiding a
+  source takes two edits in one pull request, and a reviewer sees both.
+- `is distinct from false` is `<> false` that also catches NULL. A plain `<>` comparison with NULL is neither
+  true nor false, so a NULL would slip through.
+- The same idea is behind the seed `search_page_sources`: the model reads its addresses from variables, and
+  the test checks them against a separate list.
+
+---
+
+## The Builder-and-Critic Loop (Nov 19)
+
+Source: Anthropic, "Building Effective Agents" (the evaluator-optimizer workflow).
+
+- One agent builds. A second agent, with no memory of how the work was built, looks for what is wrong. The
+  builder answers each finding, and the critic reads only what changed. `REVIEW.md` stops the loop at three rounds.
+- On pull request 6 it ran twice: round 1 found 2 Important findings, round 2 found none.
+- The builder ran its own small critic before pushing, and that pass caught three more nits. While a helper
+  agent is reading, the main panel looks idle. The run is finished when the last message says it pushed.
+- A full ordering matters for repeatable results: `row_number()` or `min_by` over rows that tie picks one
+  arbitrarily, so add columns to the `order by` until two rows can only tie when they are identical.
+

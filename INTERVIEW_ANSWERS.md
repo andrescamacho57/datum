@@ -362,3 +362,21 @@ puts my time on the second kind.
 **Tradeoff:** more moving parts, and an AI reviewer can be confidently wrong. So findings are capped
 (three rounds, three nits), every review is logged, and I track reverts: if speed goes up and reverts go
 up with it, the process is failing.
+
+---
+
+## "Tell me about a bug that review caught before it reached a user."
+
+**Decision:** I changed the rule that closes a federal tax lien so that it asks whether a release exists, and
+no longer whether the release has a date.
+
+**Why:** an AI reviewer with fresh context noticed that the date came from `try_to_date`, which returns NULL
+for text that is not a date. A release with a damaged date would have left the lien open, and the report
+would have shown a paid-off lien against a company. That is a false accusation, the worst mistake this
+product can make. I checked the real data before and after: all 95,488 releases had a readable date, so
+nothing wrong had been shown, but the next damaged file would have done it silently.
+
+**Tradeoff:** a lien closed this way has no release date to print, so the report needs a second sentence for
+that case, and I had to decide its wording. I accepted a slightly more complicated note in exchange for never
+showing a released lien as open.
+
