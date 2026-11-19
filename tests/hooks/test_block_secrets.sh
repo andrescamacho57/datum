@@ -57,7 +57,19 @@ check "blocks capitalised profiles file" 2 '{"tool_input":{"command":"head ~/.db
 # A private-key file whose ending is in capitals.
 check "blocks upper-case p8 key file" 2 '{"tool_input":{"command":"openssl pkey -in RSA_KEY.P8"}}'
 
+# --- Must block (exit 2) wherever the tool keeps its command. ---
+# The Bash tool puts its command in a field named "command". Another shell tool may name the field differently,
+# so the hook reads every piece of text in the tool's input, not one field.
+# A shell tool that calls the field "cmd".
+check "blocks a command in a cmd field" 2 '{"tool_name":"mcp__x__run_bash","tool_input":{"cmd":"cat .env"}}'
+# A shell tool that nests its script one level down.
+check "blocks a command nested in the input" 2 '{"tool_name":"mcp__x__bash","tool_input":{"args":{"script":"cat .env"}}}'
+# The Monitor tool, which runs a shell command in the background.
+check "blocks a Monitor command"      2 '{"tool_name":"Monitor","tool_input":{"command":"tail -f .env","description":"watch a file"}}'
+
 # --- Known over-matches, pinned so a change to the pattern is a deliberate decision. ---
+# Reading every piece of text means a description that merely names the dotenv file is blocked too.
+check "pinned: blocks a description"  2 '{"tool_input":{"command":"ls","description":"list the files next to .env"}}'
 # A commit message that merely mentions the dotenv file is blocked (plain substring match).
 check "pinned: blocks commit message" 2 '{"tool_input":{"command":"git commit -m \"load key from .env\""}}'
 # A different file that merely starts with the same characters is blocked too.
@@ -70,7 +82,9 @@ check "allows git status"             0 '{"tool_input":{"command":"git status"}}
 check "allows dbt build"              0 '{"tool_input":{"command":"cd pipeline && dbt build --select entity_lookup"}}'
 # Venv activation: ".venv" must not be mistaken for the dotenv file.
 check "allows venv activate"          0 '{"tool_input":{"command":"source .venv/bin/activate"}}'
-# A payload with no command field at all: pinned as allow (nothing to inspect).
+# The Monitor tool can also open a web socket, with no shell command at all. That must not be blocked.
+check "allows a Monitor web socket"   0 '{"tool_name":"Monitor","tool_input":{"ws":{"url":"wss://events.example.com/stream"},"description":"deploy events"}}'
+# A payload with no tool input at all: pinned as allow (nothing to inspect).
 check "pinned: allows empty payload"  0 '{}'
 
 # --- Fail closed (exit 2): the hook cannot inspect the command. ---
