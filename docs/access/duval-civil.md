@@ -218,7 +218,7 @@ What you *do* get structurally is a **claim band**, in two places: the docket li
 
 This needs flagging hard, because CORE will hand you personal data whether you asked for it or not.
 
-**The parties table column header is literally `Name / DOB / DL / ID #` and `Race / Sex`.** For corporate parties those subfields come back blank — but for individual parties they are populated, and CORE mixes both in the same result set. I observed a stray race code (`B`) attached to a *corporate* defendant in case `16-2024-CA-005914-AXXX-MA`, so the fields are not even reliably empty for businesses.
+**The parties table column header is literally `Name / DOB / DL / ID #` and `Race / Sex`.** For corporate parties those subfields come back blank — but for individual parties they are populated, and CORE mixes both in the same result set. I observed a stray race code (`B`) attached to a *corporate* defendant in case `16-2024-CA-000000-AXXX-MA`, so the fields are not even reliably empty for businesses. (The case was brought by a private person, so its number is written here with zeros in place of the running number.)
 
 The search criteria themselves include `DateOfBirth`, `LicenseNumber`, `OffenderNumber`, `PartyGender`, `PartyRace`, `SheriffNumber`, `StateAttorneyNumber` — visible in the decoded request state below. **Datum must never populate any of them, and any parser must drop DOB, DL, race and sex at ingest rather than storing and filtering later.** These are court records, so FCRA does not attach by merely reading them — but ingesting an individual's DOB and driver's licence number is squarely across the line CLAUDE.md §2 and PROJECT_CONTEXT §12 draw, and it is a line drawn for good reasons that have nothing to do with FCAA technicalities.
 
@@ -253,8 +253,10 @@ Supporting, also fetched and verified today:
 | UCN | Internal caseId | What it is | Fetched (UTC) |
 |---|---|---|---|
 | `16-2025-CC-017137-AXXX-MA` | `14217260` | Ferguson Enterprises LLC v. J. Williams Industrial Group Inc. — contract/debt $15–30K, default final judgment | 09:02:24Z |
-| `16-2026-CA-005557-AXXX-MA` | `14430333` | REDACTED PERSON v. Winn Dixie Stores LLC — business transactions, open | 09:01:33Z |
-| `16-2024-CA-005914-AXXX-MA` | `13999717` | REDACTED PERSON v. Winn Dixie Stores Inc — voluntarily dismissed with prejudice | 09:02:01Z |
+| `16-2026-CA-000000-AXXX-MA` | `00000000` | REDACTED PERSON v. Winn Dixie Stores LLC — business transactions, open | 09:01:33Z |
+| `16-2024-CA-000000-AXXX-MA` | `00000000` | REDACTED PERSON v. Winn Dixie Stores Inc — voluntarily dismissed with prejudice | 09:02:01Z |
+
+The second and third cases were brought by private people. Their names are replaced with `REDACTED PERSON`, and the running number in each case number and each internal caseId is replaced with zeros, because either number typed into the Clerk's search shows the name. The first case is between two businesses and is as retrieved.
 
 **Generalized request patterns** (documentation only — no code is being written here, and none should be until the authorization question is settled):
 
@@ -294,13 +296,13 @@ POST https://core.duvalclerk.com/internal/CoreWebSvc.asmx/GetCaseById
 
 `"CaptchaChallenge":null` is the field to watch: when the server populates it with a reCAPTCHA site key, the search did not run and a bot check is being demanded.
 
-**B. Result-row markup inside `BodyHtml`.** One `<tbody>` from the Winn-Dixie search, verbatim, whitespace as returned. Trimmed only at the `<tbody>` boundaries. Fetched 2026-09-15 09:00:34Z.
+**B. Result-row markup inside `BodyHtml`.** One `<tbody>` from the Winn-Dixie search, whitespace as returned, trimmed only at the `<tbody>` boundaries. It is verbatim except for three values that lead to a private person: the plaintiff's name is `REDACTED PERSON`, and the case id and the running number of the case number are zeros. Fetched 2026-09-15 09:00:34Z.
 
 ```html
-            <tbody onclick='getCaseTabByCaseId(14430333);'>
+            <tbody onclick='getCaseTabByCaseId(00000000);'>
                 <tr>
                     <td>
-                        <div class="searchResultItem_CaseNumber">2026-CA-005557-AXXX</div>
+                        <div class="searchResultItem_CaseNumber">2026-CA-000000-AXXX</div>
                                 <div class="searchResultItem_Citations">
                                 </div>
                     </td>
