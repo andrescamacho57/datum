@@ -24,6 +24,20 @@ The change sets the tier, not the author. A pull request takes the highest tier 
 | **Medium** | `src/datum/` (other files), `snowflake/`, `pipeline/models/staging/`, `pipeline/tests/`, app code | Standard: one reviewer, plus a security pass when `src/` changed | Reads the leg report and the review findings, skims the diff |
 | **Low** | `docs/`, the study guide `*.md` files at the root, `tests/` (tests and fixtures only), comments | Quick: one pass | Nothing once the checks are green. Merges it |
 
+### Why each path is in its tier
+
+The tier answers one question: if this change is wrong, how far does the mistake travel before anyone notices?
+
+- **High** means the mistake reaches a contractor, or it changes the rules that catch mistakes.
+  - `intermediate/`, `marts/`, `macros/` and `seeds/` are where records get linked to a company and turned into flags. A mistake here is how Datum would accuse the wrong company, or reassure someone about the right one.
+  - `report.py`, `is_shown` and the report wording decide what a contractor actually reads.
+  - `dbt_project.yml` changes how every model is built, so one line can change all of them.
+  - `.claude/`, `.github/`, `CLAUDE.md` and `REVIEW.md` are the guardrails. A mistake here weakens the checking of every later change.
+- **Medium** means the mistake stays inside the pipeline, where a test or a later layer can still catch it before it is shown. Loaders, staging views and Snowflake scripts are here. They can still leak a secret or spend money, which is why Python changes get a security pass.
+- **Low** means nothing a contractor sees and nothing that runs in the pipeline can change. Docs, tests and comments are here.
+
+One high-tier line outweighs fifty low-tier lines because harm comes from the riskiest thing a change touches, not from how much it touches.
+
 ## How to review
 
 1. Read the pull request's stated intent and its leg report. Judge the change against that intent: does it solve the problem, does it fit the system, does it break something that worked?
