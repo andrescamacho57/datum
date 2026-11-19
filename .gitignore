@@ -7,8 +7,11 @@ logs/
 __pycache__/
 
 # Secrets. The repo is public and `git add .` stages whatever is not named here.
-# The same names are kept away from agents by .claude/settings.json and .claude/hooks/block-secrets.sh.
 # Checked by tests/test_gitignore_secrets.py.
+# This list is wider than what agents are kept away from. .claude/settings.json and .claude/hooks/block-secrets.sh
+# cover the dotenv file and its variants, .p8 keys, and the home-folder copies of profiles.yml and .snowflake/.
+# They do not cover .pem files, and the file tools (Read, Edit, Write) are not denied a profiles.yml or a
+# .snowflake/ folder copied into the repo. Shell commands that name those two are still blocked by the hook.
 .env
 # Variants of the dotenv file, such as .env.local.
 .env.*
