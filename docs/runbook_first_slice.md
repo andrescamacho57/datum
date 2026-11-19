@@ -62,8 +62,8 @@ datum:                                  # profile name; dbt_project.yml points t
   outputs:
     dev:
       type: snowflake                   # adapter
-      account: dlkdutd-ci31254          # your account identifier: <org>-<account>, from your Snowsight URL
-      user: AFCAMACH                    # your Snowflake username
+      account: <org>-<account>          # your account identifier: organization name, a hyphen, account name, from your Snowsight URL
+      user: <user>                      # your Snowflake username
       private_key_path: <copy from your credit_stream profile>
       # Key-pair login (confirmed 2026-10-20): dbt signs in with a private key
       # file on your Mac instead of a password. Same key as credit_stream,
