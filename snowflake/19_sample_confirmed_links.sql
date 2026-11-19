@@ -9,8 +9,11 @@
 -- pseudo-random order from the link models of leg B1.
 --
 -- Run it from the VS Code terminal. `--format csv` makes the CLI print comma-separated text
--- and `>` sends that text into the file:
+-- and `>` sends that text into the file. `mkdir -p evals` comes first because no file under
+-- evals/ is in git: a fresh clone has no such folder, and `>` cannot write into a folder that
+-- does not exist. With -p the command does nothing when the folder is already there.
 --     cd ~/datum
+--     mkdir -p evals
 --     snow sql -c datum -f snowflake/19_sample_confirmed_links.sql --format csv > evals/link_sample_20.csv
 --
 -- This script is ONE statement on purpose, with no USE ROLE / USE WAREHOUSE lines: every statement

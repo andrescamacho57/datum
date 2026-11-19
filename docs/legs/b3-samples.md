@@ -42,9 +42,12 @@ Two files for you to check by hand, and the two scripts that make them. I only p
 
 ```
 cd ~/datum
+mkdir -p evals
 snow sql -c datum -f snowflake/19_sample_confirmed_links.sql --format csv > evals/link_sample_20.csv
 snow sql -c datum -f snowflake/20_draft_lookup_cases.sql --format csv > evals/draft_test_cases_40.csv
 ```
+
+`mkdir -p evals` makes the `evals` folder when it is missing and does nothing when it is there (`-p` is what stops it complaining). It was added in review round 1: no file under `evals/` is in git, so a fresh copy of the repo has no such folder, and `>` cannot write into a folder that does not exist.
 
 **Shape of both files** (a throwaway Python check that reads them and prints counts only)
 

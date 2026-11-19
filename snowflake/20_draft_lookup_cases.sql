@@ -14,8 +14,10 @@
 -- add them to pipeline/seeds/test_set.csv until each expected_document_number has been checked
 -- on Sunbiz.
 --
--- Run it from the VS Code terminal (same pattern as script 19):
+-- Run it from the VS Code terminal (same pattern as script 19, mkdir -p included: it makes the
+-- evals folder when a fresh clone does not have one):
 --     cd ~/datum
+--     mkdir -p evals
 --     snow sql -c datum -f snowflake/20_draft_lookup_cases.sql --format csv > evals/draft_test_cases_40.csv
 --
 -- One statement, no USE lines, for the reason given in script 19. The output file is in
