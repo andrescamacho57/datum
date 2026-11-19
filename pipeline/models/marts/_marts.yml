@@ -56,3 +56,71 @@ models:
           # from the file name, so a file named differently (no date in front)
           # would produce NULL here and silently break "newest" ordering.
           # This test turns that silent failure into a loud one.
+
+  - name: company_flags
+    # The flags mart: company_flags.sql. One row per fact on the public record
+    # about a company, reached through a CONFIRMED link.
+    description: One row per flag (a fact, never a conclusion) on a CONFIRMED link, with its source, citation, fetch time and whether it may be shown.
+
+    columns:
+
+      - name: document_number
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('entity_lookup')
+                field: document_number
+          # Every flag is about a company that exists in the lookup.
+
+      - name: flag_type
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['federal_tax_lien', 'dbpr_license_inactive', 'dbpr_discipline', 'duval_lien', 'duval_tax_warrant', 'duval_judgment']
+          # A new kind of flag must be added here on purpose, with its wording
+          # reviewed (CLAUDE.md rule 2: facts, never conclusions).
+
+      - name: status
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['open', 'closed', 'inactive']
+
+      - name: source
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['sunbiz_flr', 'dbpr', 'duval']
+
+      - name: source_record_id
+        data_tests:
+          - not_null
+          # The number a reader types into the official search to find the record.
+
+      - name: source_url
+        data_tests:
+          - not_null
+          # CLAUDE.md rule 3, enforced in the data: no fact without a source URL ...
+
+      - name: fetched_at
+        data_tests:
+          - not_null
+          # ... and no fact without the time we fetched it. A flag whose file
+          # is missing from the fetch manifest fails here.
+
+      - name: citation
+        data_tests:
+          - not_null
+
+      - name: caveat
+        data_tests:
+          - not_null
+
+      - name: is_shown
+        data_tests:
+          - not_null
+          # TRUE or FALSE, never unknown: "may this be displayed?" needs an answer.

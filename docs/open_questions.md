@@ -28,6 +28,7 @@ Started Nov 18, 2026.
 | Q13 | Duval: what kinds of case sit under `JDG`? Is excluding "FLORIDA STATE OF" as plaintiff enough to keep criminal matters out? | Duval Clerk, plus a 30-row hand read | R16 |
 | Q14 | DBPR: what is a `QB` record for, and why do most have no status? | DBPR | R13 |
 | Q15 | DBPR: discipline data ends 2026-07-17 and there is no fiscal year 26/27 file. How far behind does it run? | DBPR | Caveat on the report line |
+| Q25 | Duval: a garnishee (for example a bank ordered to hand over a debtor's funds) is listed on the TO side of a judgment, the same side as the debtor. `int_duval_party_links` flags every TO-side business on a `JDG` or `CCCJUDG`, so a garnishee would be shown as a judgment debtor. Can the index tell a garnishee from a defendant, and if not, what rule keeps garnishees out? Size on Nov 19, 2026: 7 `duval_judgment` flags on 4 companies whose name contains BANK, CREDIT UNION or SAVINGS, a rough floor and not a count of garnishees. Raised as a pre-existing finding in the Deep review of pull request 6 | Duval Clerk for what the index records; Andres for the rule, after a hand read of TO-side parties on judgments (pairs with Q13) | Duval flags are not displayed (R20). **Must be settled before `show_duval` is turned on** |
 
 ## Product and data questions for after launch
 

@@ -72,4 +72,13 @@ This is the opposite of the grantor/grantee guess most people start with, which 
 | R23 | Every downloader writes a fetch manifest: file name, source URL, fetch time in UTC, size and checksum. It loads into one small raw table. For files already on disk, the file's modification time is used and marked approximate. | CLAUDE.md rule 3: every fact carries a source URL and a UTC fetch time. `loaded_at` is when Snowflake got it, not when we fetched it. | Never |
 | R24 | Add `requirements.txt` with exact versions, including `paramiko` below 4. | The virtual environment broke when the folder moved, and nothing recorded what was in it. | When a package is added |
 | R25 | The DBPR validator rejects a license file whose first row looks like a header. | It would load as one bad data row. | Never |
-| R26 | The hardcoded snapshot date in staging gets replaced before the January 2027 snapshot. Target: Dec 15, 2026. | Five models now repeat it. | Dec 15, 2026 |
+| R26 | The hardcoded snapshot date in staging gets replaced before the January 2027 snapshot. Target: Dec 15, 2026. | Five staging models repeat it: `stg_sunbiz__cor`, `stg_sunbiz__flr_filings`, `stg_sunbiz__flr_debtors`, `stg_sunbiz__flr_events` and `stg_sunbiz__flr_secured`. A sixth model depends on it: `int_federal_liens_status` closes a lien that is missing from the latest snapshot by comparing these dates, so that rule cannot fire while every snapshot carries the same one (added Nov 19, review round 1 of pull request 6). Until the date is fixed, the test `assert_flr_quarterly_rows_come_from_one_load` fails the build if a second snapshot is loaded. | Dec 15, 2026 |
+
+## Review round 1 of pull request 6 (decided by Andres, Nov 19, 2026)
+
+The Deep review of pull request 6 (the flags mart) found two calls no ruling covered. Andres decided both on Nov 19, 2026.
+
+| # | Decision | Why | Revisit |
+|---|---|---|---|
+| R27 | A DBPR flag cites DBPR's official "verify a license" search page, `https://www.myfloridalicense.com/portalsearches/VerifyLicensee`, the address DBPR itself gives (quoted in `docs/access/dbpr.md`). The citation always carries the license number, on a discipline flag as well as a license flag, so a reader can look the record up. The sources allowed to cite a search page are listed in the seed `search_page_sources`, and a test fails when a shown flag's source is not in it. | DBPR offers no stable link to a single record, and this matches R9 and R21. | If DBPR publishes per-record links |
+| R28 | Un-hiding a flag takes two reviewed edits: the project variable, and the test. `assert_hidden_flags_stay_hidden` compares `is_shown` to the literal `false` for Duval and for DBPR discipline, not to the project variable. | A test that reads the same switch as the model agrees with whatever the switch says. | When counsel or the Clerk clears a source |

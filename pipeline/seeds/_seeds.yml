@@ -2,8 +2,8 @@
 # _seeds.yml: descriptions and TESTS for the reference seeds.
 #
 # A seed is a small CSV file in pipeline/seeds/ that `dbt seed` (or `dbt
-# build`) loads as a table. These two are lookup tables the linking rules
-# depend on. They are seeds, not SQL, so a change to them is a one-line diff
+# build`) loads as a table. These are lookup tables the linking and citation
+# rules depend on. They are seeds, not SQL, so a change to them is a one-line diff
 # anyone can review.
 # ---------------------------------------------------------------------------
 
@@ -54,3 +54,31 @@ seeds:
               arguments:
                 values: ['duval_lien', 'duval_tax_warrant', 'duval_judgment']
           # Empty on "closes" and "partial_release" rows.
+
+  - name: search_page_sources
+    description: >
+      Rulings R9, R21 and R27. CLAUDE.md rule 3 wants a source URL that points
+      at the specific record. No source we use offers one, so each of these
+      rulings allows ONE search page for one source, with the number a reader
+      types into it. One row per approved exception. The test
+      assert_shown_flags_cite_an_approved_search_page fails when a flag that
+      may be shown cites anything else. A new row here needs a ruling.
+    columns:
+      - name: source
+        data_tests:
+          - not_null
+          - unique
+          # One approved address per source.
+          - accepted_values:
+              arguments:
+                values: ['sunbiz_flr', 'dbpr', 'duval']
+      - name: ruling
+        data_tests:
+          - not_null
+          # No exception without a ruling behind it.
+      - name: search_page_url
+        data_tests:
+          - not_null
+      - name: looked_up_by
+        data_tests:
+          - not_null
