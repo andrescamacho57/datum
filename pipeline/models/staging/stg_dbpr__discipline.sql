@@ -52,7 +52,7 @@ cleaned as (
         -- County NAME here (DUVAL); the license file has a number instead.
 
         nullif(trim(complaint_nbr), '')                    as complaint_number,
-        -- DBPR's case number, e.g. 2025063352. The citable record ID.
+        -- DBPR's case number, e.g. 2025900001 (an invented number in the real shape). The citable record ID.
 
         nullif(trim(classification), '')                   as classification,
         -- Almost always "Licensed Activity".

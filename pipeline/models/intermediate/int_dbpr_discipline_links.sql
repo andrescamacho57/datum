@@ -23,7 +23,7 @@
 -- No names (ruling R4): the respondent's name never leaves staging.
 --
 -- Columns (the same in every link model):
---   source_record_id  DBPR's complaint number, e.g. 2025063352
+--   source_record_id  DBPR's complaint number, e.g. 2025900001 (an invented number in the real shape)
 --   party_seq         always 1
 --   document_number   the company's Sunbiz document number; NULL on NO_MATCH
 --   link_status       CONFIRMED / AMBIGUOUS / NO_MATCH

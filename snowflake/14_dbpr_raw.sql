@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS datum.raw.dbpr_discipline (     -- one row per data l
   state                    VARCHAR,                        -- field 8
   zip_code                 VARCHAR,                        -- field 9
   county                   VARCHAR,                        -- field 10: county NAME here (the license file has a code)
-  complaint_nbr            VARCHAR,                        -- field 11: DBPR's case number, e.g. 2025063352
+  complaint_nbr            VARCHAR,                        -- field 11: DBPR's case number, e.g. 2025900001 (an invented number in the real shape)
   classification           VARCHAR,                        -- field 12: e.g. Licensed Activity
   entered_date             VARCHAR,                        -- field 13: MM/DD/YYYY, when the complaint was entered
   disposition              VARCHAR,                        -- field 14: how the case ended, e.g. Final Order
