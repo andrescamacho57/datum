@@ -38,6 +38,13 @@
 -- Becomes the table DATUM.DEV_MARTS.COMPANY_FLAGS.
 -- ---------------------------------------------------------------------------
 
+-- depends_on: {{ ref('search_page_sources') }}
+-- This model does not READ that seed: its addresses come from the project
+-- variables, and the test assert_shown_flags_cite_an_approved_search_page
+-- compares them with the seed, so the two stay independent. The line above
+-- only tells dbt the seed belongs to this model's build, so that
+-- `dbt build --select +company_flags` loads the list before the test needs it.
+
 
 with manifest as (
     -- When each source file was fetched (ruling R23). Joined below on the
