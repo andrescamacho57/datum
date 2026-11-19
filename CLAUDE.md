@@ -53,3 +53,4 @@ Run these and show the output before claiming something works.
 - Snowflake script: `snow sql -c datum -f snowflake/NN_name.sql`
 - Tests: `pytest`
 - Secrets live in `.env`, `~/.dbt/profiles.yml`, `~/.snowflake/` and `*.p8` files. Never read them.
+- Review: `REVIEW.md` sets the risk tier of a change and what a reviewer must check before a pull request opens.

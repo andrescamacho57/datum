@@ -344,3 +344,21 @@ review the report and the diff, and I keep the matching rules, privacy calls and
 
 **Tradeoff:** I understand agent-built code less well at first, so I pay that back in review: each report
 ends with three questions I have to be able to answer.
+
+---
+
+## "An AI agent wrote this code. How is it reviewed?"
+
+**Decision:** every pull request passes the same stack before I look at it: the author's own checks, a
+second AI reviewer that starts with no memory of how the code was written, a security pass when Python
+changed, and automated lint and tests on GitHub. Then I review according to risk: a docs change gets a
+glance, a change to the matching rules or to anything a contractor sees gets a line-by-line read that ends
+with me explaining it back.
+
+**Why:** my attention is the scarce resource. Machines are good at "does this break a rule or a test";
+only I can decide "is it acceptable to tell a contractor this about a company". Sorting changes by risk
+puts my time on the second kind.
+
+**Tradeoff:** more moving parts, and an AI reviewer can be confidently wrong. So findings are capped
+(three rounds, three nits), every review is logged, and I track reverts: if speed goes up and reverts go
+up with it, the process is failing.
