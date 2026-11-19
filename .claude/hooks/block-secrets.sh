@@ -36,10 +36,11 @@ payload="$(cat)"
 
 # Pull out every piece of text in the tool's input, one per line. The Bash tool keeps its command in
 # .tool_input.command, but another shell tool may name the field differently or nest it, so no field is trusted
-# to be the only one. In jq, `..` walks every value at every depth and `strings` keeps the ones that are text.
+# to be the only one. In jq, `..` walks every value at every depth, `strings` keeps the ones that are text, and
+# `objects | keys[]` adds the field names themselves, so a name hidden in a field's name is read as well.
 # A payload with no tool input gives "", which is allowed below: there is nothing to inspect.
 # If the payload is not valid JSON, jq fails and the || branch blocks the call.
-command_text="$(printf '%s' "$payload" | jq -r '[.tool_input | .. | strings] | join("\n")')" || {
+command_text="$(printf '%s' "$payload" | jq -r '[.tool_input | .. | (strings, (objects | keys[]))] | join("\n")')" || {
   # Explain the parse failure.
   echo "block-secrets: could not parse hook input as JSON. Blocking." >&2
   # Block, because an uninspectable command is treated as unsafe.

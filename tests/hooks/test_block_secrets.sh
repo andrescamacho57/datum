@@ -64,6 +64,8 @@ check "blocks upper-case p8 key file" 2 '{"tool_input":{"command":"openssl pkey 
 check "blocks a command in a cmd field" 2 '{"tool_name":"mcp__x__run_bash","tool_input":{"cmd":"cat .env"}}'
 # A shell tool that nests its script one level down.
 check "blocks a command nested in the input" 2 '{"tool_name":"mcp__x__bash","tool_input":{"args":{"script":"cat .env"}}}'
+# A command written as the NAME of a field, not as its value. No known tool does this; the old hook blocked it, so the new one must too.
+check "blocks a command in a field name" 2 '{"tool_input":{"args":{"cat .env":true}}}'
 # The Monitor tool, which runs a shell command in the background.
 check "blocks a Monitor command"      2 '{"tool_name":"Monitor","tool_input":{"command":"tail -f .env","description":"watch a file"}}'
 
