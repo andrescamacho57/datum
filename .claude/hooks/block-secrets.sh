@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
-# PreToolUse hook for the Bash tool: refuse any command that mentions a secrets file.
+# PreToolUse hook for shell tools: refuse any command that mentions a secrets file.
 # Claude Code feeds the pending tool call to this script as JSON on stdin.
 # Exit 0 lets the command run; exit 2 blocks it and shows stderr to Claude.
 # This is a guardrail, not a boundary: obfuscated paths (e.g. `cat .e*`) get through.
 # settings.json is strict JSON and cannot hold comments, so its wiring is explained here:
-#   permissions.deny lists Read/Edit/Write rules for the same files (blocks the file tools);
-#   hooks.PreToolUse (matcher "Bash") runs this script (blocks shell access to them).
+#   permissions.deny lists Read/Edit/Write rules for the same files (blocks the file tools).
+#     `**/.env` is the dotenv file and `**/.env.*` is every variant of it (.env.local and so on).
+#   hooks.PreToolUse (matcher "[Bb][Aa][Ss][Hh]") runs this script (blocks shell access to them).
+#     The matcher is a regular expression, tested anywhere in the tool's name, so it fires for the
+#     built-in Bash tool and for any other tool with "bash" in its name, in any letter case.
+#     The plain word "Bash" would be read as one exact name and would miss a tool called "bash".
+#     Source: https://code.claude.com/docs/en/hooks, "Matcher patterns".
+# Limit: this script reads the command from .tool_input.command, where the Bash tool puts it.
+#   A shell tool that keeps its command in another field passes as "nothing to inspect".
 
 # Fail closed on unset variables and pipe errors, so a broken script cannot silently allow.
 set -uo pipefail
