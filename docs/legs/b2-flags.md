@@ -2,7 +2,7 @@
 
 Branch `leg/b2-flags` (stacked on `leg/b1-links`) · run 2026-11-18 (UTC) · status: **done, all tests pass. One address I could not verify (section 4, item 1) and one place where the data differs from what a ruling expected (section 4, item 2)**
 
-Rulings implemented: R5, R6, R7, R9, R12, R16, R18, R20, R21, R22 (`docs/phase_b_rulings.md`).
+Rulings implemented: R5, R6, R7, R9, R12, R16, R18, R20, R21, R22, and R27 after review round 1 (`docs/phase_b_rulings.md`).
 
 ## 1. What I built
 
@@ -32,8 +32,8 @@ stg_datum__fetch_manifest ─▶ fetched_at on every row
 | `status` | `open` or `closed`; `inactive` for a license |
 | `status_note` | The events on the record, as sentences of fact: "Certificate of release filed 2026-11-16." |
 | `source` | `sunbiz_flr`, `dbpr` or `duval` |
-| `source_record_id` | The number to type into the official search: filing number, license number, complaint number, instrument number |
-| `source_url` | The official search page (no source offers a link to one record: R9, R21) |
+| `source_record_id` | The record's own number: filing number, license number, complaint number, instrument number. DBPR's search takes a license number, so a complaint's citation carries its license number as well (R27) |
+| `source_url` | The official search page. No source offers a link to one record, so one ruling per source allows it: R9 for federal liens, R21 for Duval, R27 for DBPR. The approved addresses are the seed `search_page_sources` |
 | `citation` | The record in words: "Duval County Official Records instrument 2010293806, book 15465 page 290" |
 | `source_file` | The exact file the fact came from |
 | `fetched_at` | When we fetched that file, in UTC, from the fetch manifest |
@@ -176,7 +176,7 @@ All checks passed!
 
 ## 4. What I couldn't verify, and open questions for Andres
 
-1. **The federal lien search address is not verified.** 🟡 R9 says to cite "the Sunbiz federal lien search page". The state's site refuses automated requests (HTTP 403), so I could not open it. I used the state's search hub, `https://dos.fl.gov/sunbiz/search/`, which lists the federal lien search and which a web search confirms exists. Please open it in your browser, click through to the federal lien search by document number, and give me that page's address. It is one line in `pipeline/dbt_project.yml` (`sunbiz_lien_search_url`). The other two addresses are verified: `https://www.myfloridalicense.com/wl11.asp` ✅ (DBPR's license search, found on the official site) and `https://or.duvalclerk.com/` ✅ (in `docs/access/duval-official-records.md`).
+1. **The federal lien search address is not verified.** 🟡 R9 says to cite "the Sunbiz federal lien search page". The state's site refuses automated requests (HTTP 403), so I could not open it. I used the state's search hub, `https://dos.fl.gov/sunbiz/search/`, which lists the federal lien search and which a web search confirms exists. Please open it in your browser, click through to the federal lien search by document number, and give me that page's address. It is one line in `pipeline/dbt_project.yml` (`sunbiz_lien_search_url`). The other two addresses are verified: `https://www.myfloridalicense.com/portalsearches/VerifyLicensee` ✅ (the address DBPR gives in its own ReadMe, quoted in `docs/access/dbpr.md`; it answered HTTP 200 on Nov 19) and `https://or.duvalclerk.com/` ✅ (in `docs/access/duval-official-records.md`). *Corrected in review round 1: this report first used `https://www.myfloridalicense.com/wl11.asp` for DBPR and leaned on R9 and R21, which cover federal liens and Duval only. Ruling R27 (Nov 19) now covers DBPR.*
 2. **R18 expected 10,674 links that carry only book and page. The data has about 890.** When a link has no instrument number, the Clerk's file leaves the book and page columns empty and writes text into the last field instead. Of 10,717 such links: 9,021 say `-NONE`, 890 give a book and page I can read (`-OR 12292/1479`, `-O 12292/1479` or `-12292/1479`), and about 800 hold other text (`-NA`, a lone number, a place name). I followed the ruling: the 890 are matched by book and page. The effect is small: **8 of the 3,436 closed documents were closed through book and page**; 3,428 through an instrument number. A release whose link says `-NONE` can't close anything: 1,540 release-family rows are like that.
 3. **"Open" is weak for old documents.** 7,248 of the 18,585 open Duval documents (6,808 of them liens) were recorded before 2025-01-01 and appear in our files only because the Clerk re-indexed them. A release recorded before 2025 is not in any file we hold, so some of these are surely released. The ruling says closed needs a linking document, so they are open, with a caveat sentence and the marker `recorded_before_window`. Before Duval is ever displayed, this needs a decision: load older files, or don't show documents recorded before the window.
 4. **Only 24 inactive-license flags.** Inactive licenses rarely name a business (497 of 12,592), and 24 of those are CONFIRMED. The license flag is close to empty; the useful DBPR line for a contractor is probably "license active, expires …", which is information, not a flag.

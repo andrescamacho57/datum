@@ -10,8 +10,10 @@ vars:                                   # project-wide settings a model reads wi
   show_duval: false                     # ruling R20: Duval flags are built and NOT displayed until the Clerk answers on terms of use. Flip to true only when Andres says so
   show_dbpr_discipline: false           # ruling R12: DBPR discipline is built and NOT displayed until counsel has reviewed it
   sunbiz_lien_search_url: "https://dos.fl.gov/sunbiz/search/"                # ruling R9: where a reader looks up a federal lien by its filing number
-  dbpr_license_search_url: "https://www.myfloridalicense.com/wl11.asp"       # DBPR's own "verify a license" search, by license number
+  dbpr_license_search_url: "https://www.myfloridalicense.com/portalsearches/VerifyLicensee"   # ruling R27: DBPR's own "verify a license" search, by license number. The address DBPR gives in its ReadMe (docs/access/dbpr.md)
   duval_official_records_url: "https://or.duvalclerk.com/"                   # ruling R21: the Clerk's Official Records search, by instrument number or book and page
+  # The three addresses above are also rows of seeds/search_page_sources.csv, the list a test checks shown flags against.
+  # Changing one means changing it in both places.
 
 models:
   datum:                                # settings for models in this project
@@ -47,3 +49,10 @@ seeds:
         doc_type_code: varchar          # the Clerk's document type code, e.g. LN
         used_for: varchar               # flag, closes or partial_release
         flag_type: varchar              # the flag a "flag" code produces; empty for the others
+    search_page_sources:                # settings for seeds/search_page_sources.csv (rulings R9, R21, R27)
+      +schema: reference                # DEV_REFERENCE
+      +column_types:
+        source: varchar                 # the source as company_flags names it: sunbiz_flr, dbpr or duval
+        ruling: varchar                 # the ruling that allows this source to cite a search page
+        search_page_url: varchar        # the one approved address for that source
+        looked_up_by: varchar           # the number a reader types into that page

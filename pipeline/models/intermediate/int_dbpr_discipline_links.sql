@@ -30,6 +30,11 @@
 --   matched_on        name_zip or unique_name on a CONFIRMED row, else NULL
 --   link_reason       why the row got its status
 --   source_date       the date DBPR entered the complaint
+-- One column more than the other link models:
+--   alternate_license_number   the printed number of the license the
+--                     complaint is against, e.g. CGC1508861. DBPR's search
+--                     page looks a record up by license number, not by
+--                     complaint number, so the citation needs it (ruling R27).
 --
 -- Grain: one row per complaint per candidate company.
 -- Becomes the table DATUM.DEV_INTERMEDIATE.INT_DBPR_DISCIPLINE_LINKS.
@@ -79,6 +84,7 @@ linked as (
     -- has no rows in int_dbpr_license_links, so its complaints drop out here.
     select
         d.complaint_number                           as source_record_id,
+        d.alternate_license_number,
         1                                            as party_seq,
         ll.document_number,
         ll.link_status                               as license_link_status,
@@ -104,6 +110,7 @@ decided as (
         party_seq,
         document_number,
         source_date,
+        alternate_license_number,
         case
             when license_link_status <> 'CONFIRMED'                 then license_link_status
             when source_date is null or company_file_date is null   then 'AMBIGUOUS'
@@ -127,5 +134,8 @@ select
     case when link_status = 'CONFIRMED' then link_reason end as matched_on,
     -- name_zip or unique_name: how the LICENSE was matched to the company.
     link_reason,
-    source_date
+    source_date,
+    alternate_license_number
+    -- The license the complaint is against: what a reader types into DBPR's
+    -- search (ruling R27). A number, not a name.
 from decided

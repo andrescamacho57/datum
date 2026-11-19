@@ -91,7 +91,7 @@ models:
     columns: *link_columns
 
   - name: int_dbpr_discipline_links
-    description: One row per DBPR discipline complaint per candidate company, reached through the license. Built, not displayed (R12). No names.
+    description: One row per DBPR discipline complaint per candidate company, reached through the license, with that license's number for the citation (R27). Built, not displayed (R12). No names.
     columns: *link_columns
 
   - name: int_duval_party_links
