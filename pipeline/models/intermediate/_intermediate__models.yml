@@ -344,7 +344,10 @@ unit_tests:
       release of some OTHER document that must not close anything here; and
       one closed by TWO documents recorded on the same day, where "closed
       by" must name one of them whole (the lower instrument number), never
-      the number of one with the type or file of the other.
+      the number of one with the type or file of the other. The lower
+      number, R6, is given the type code that sorts LAST (SAT after
+      RELEASE), so the test fails if the instrument number ever stops
+      deciding the tie.
     model: int_duval_document_status
     given:
       - input: ref('duval_doc_type_allowlist')
@@ -374,16 +377,16 @@ unit_tests:
           - {instrument_number: P4, doc_type_code: PTL REL, book_type: OR, book: '21100', page: '3',   recorded_date: 2025-08-01, file_date: 2025-08-02, loaded_at: 2026-11-12, source_file: d2025080201id.16.gz}
           - {instrument_number: R9, doc_type_code: RELEASE, book_type: OR, book: '21100', page: '4',   recorded_date: 2025-09-01, file_date: 2025-09-02, loaded_at: 2026-11-12, source_file: d2025090201id.16.gz}
           - {instrument_number: D6, doc_type_code: LN,      book_type: OR, book: '21000', page: '60',  recorded_date: 2025-03-01, file_date: 2025-03-02, loaded_at: 2026-11-12, source_file: d2025030201id.16.gz}
-          - {instrument_number: S6, doc_type_code: SAT,     book_type: OR, book: '21100', page: '5',   recorded_date: 2025-10-01, file_date: 2025-10-02, loaded_at: 2026-11-12, source_file: d2025100201id.16.gz}
-          - {instrument_number: R6, doc_type_code: RELEASE, book_type: OR, book: '21100', page: '6',   recorded_date: 2025-10-01, file_date: 2025-10-03, loaded_at: 2026-11-12, source_file: d2025100301id.16.gz}
+          - {instrument_number: S6, doc_type_code: RELEASE, book_type: OR, book: '21100', page: '5',   recorded_date: 2025-10-01, file_date: 2025-10-02, loaded_at: 2026-11-12, source_file: d2025100201id.16.gz}
+          - {instrument_number: R6, doc_type_code: SAT,     book_type: OR, book: '21100', page: '6',   recorded_date: 2025-10-01, file_date: 2025-10-03, loaded_at: 2026-11-12, source_file: d2025100301id.16.gz}
       - input: ref('stg_duval__links')
         rows:
           - {instrument_number: R2, doc_type_code: RELEASE, linked_instrument_number: D2,   linked_book: null, linked_page: null, linked_doc_type_code: LN,                has_link: true, file_date: 2025-06-02, loaded_at: 2026-11-12}   # by instrument number
           - {instrument_number: S3, doc_type_code: SAT,     linked_instrument_number: null, linked_book: null, linked_page: null, linked_doc_type_code: '-OR 012292/1479', has_link: true, file_date: 2025-07-02, loaded_at: 2026-11-12}   # by book and page, written as text with a leading zero
           - {instrument_number: P4, doc_type_code: PTL REL, linked_instrument_number: D4,   linked_book: null, linked_page: null, linked_doc_type_code: LN,                has_link: true, file_date: 2025-08-02, loaded_at: 2026-11-12}   # a partial release
           - {instrument_number: R9, doc_type_code: RELEASE, linked_instrument_number: X99,  linked_book: null, linked_page: null, linked_doc_type_code: MTG,               has_link: true, file_date: 2025-09-02, loaded_at: 2026-11-12}   # releases a mortgage we don't track
-          - {instrument_number: S6, doc_type_code: SAT,     linked_instrument_number: D6,   linked_book: null, linked_page: null, linked_doc_type_code: LN,                has_link: true, file_date: 2025-10-02, loaded_at: 2026-11-12}   # two closing documents,
-          - {instrument_number: R6, doc_type_code: RELEASE, linked_instrument_number: D6,   linked_book: null, linked_page: null, linked_doc_type_code: LN,                has_link: true, file_date: 2025-10-03, loaded_at: 2026-11-12}   # both recorded 2025-10-01
+          - {instrument_number: S6, doc_type_code: RELEASE, linked_instrument_number: D6,   linked_book: null, linked_page: null, linked_doc_type_code: LN,                has_link: true, file_date: 2025-10-02, loaded_at: 2026-11-12}   # two closing documents,
+          - {instrument_number: R6, doc_type_code: SAT,     linked_instrument_number: D6,   linked_book: null, linked_page: null, linked_doc_type_code: LN,                has_link: true, file_date: 2025-10-03, loaded_at: 2026-11-12}   # both recorded 2025-10-01
     expect:
       rows:
           - {instrument_number: D1, flag_type: duval_lien,     document_status: open,   closed_on: null,       closed_by_instrument_number: null, closed_by_doc_type_code: null,    partial_release_count: 0, last_partial_release_on: null,       recorded_before_window: false, closed_by_source_file: null}
@@ -391,5 +394,5 @@ unit_tests:
           - {instrument_number: D3, flag_type: duval_judgment, document_status: closed, closed_on: 2025-07-01, closed_by_instrument_number: S3,   closed_by_doc_type_code: SAT,     partial_release_count: 0, last_partial_release_on: null,       recorded_before_window: true,  closed_by_source_file: d2025070201id.16.gz}
           - {instrument_number: D4, flag_type: duval_lien,     document_status: open,   closed_on: null,       closed_by_instrument_number: null, closed_by_doc_type_code: null,    partial_release_count: 1, last_partial_release_on: 2025-08-01, recorded_before_window: false, closed_by_source_file: null}
           - {instrument_number: D5, flag_type: duval_lien,     document_status: open,   closed_on: null,       closed_by_instrument_number: null, closed_by_doc_type_code: null,    partial_release_count: 0, last_partial_release_on: null,       recorded_before_window: false, closed_by_source_file: null}
-          - {instrument_number: D6, flag_type: duval_lien,     document_status: closed, closed_on: 2025-10-01, closed_by_instrument_number: R6,   closed_by_doc_type_code: RELEASE, partial_release_count: 0, last_partial_release_on: null,       recorded_before_window: false, closed_by_source_file: d2025100301id.16.gz}
+          - {instrument_number: D6, flag_type: duval_lien,     document_status: closed, closed_on: 2025-10-01, closed_by_instrument_number: R6,   closed_by_doc_type_code: SAT,     partial_release_count: 0, last_partial_release_on: null,       recorded_before_window: false, closed_by_source_file: d2025100301id.16.gz}
 
