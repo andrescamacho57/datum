@@ -80,18 +80,30 @@ lien_events as (
 releases as (
     -- STEP 4: per lien, releases split by WHEN they were published compared
     -- with the file the lien itself is in.
+    --
+    -- Open or closed is decided on a release EVENT existing, never on its
+    -- date. Staging reads the date with try_to_date, which gives NULL when
+    -- the text is not a date, so a rule that waited for a date would leave a
+    -- released lien open, and an open federal lien is shown to a contractor.
     select
         f.filing_doc_number,
-        min(case when e.published_on > f.published_on then e.event_filing_date end) as released_on,
+        count_if(e.published_on > f.published_on) > 0                              as has_later_release,
         -- A release published AFTER the file that lists the lien: this is
-        -- the "later COR" of ruling R6. min = the first one, if several.
-        min_by(e.source_file, case when e.published_on > f.published_on then e.event_filing_date end) as release_source_file,
-        -- min_by(a, b) returns the value of a on the row where b is
-        -- smallest: here, the file holding that first later release. Rows
-        -- where b is NULL are ignored.
-        max(case when e.published_on <= f.published_on then e.event_filing_date end) as earlier_release_on
+        -- the "later COR" of ruling R6. count_if counts the rows where the
+        -- condition is true; "> 0" turns the count into TRUE or FALSE.
+        count_if(e.published_on <= f.published_on) > 0                             as has_earlier_release,
         -- A release that was already on record when the state published the
         -- lien as active. See "Records we can't explain" in the header.
+        min(case when e.published_on > f.published_on then e.event_filing_date end) as released_on,
+        -- The filing date of the first later release, for the report's
+        -- wording ONLY. NULL when there is none, or when its date is unreadable.
+        min_by(e.source_file,
+               case when e.published_on > f.published_on
+                    then coalesce(e.event_filing_date, '9999-12-31'::date) end)    as release_source_file
+        -- min_by(a, b) returns the value of a on the row where b is
+        -- smallest: here, the file holding that first later release. Rows
+        -- where b is NULL are ignored, so a release with no readable date is
+        -- given the year 9999: it sorts last and still names its file.
     from filing_rows as f
     inner join lien_events as e
         on  e.filing_doc_number = f.filing_doc_number
@@ -134,8 +146,11 @@ select
         -- dropped it from its active list.
         when f.source_kind = 'daily' and f.published_on <= s.snapshot_date    then 'closed'
         -- Filed before the latest snapshot and not in it: same reading.
-        when r.released_on is not null                               then 'closed'
-        -- A certificate of release was published after the lien (ruling R6).
+        when r.has_later_release                                     then 'closed'
+        -- A certificate of release was published after the lien (ruling R6),
+        -- whether or not its date could be read. A lien with no release at
+        -- all has no row in releases, so this is NULL, which a case treats
+        -- as "not true".
         else 'open'
     end                                              as lien_status,
 
@@ -143,12 +158,13 @@ select
         when f.filing_status <> 'A'                                  then 'filing_status_not_active'
         when f.source_kind = 'quarterly' and f.published_on < s.snapshot_date then 'not_in_latest_snapshot'
         when f.source_kind = 'daily' and f.published_on <= s.snapshot_date    then 'not_in_latest_snapshot'
-        when r.released_on is not null                               then 'certificate_of_release'
+        when r.has_later_release                                     then 'certificate_of_release'
     end                                              as closed_reason,
     -- Why a closed lien is closed. NULL on an open lien.
 
     r.released_on,
-    -- The filing date of the certificate of release that closed it.
+    -- The filing date of the certificate of release that closed it. For the
+    -- report's wording only: NULL does not mean "not released".
 
     d.discharge_recorded_on,
     -- The date of any certificate of discharge. A fact to show, not a
@@ -156,14 +172,16 @@ select
 
     (   f.cancellation_date is not null
      or o.filing_doc_number is not null
-     or (r.earlier_release_on is not null and r.released_on is null)
+     or (coalesce(r.has_earlier_release, false) and not coalesce(r.has_later_release, false))
     )                                                as is_unexplained,
     -- TRUE = ruling R7 applies: produce no flag from this lien.
+    -- coalesce(x, false): a lien with no release has no row in releases, so
+    -- both marks are NULL there, and "false or NULL" would be NULL, not FALSE.
 
     case
         when f.cancellation_date is not null then 'cancellation_date_on_an_active_lien'
         when o.filing_doc_number is not null then 'party_row_with_status_c'
-        when r.earlier_release_on is not null and r.released_on is null then 'release_recorded_before_the_snapshot_that_lists_it'
+        when r.has_earlier_release and not r.has_later_release then 'release_recorded_before_the_snapshot_that_lists_it'
     end                                              as unexplained_reason,
 
     f.source_file                                    as filing_source_file,

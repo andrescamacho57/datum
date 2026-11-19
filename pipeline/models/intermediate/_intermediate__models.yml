@@ -287,10 +287,13 @@ unit_tests:
 
   - name: lien_status_follows_rulings_r5_r6_and_r7
     description: >
-      Eight liens, one per case: nothing filed since; released by a later
+      Ten liens, one per case: nothing filed since; released by a later
       daily; discharged only; a release older than the snapshot that lists
       it; filed and released in dailies; a cancellation date; a status-C
-      party row; a filing status that is not active.
+      party row; a filing status that is not active; a later release whose
+      date could not be read; an earlier release whose date could not be
+      read. The last two prove the status is decided on the release EVENT
+      existing, not on its date.
     model: int_federal_liens_status
     given:
       - input: ref('stg_sunbiz__flr_filings')
@@ -303,6 +306,8 @@ unit_tests:
           - {filing_doc_number: L6, filing_date: 2020-01-01, filing_status: A, cancellation_date: 2021-01-01, source_kind: quarterly, published_on: 2026-10-03, source_file: FLRF.TXT.gz,         loaded_at: 2026-11-12}
           - {filing_doc_number: L7, filing_date: 2020-01-01, filing_status: A, cancellation_date: null,       source_kind: quarterly, published_on: 2026-10-03, source_file: FLRF.TXT.gz,         loaded_at: 2026-11-12}
           - {filing_doc_number: L8, filing_date: 2020-01-01, filing_status: L, cancellation_date: null,       source_kind: quarterly, published_on: 2026-10-03, source_file: FLRF.TXT.gz,         loaded_at: 2026-11-12}
+          - {filing_doc_number: L9, filing_date: 2020-01-01, filing_status: A, cancellation_date: null,       source_kind: quarterly, published_on: 2026-10-03, source_file: FLRF.TXT.gz,         loaded_at: 2026-11-12}
+          - {filing_doc_number: L10, filing_date: 2020-01-01, filing_status: A, cancellation_date: null,      source_kind: quarterly, published_on: 2026-10-03, source_file: FLRF.TXT.gz,         loaded_at: 2026-11-12}
       - input: ref('stg_sunbiz__flr_events')
         rows:
           - {filing_doc_number: L2, event_doc_number: E2, action_code: COR, event_filing_date: 2026-10-30, published_on: 2026-10-30, source_file: 20261030flre.txt.gz, loaded_at: 2026-11-18}   # released after the snapshot
@@ -310,6 +315,8 @@ unit_tests:
           - {filing_doc_number: L4, event_doc_number: E4, action_code: COR, event_filing_date: 2023-03-28, published_on: 2026-10-03, source_file: FLRE.TXT.gz,         loaded_at: 2026-11-12}   # a release OLDER than the snapshot that still lists the lien
           - {filing_doc_number: L5, event_doc_number: E5, action_code: COR, event_filing_date: 2026-11-04, published_on: 2026-11-04, source_file: 20261104flre.txt.gz, loaded_at: 2026-11-12}   # filed 10-19, released 11-04
           - {filing_doc_number: L1, event_doc_number: E1, action_code: AGI, event_filing_date: 2026-11-16, published_on: 2026-11-16, source_file: 20261116flre.txt.gz, loaded_at: 2026-11-18}   # an amendment changes nothing
+          - {filing_doc_number: L9, event_doc_number: E9, action_code: COR, event_filing_date: null,       published_on: 2026-11-09, source_file: 20261109flre.txt.gz, loaded_at: 2026-11-18}   # released after the snapshot, but the date text did not parse
+          - {filing_doc_number: L10, event_doc_number: E10, action_code: COR, event_filing_date: null,     published_on: 2026-10-03, source_file: FLRE.TXT.gz,         loaded_at: 2026-11-12}   # a release in the snapshot itself, date unreadable
       - input: ref('stg_sunbiz__flr_debtors')
         rows:
           - {filing_doc_number: L7, filing_status: C}   # the undocumented status letter
@@ -327,6 +334,8 @@ unit_tests:
           - {filing_doc_number: L6, lien_status: open,   closed_reason: null,                     released_on: null,       discharge_recorded_on: null,       is_unexplained: true,  unexplained_reason: cancellation_date_on_an_active_lien,                release_source_file: null}
           - {filing_doc_number: L7, lien_status: open,   closed_reason: null,                     released_on: null,       discharge_recorded_on: null,       is_unexplained: true,  unexplained_reason: party_row_with_status_c,                            release_source_file: null}
           - {filing_doc_number: L8, lien_status: closed, closed_reason: filing_status_not_active, released_on: null,       discharge_recorded_on: null,       is_unexplained: false, unexplained_reason: null,                                               release_source_file: null}
+          - {filing_doc_number: L9, lien_status: closed, closed_reason: certificate_of_release,   released_on: null,       discharge_recorded_on: null,       is_unexplained: false, unexplained_reason: null,                                               release_source_file: 20261109flre.txt.gz}
+          - {filing_doc_number: L10, lien_status: open,  closed_reason: null,                     released_on: null,       discharge_recorded_on: null,       is_unexplained: true,  unexplained_reason: release_recorded_before_the_snapshot_that_lists_it, release_source_file: null}
 
   - name: duval_status_follows_ruling_r18
     description: >

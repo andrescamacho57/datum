@@ -124,6 +124,16 @@ models:
           # "Was the release filed AFTER the lien?" needs this date. warn
           # (report, don't block) because the quarterly events file is 20
           # years of history and an old unparseable date shouldn't stop a build.
+          # int_federal_liens_status does NOT wait for this date to close a
+          # lien: it decides on the release event existing.
+
+      - name: published_on
+        data_tests:
+          - not_null
+          # Fails if a daily file's name didn't start with a date. "Was the
+          # release published AFTER the file that lists the lien?" compares
+          # this date, so a release without one would be neither later nor
+          # earlier, and its lien would stay open. Stop the build instead.
 
   - name: stg_sunbiz__flr_secured
     description: One row per secured party (creditor, almost always the IRS) per lien per state file.
