@@ -4,9 +4,9 @@
 --
 -- The path (ruling R12): discipline → license → company.
 --   1. A discipline row names a license by its kind in WORDS and an unpadded
---      number ("Certified General Contractor", 12345).
+--      number ("Certified General Contractor", 99990).
 --   2. The seed dbpr_license_type_map turns the words into the license
---      file's code (CGC); the number is padded to 7 digits (0012345).
+--      file's code (CGC); the number is padded to 7 digits (0099990).
 --   3. That finds the license, and int_dbpr_license_links already says which
 --      company the license's business name points at.
 --
@@ -74,7 +74,7 @@ licensed as (
                 else c.license_number
             end
     -- lpad(x, 7, '0') pads x on the left with zeros up to 7 characters:
-    -- 12345 → 0012345. It would also CUT a longer number down to 7, so the
+    -- 99990 → 0099990. It would also CUT a longer number down to 7, so the
     -- case only pads numbers that are too short.
     where l.record_kind = 'contractor_license'
 ),
