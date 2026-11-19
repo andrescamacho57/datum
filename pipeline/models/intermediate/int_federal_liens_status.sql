@@ -50,9 +50,15 @@ with filing_rows as (
 
 latest_snapshot as (
     -- STEP 2: the date of the newest quarterly snapshot loaded. Today there
-    -- is one (2026-10-03). When the January 2027 snapshot is loaded, a lien
-    -- that is only in the older snapshot is no longer "in the latest
+    -- is one (2026-10-03). Once a second snapshot carries its own date, a
+    -- lien that is only in the older one is no longer "in the latest
     -- snapshot", and STEP 6 closes it.
+    --
+    -- NOT WORKING YET, on purpose and guarded: staging stamps every
+    -- quarterly row with one hardcoded date, so two snapshots would share
+    -- it and nothing would look older. Ruling R26 fixes the date; until
+    -- then tests/assert_flr_quarterly_rows_come_from_one_load.sql fails the
+    -- build if a second snapshot is loaded.
     select max(published_on) as snapshot_date
     from {{ ref('stg_sunbiz__flr_filings') }}
     where source_kind = 'quarterly'
