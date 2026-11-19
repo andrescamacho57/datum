@@ -218,6 +218,14 @@ Pull request 6 got a Deep review under `REVIEW.md`: 6 findings, 2 Important, 3 N
 | **Nit 3.** Tied dates could name the wrong closing document | `int_duval_document_status` picks one closing row with `row_number()` ordered by recording date, then instrument number, then type code | A document closed by two documents on the same day was added to the unit test `duval_status_follows_ruling_r18`. It failed on the old code | `a140727` |
 | **Pre-existing.** Garnishees can be flagged as judgment debtors | Not fixed here: logged as Q25 in `docs/open_questions.md`, to be settled before `show_duval` is turned on | | `064beda` |
 
+**A pre-push check of the fixes found three more nits, all fixed.** Before pushing, one `reviewer` subagent read the fix commits in a fresh context. This was a single pass, not a Deep round, so the review log still says one round. It reported 0 Important findings and 3 nits:
+
+| Nit from the pre-push check | What changed | Commit |
+|---|---|---|
+| The tied-date unit test would have passed without the instrument-number key | The lower instrument number now carries the type code that sorts last, so only that key can produce the expected row | `ac18d30` |
+| The release's source file could still be picked arbitrarily on a tie, and it decides `fetched_at` | One full ordering key: filing date, then the file's publish date, then the file name. A lien with two undated releases in two files was added to the unit test, and it failed on the old code | `40c342a` |
+| The DBPR citation test compared a license's digits only, and DBPR reuses digits across license kinds | It compares the kind as well. Of 78 simulated wrong-kind citations the old check caught 0 and the new one catches 78 | `b013862` |
+
 **Flag counts did not change.** The table in section 2 is still exact: 24,465 flags on 12,295 companies, 9,972 of them shown. Why nothing moved:
 
 - Important 1 changes a result only for a release whose date is unreadable, and there are none today (section 8, query 1). Lien status is the same four rows as before: 20,695 open, 176 closed, 2 and 1 unexplained.
@@ -228,7 +236,7 @@ Pull request 6 got a Deep review under `REVIEW.md`: 6 findings, 2 Important, 3 N
 
 ### Checks after the fixes
 
-`cd pipeline && dbt build --select +company_flags` (the mart and everything upstream of it). The three warnings are staging checks that earlier legs set to warn on purpose, and they warned before this round too (mistyped years on a few liens; status `C` on party rows, ruling R7). Nothing failed.
+`cd pipeline && dbt build --select +company_flags` (the mart and everything upstream of it), run last, after every commit in this section. The three warnings are staging checks that earlier legs set to warn on purpose, and they warned before this round too (mistyped years on a few liens; status `C` on party rows, ruling R7). Nothing failed.
 
 ```
  Succeeded seed  DEV_reference.search_page_sources (table)
@@ -257,7 +265,7 @@ Pull request 6 got a Deep review under `REVIEW.md`: 6 findings, 2 Important, 3 N
     Passed test  assert_duval_flags_respect_the_allowlist
     Passed test  assert_no_name_columns_past_staging
     ... (16 more models, 2 more seeds and 122 more passing tests, left out here)
-Finished 'build' with 3 warnings for target 'dev' [1m 12s]
+Finished 'build' with 3 warnings for target 'dev' [1m 16s]
 Processed: 20 models | 137 tests | 3 seeds | 5 unit tests
 Summary: 165 total | 162 success | 3 warn
 ```
@@ -266,12 +274,12 @@ Summary: 165 total | 162 success | 3 warn
 $ ruff check src tests
 All checks passed!
 $ pytest -q
-60 passed in 0.24s
+60 passed in 0.23s
 ```
 
 ## 8. Review round 1: data checks
 
-The reviewers had no Snowflake access, so the review ended with three queries to run on the real data. Run 2026-11-19 (UTC) with `snow sql -c datum -q "..."`, before and again after the rebuild, with the same results.
+The reviewers had no Snowflake access, so the review ended with three queries to run on the real data. Run 2026-11-19 (UTC) with `snow sql -c datum -q "..."`, before the fixes and again after the last rebuild, with the same results.
 
 **1. Does Important 1 affect today's data? No.**
 
@@ -308,12 +316,12 @@ Of 4,528 hidden `duval_judgment` flags, 7 sit on a company whose name contains B
 
 ### Credits used in review round 1
 
-**About 0.27 credits** on `datum_wh` (X-Small), roughly $0.53 at the $2 per credit this report uses in section 5. The warehouse had been idle for 12 hours before this round, so the whole reading belongs to it: 542 queries between 23:24 and 23:36 Pacific on Nov 18 (Nov 19 UTC), which covers the test runs before and after each fix, three partial builds, two full `dbt build --select +company_flags` runs and the data checks.
+**About 0.29 credits** on `datum_wh` (X-Small), roughly $0.59 at the $2 per credit this report uses in section 5. The warehouse had been idle for 12 hours before this round, so the whole reading belongs to it: 783 queries between 23:24 and 23:44 Pacific on Nov 18 (Nov 19 UTC), which covers the test runs before and after each fix, three partial builds, three full `dbt build --select +company_flags` runs and the data checks.
 
 ```
 snow sql -c datum -q "SELECT start_time, end_time, credits_used FROM TABLE(datum.information_schema.warehouse_metering_history(DATE_TRUNC('hour', DATEADD('hour', -12, CURRENT_TIMESTAMP())), CURRENT_TIMESTAMP(), 'DATUM_WH')) ORDER BY start_time"
 before the round (23:24 Pacific, Nov 18):  no rows (nothing used in the last 12 hours)
-after the round  (23:36 Pacific, Nov 18):  0.267460556
+after the round  (23:44 Pacific, Nov 18):  0.294902500
 ```
 
 Read while the warehouse was still running, so the meter can add a little for the last minute before it suspends.
