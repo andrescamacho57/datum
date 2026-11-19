@@ -126,3 +126,114 @@ after B3 (23:50 Pacific, Nov 17):  0.538446111
 1. All of B1's and B2's tests pass. Why is a hand check of 20 links still needed, and what can it find that no dbt test can?
 2. The sample is sorted by a checksum instead of `ORDER BY RANDOM()`. What do you gain, and how would you draw a different 20?
 3. `git status` is clean, yet two new files sit in `evals/`. Which file makes git ignore them, and why were they kept out of a public repository?
+
+## 7. Review round 1 (2026-11-19)
+
+Pull request 7 got a Standard review under `REVIEW.md` (one reviewer, fresh context): **4 findings, 1 Important and 3 Nit.** All four are fixed, one commit each. Both files were then regenerated on your machine with the fixed scripts. They are still not in git.
+
+```
+review (4 findings) ──▶ one commit per finding ──▶ run both scripts twice ──▶ count ──▶ this section ──▶ push ──▶ reply on the pull request
+```
+
+### What changed, finding by finding
+
+| Finding | What was wrong | What changed | The check that catches it | Commit |
+|---|---|---|---|---|
+| **Important.** Script 19 sent the DBPR hand check to a replaced address | The script had its own copy of the three official search addresses. Its DBPR copy was the one ruling R27 replaced, so 6 of the 20 rows pointed at a page the rulings no longer name | `official_search_page` is read from the seed table `datum.dev_reference.search_page_sources` (a seed is a small CSV file, here `pipeline/seeds/search_page_sources.csv`, that dbt loads as a table). The script maps its own labels to the seed's: `federal_lien` → `sunbiz_flr`, `dbpr_license` → `dbpr`, `duval` → `duval`. No address for those three is typed in the script. The false comment on the old line 67 is gone, and the row in section 3 says what the script does now | Every `official_search_page` in the file is a row of the seed: 0 outside it (6 before). `git grep -n wl11 -- snowflake pipeline` prints nothing | `6ffde63` |
+| **Nit 1.** The fixed order could tie | A tie is two rows with the same sort value: the database may return them in either order, so "fixed" was not guaranteed. Script 19 kept a link as two rows when two debtors on one lien were confirmed in two different ways. Script 20 tied when a company was spelled the same way on a lien and on a license | Script 19: one row per (`source`, `source_record_id`, `document_number`), taking `MIN(matched_on)`. Script 20: `drawn_from` is now part of the checksum that picks one spelling per company | Counted with each script's own steps on the real data. Script 19: links counted more than once 1 → 0. Script 20: companies with a tied sort value 30 → 0. Each script run twice gives byte-identical files | `e42e808` |
+| **Nit 2.** Two sentences led to publishing what must stay private | Section 4 item 1 said `git add evals/`, which stages both files, 6 Duval rows included. Script 20's `notes` column said "Spelling from a federal lien debtor name" beside a real company, and its header said a checked row could be pasted into the public `test_set.csv` as it is | Section 4 item 1 now says never to add the folder, that the Duval rows stay out of git (ruling R20), and names the one file that may be added. The `notes` column is neutral: `DRAFT, not verified. Company status on Sunbiz: A.` The header says what to do before pasting a row | 0 of 40 notes mention a lien, a license, the IRS or DBPR (40 before). All 40 match the neutral sentence exactly | `3efff05` |
+| **Nit 3.** The run commands failed on a fresh copy of the repo | Nothing under `evals/` is in git, so a fresh clone has no `evals` folder, and `>` cannot write into a folder that does not exist | `mkdir -p evals` comes before the run command in both script headers and in section 2 | In an empty folder the redirect fails without it ("no such file or directory") and works with it | `b09f56f` |
+
+### What the fixes did to the two files
+
+| File | Before and after |
+|---|---|
+| `evals/link_sample_20.csv` | The same 20 links in the same order. The only cells that changed are the 6 DBPR search pages. The one link that used to be counted twice was not among the 20 drawn |
+| `evals/draft_test_cases_40.csv` | The same 40 cases (same input text, same expected company). Only the `notes` text changed. The new checksum picked a different spelling for 48 of the 99 companies that have more than one, and none of those 48 is among the 40 drawn |
+
+**Both files were overwritten.** Before running, I counted the cells you fill in: 0 rows of either file had a `verdict` or a `verified_on`, so no hand-check work was lost.
+
+### Check outputs (counts only, no rows)
+
+Both scripts were run the way their headers say, then a second time into a scratch folder outside the repo:
+
+```
+cd ~/datum
+mkdir -p evals
+snow sql -c datum -f snowflake/19_sample_confirmed_links.sql --format csv > evals/link_sample_20.csv      exit 0
+snow sql -c datum -f snowflake/20_draft_lookup_cases.sql --format csv > evals/draft_test_cases_40.csv     exit 0
+
+link_sample_20.csv: run 1 and run 2 identical        (cmp; SHA-256 of both starts fd7937e3be44acb8)
+draft_test_cases_40.csv: run 1 and run 2 identical   (cmp; SHA-256 of both starts 8cfe17ae31dd5f2c)
+```
+
+Shape of both files (a throwaway Python script that prints counts and never a row):
+
+```
+link sample: data rows 20 | columns 12
+  by source {'dbpr_license': 6, 'duval': 6, 'federal_lien': 8} | matched_on {'name_zip': 14, 'unique_name': 6}
+  official_search_page values that are not a row of the seed: 0 (old file: 6 )
+  rows whose page is not the seed row for their own source: 0
+  distinct official_search_page values: 3 | rows containing 'wl11': 0
+  links counted more than once in the file: 0 | distinct companies 20
+  blank cells in data columns: 0 | R2 holds (record date >= company filing date): True
+  same 20 links, same order as the Nov 18 file: True | cells that differ, by column: {'official_search_page': 6}
+draft cases: data rows 40 | columns 8 | same columns as test_set.csv: True
+  case ids 101 .. 140 | distinct companies 40
+  by id half and type {('ids 101-120', 'legal suffix written differently'): 10, ('ids 101-120', 'punctuation or spacing differs'): 10, ('ids 121-140', 'legal suffix written differently'): 10, ('ids 121-140', 'punctuation or spacing differs'): 10}
+  notes that are not the neutral sentence: 0 | notes mentioning lien, license, IRS or DBPR: 0 (old file: 40 )
+  status in notes {'A': 22, 'I': 18} | verified_on filled: 0
+  every input has an entity word: True | inputs equal to the registered name: 0
+  cases also in the Nov 18 draft (same input and company): 40 of 40 | same companies: 40
+```
+
+The seed table in Snowflake holds the same three rows as `pipeline/seeds/search_page_sources.csv` (`sunbiz_flr` R9, `dbpr` R27, `duval` R21), read with `snow sql -c datum -q "SELECT source, ruling, search_page_url, looked_up_by FROM datum.dev_reference.search_page_sources ORDER BY source"`.
+
+Ties, counted by running each script's own steps with a counting `SELECT` in place of the last one:
+
+```
+script 19, step 2 (one_per_link)                     before the fix    after the fix
+  rows                                                72699             72698
+  distinct (source, source_record_id, document_number) 72698            72698
+  links counted above 1                               1                 0
+  highest count for any one link                                        1
+  sort values shared by two rows in step 3                              0
+  links with two record dates (so MIN(source_date) changes nothing)  0
+
+script 20, step 4 (one_per_company)                  before the fix    after the fix
+  companies                                           15859             15859
+  companies with a tied sort value                    30                0
+  sort values shared by two rows in step 5                              0
+```
+
+Offline checks:
+
+```
+$ git grep -n wl11 -- snowflake pipeline
+(no output, exit status 1: nothing matched)
+$ ruff check src tests
+All checks passed!
+$ pytest -q
+60 passed in 0.20s
+```
+
+The old address still appears once in git, in `docs/legs/b2-flags.md`, where that report records what ruling R27 replaced. That is history, not something a script reads.
+
+### Three things I did not change, for you to know
+
+1. **`company_search_page` is still typed in script 19** (`https://search.sunbiz.org/Inquiry/CorporationSearch/ByDocumentNumber`). The finding and the seed cover the three pages where a *record* is looked up. This fourth address is where the *company* is looked up, and the seed has no row for it. A seed row needs a ruling, so adding one is your call.
+2. **The case ids in the draft file still show where a name came from.** Script 20 numbers the lien spellings 101 to 120 and the license spellings 121 to 140, and the script is public. A neutral note next to id 105 would still tell a reader of the script that the name came from a tax lien list. The review did not ask for this, so I did not change the numbering. I wrote it into the script's header and into section 4 item 1 instead: give a row a new `case_id` when it moves into `test_set.csv`. My recommendation is to leave the script as it is and renumber on the way in, since `test_set.csv` numbers its own cases anyway (it stops at 10 today).
+3. **Round 2 of the review is still owed.** `REVIEW.md` says the next round reads only the new diff. Nothing was merged.
+
+### Credits used in review round 1
+
+**About 0.06 credits** on `datum_wh` (X-Small), roughly $0.12 at the $2 per credit this report uses in section 5. This covers five script runs (two each for the proof, one scratch run after the first fix), the seed read and five counting queries.
+
+```
+snow sql -c datum -q "SELECT COUNT(*) AS hours, SUM(credits_used) AS credits FROM TABLE(datum.information_schema.warehouse_metering_history('2026-11-19 00:00:00 -08:00'::timestamp_ltz, CURRENT_TIMESTAMP(), 'DATUM_WH'))"
+before the round's runs (00:25 Pacific, Nov 19):  0.023993056
+after the last query     (00:30 Pacific, Nov 19):  0.083229167
+difference:                                       0.059236111
+```
+
+The first reading is not zero because the meter counts from midnight Pacific and earlier work had already used some of that hour. One small query of this round (the seed read) ran before the first reading. The second reading was taken while the warehouse was still running, so the meter can add a little for the last minute before it suspends.
