@@ -128,18 +128,39 @@ matched as (
         on cd.instrument_number = c.closing_instrument_number
 ),
 
-closings as (
-    -- STEP 5: roll the links up to one row per document.
+first_closing as (
+    -- STEP 5a: for each document, ONE closing document: the first full
+    -- release or satisfaction. Its number, type, date and file all come from
+    -- that one row, so "closed by" can never pair the number of one document
+    -- with the type or file of another.
     select
         instrument_number,
-        min(case when used_for = 'closes' then closing_recorded_date end)          as closed_on,
-        -- The first full release or satisfaction.
-        min_by(closing_instrument_number, case when used_for = 'closes' then coalesce(closing_recorded_date, '9999-12-31') end) as closed_by_instrument_number,
-        min_by(closing_doc_type_code,     case when used_for = 'closes' then coalesce(closing_recorded_date, '9999-12-31') end) as closed_by_doc_type_code,
-        min_by(closing_source_file,       case when used_for = 'closes' then coalesce(closing_recorded_date, '9999-12-31') end) as closed_by_source_file,
-        -- min_by(a, b): the value of a on the row where b is smallest, here
-        -- the instrument, type and file of that first closing document. A
-        -- closing document with no date sorts last (year 9999) but still counts.
+        closing_instrument_number,
+        closing_doc_type_code,
+        closing_recorded_date,
+        closing_source_file
+    from matched
+    where used_for = 'closes'
+    qualify row_number() over (
+        partition by instrument_number
+        order by
+            closing_recorded_date asc nulls last,
+            closing_instrument_number asc,
+            closing_doc_type_code asc
+    ) = 1
+    -- row_number() numbers the rows of each document 1, 2, 3 ... in the
+    -- order given, and qualify keeps number 1. The order is FULL: earliest
+    -- recording date first (a closing document with no date sorts last but
+    -- still counts), then the lower instrument number when two were
+    -- recorded the same day. An instrument number is unique, so the same
+    -- row wins on every run. The type code is a last tiebreak for the one
+    -- case left: the same closing document linked twice.
+),
+
+closing_counts as (
+    -- STEP 5b: per document, how many full and partial releases link to it.
+    select
+        instrument_number,
         count_if(used_for = 'closes')                                              as closing_document_count,
         count_if(used_for = 'partial_release')                                     as partial_release_count,
         max(case when used_for = 'partial_release' then closing_recorded_date end) as last_partial_release_on
@@ -160,11 +181,12 @@ select
     case when coalesce(c.closing_document_count, 0) > 0 then 'closed' else 'open' end as document_status,
     -- Closed when at least one full release or satisfaction links to it.
     -- coalesce(x, 0): a document with no links at all has no row in
-    -- closings, so the count is NULL; treat that as 0.
+    -- closing_counts, so the count is NULL; treat that as 0.
 
-    c.closed_on,
-    c.closed_by_instrument_number,
-    c.closed_by_doc_type_code,
+    fc.closing_recorded_date                         as closed_on,
+    -- The day the first full release or satisfaction was recorded.
+    fc.closing_instrument_number                     as closed_by_instrument_number,
+    fc.closing_doc_type_code                         as closed_by_doc_type_code,
     coalesce(c.partial_release_count, 0)             as partial_release_count,
     c.last_partial_release_on,
 
@@ -176,9 +198,12 @@ select
     -- The Clerk's file the document row came from (provenance; joins to the
     -- fetch manifest).
 
-    c.closed_by_source_file
+    fc.closing_source_file                           as closed_by_source_file
     -- The Clerk's file the closing document came from. NULL on an open document.
 
 from flag_documents as d
-left join closings as c
+left join closing_counts as c
     on c.instrument_number = d.instrument_number
+left join first_closing as fc
+    on fc.instrument_number = d.instrument_number
+-- LEFT JOINs: an open document has no row in either.
