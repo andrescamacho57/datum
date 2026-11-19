@@ -1,6 +1,6 @@
 # DBPR fixtures
 
-Cut from real files published by DBPR (Florida's Department of Business and Professional Regulation) so the tests run offline (CLAUDE.md rule 4). On every row about a person, the license number and the complaint number are invented (see "What is invented, and why" below).
+Cut from real files published by DBPR (Florida's Department of Business and Professional Regulation) so the tests run offline (CLAUDE.md rule 4). On every row about a person, the license number, the complaint number and the business name are invented, and some ordinary values are still real (see "What is invented, and why" and "What is still real on a person's row" below).
 
 | Fixture | Origin | Captured (UTC) | What it is |
 |---|---|---|---|
@@ -22,6 +22,8 @@ Cut from real files published by DBPR (Florida's Department of Business and Prof
 | Doing-business-as name (the business a licensed person trades as) | Column 4 of the license file | A name that contains the word `INVENTED` and keeps the legal ending (`INC`, `LLC`) of the real one. One of the real names held a person's first and last name | `INVENTED HOMES INC` |
 | Complaint number | Column 11 of the discipline file | The year, then a running number of 900001 or more. The largest real running number on disk is 92099 | `2025900001` |
 
-One real number always becomes the same invented number. The four discipline rows that shared one license number still share one, and each copy of a fixture (the good one and the ones corrupted on purpose) holds the same rows. The test `tests/test_fixture_privacy.py` fails if a person's row holds a number outside these ranges or a business name without the word `INVENTED`.
+One real number always becomes the same invented number. In the discipline file three people have more than one row (4, 3 and 10 rows), and each person's rows still share one license number. Each copy of a fixture (the good one and the ones corrupted on purpose) holds the same rows. The test `tests/test_fixture_privacy.py` fails if a person's row holds a number outside these ranges or a business name without the word `INVENTED`.
 
-The 12 business (`QB`) rows have no license number in the state's file and are unchanged. Everything else (codes, dates, city, ZIP code, business names, quoting, CRLF line endings, column count) is as the state sent it.
+The 12 business (`QB`) rows have no license number in the state's file and are unchanged. The codes, the quoting, the CRLF line endings and the column count are as the state sent them.
+
+**What is still real on a person's row.** The license type, the city, the state, the ZIP code, the county, every date, and in the discipline file the disposition and the discipline description are as the state sent them. None of them finds a person on its own. Together they might: a nine-digit ZIP code narrows to a street block, and DBPR publishes its final orders by date. 🔴 That is an assumption, and it has not been tried. Whether to invent these values too is an open decision for Andres, raised in the pull request that made this change. `tests/test_fixture_privacy.py` does not check them.

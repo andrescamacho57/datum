@@ -1,6 +1,6 @@
 # Duval recording index fixtures
 
-Cut from real files in the Duval County Clerk's bulk recording index so the tests run offline (CLAUDE.md rule 4). The layout, the line endings and the damage are the Clerk's. On every row about a person, the values that could lead back to that person are invented (see "What is invented, and why" below).
+Cut from real files in the Duval County Clerk's bulk recording index so the tests run offline (CLAUDE.md rule 4). The layout, the line endings and the damage are the Clerk's. On every row about a person, each value that finds that person on its own in the Clerk's search is invented, and some ordinary values are still real (see "What is invented, and why" and "What is still real on a person's row" below).
 
 Origin: SFTP `ftp.duvalclerk.com`, folder `/Recording Indexes`, the four files dated 2025-01-03. Captured 2026-11-12T13:10Z.
 
@@ -36,9 +36,11 @@ Origin: SFTP `ftp.duvalclerk.com`, folder `/Recording Indexes`, the four files d
 Three things follow from that decision:
 
 - A row about a person holds no case number and no parcel number at all. The Clerk writes them as `Case# ...` and `PIN ...` inside the legal description, and the test `tests/test_fixture_privacy.py` fails if either appears on a person's row, so the invented text leaves them out. A case number stub survives on one business row (`2024283010`), which is enough to show the shape.
-- One instrument has one invented number everywhere. `2024900001` is the same document in the `d`, `p` and `l` files, and the link row `-OR 90012/101` in `rejected/l2026021901id.16` still points at the mortgage two rows above it.
+- One instrument has one invented number everywhere. `2024900001` is the same document in the `d`, `p` and `l` files, and the link row `-OR 90012/101` in `rejected/l2026021901id.16` still points at the mortgage on the row above it.
 - The family-court judgment that was in the first cut (a `JDG` row whose case number held `-DR-`) is gone, with its 2 party rows and its 1 link row. No invented number makes a family-court record a good fixture.
 
-The three documents whose parties are all businesses (`2024282998`, `2024283010`, `2024283155`) keep every real value, and so do the documents they link to. Dates, recording times, amounts, type codes, company names, the pipe layout, the NUL byte in one legal description, the broken lines and the CRLF line endings are as the Clerk sent them.
+The three documents whose parties are all businesses (`2024282998`, `2024283010`, `2024283155`) keep every real value, and so do the documents they link to. The type codes, the pipe layout, the NUL byte in one legal description, the broken lines and the CRLF line endings are as the Clerk sent them.
+
+**What is still real on a person's row.** The record date, the recording time, the page count, the amount, the document type and the name of the business on the other side (a bank, for example) are as the Clerk sent them. None of them finds a person on its own. Together they might: a reader who searched the Clerk's index for one bank's satisfactions on one date would get a short list. 🔴 That is an assumption about how the Clerk's search works, and it has not been tried. Whether to invent these values too is an open decision for Andres, raised in the pull request that made this change. `tests/test_fixture_privacy.py` does not check them.
 
 **Not for display.** The Clerk has not yet said whether terms of use apply to this data. Nothing from Duval is shown outside this repo until Andres says so.
