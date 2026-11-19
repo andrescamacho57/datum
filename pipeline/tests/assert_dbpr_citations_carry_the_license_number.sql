@@ -12,8 +12,16 @@
 --   1. The citation holds a license number ("license CGC1508861"), and that
 --      number is a contractor license in DBPR's own file.
 --   2. On a license flag, it is the flag's own record.
---   3. On a discipline flag, it is the license the complaint is against,
---      read again from STAGING so this test does not trust the link model.
+--   3. On a discipline flag, it is the license the complaint is against:
+--      the same KIND of license and the same number, read again from
+--      STAGING so this test does not trust the link model. The kind
+--      matters because DBPR reuses the same digits under different kinds
+--      (CGC0006231 and CBC0006231 are two licenses).
+--
+-- What it can't see: the discipline files name the kind in words, and the
+-- seed dbpr_license_type_map turns the words into a code. This test uses
+-- that seed too, so a wrong row in the seed would pass here. The seed is 19
+-- lines, reviewed by hand, with its own tests (ruling R14).
 -- ---------------------------------------------------------------------------
 
 with dbpr_flags as (
@@ -32,9 +40,10 @@ with dbpr_flags as (
 
 licenses as (
     -- Every contractor license in DBPR's file: its printed number
-    -- (CGC1508861) and its 7-digit number (1508861).
+    -- (CGC1508861), its kind as a code (CGC) and its 7-digit number (1508861).
     select distinct
         alternate_license_number,
+        occupation_code,
         license_number
     from {{ ref('stg_dbpr__licenses') }}
     where record_kind = 'contractor_license'
@@ -42,14 +51,20 @@ licenses as (
 
 complaint_licenses as (
     -- The license each complaint is against, as the discipline files give
-    -- it: digits, padded here to 7 the way the license file writes them.
+    -- it: the kind in words, turned into a code by the seed, and the digits,
+    -- padded here to 7 the way the license file writes them.
     select distinct
-        complaint_number,
+        d.complaint_number,
+        m.occupation_code,
         case
-            when length(license_number) < 7 then lpad(license_number, 7, '0')
-            else license_number
+            when length(d.license_number) < 7 then lpad(d.license_number, 7, '0')
+            else d.license_number
         end as license_number
-    from {{ ref('stg_dbpr__discipline') }}
+    from {{ ref('stg_dbpr__discipline') }} as d
+    inner join {{ ref('dbpr_license_type_map') }} as m
+        on m.license_type = d.license_type
+    -- INNER JOIN: a kind the seed does not list has no row here, so a
+    -- discipline flag built from it would fail check 3.
 )
 
 select
@@ -68,7 +83,8 @@ left join licenses as l
 left join complaint_licenses as c
     on  f.flag_type = 'dbpr_discipline'
     and c.complaint_number = f.source_record_id
-    and c.license_number = l.license_number
+    and c.occupation_code = l.occupation_code    -- the same kind of license
+    and c.license_number = l.license_number      -- and the same number
 where l.alternate_license_number is null
    or (f.flag_type = 'dbpr_license_inactive' and f.cited_license <> f.source_record_id)
    or (f.flag_type = 'dbpr_discipline' and c.complaint_number is null)
