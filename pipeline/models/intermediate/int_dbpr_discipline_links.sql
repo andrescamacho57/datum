@@ -32,7 +32,7 @@
 --   source_date       the date DBPR entered the complaint
 -- One column more than the other link models:
 --   alternate_license_number   the printed number of the license the
---                     complaint is against, e.g. CGC1508861. DBPR's search
+--                     complaint is against, e.g. CGC9900001. DBPR's search
 --                     page looks a record up by license number, not by
 --                     complaint number, so the citation needs it (ruling R27).
 --

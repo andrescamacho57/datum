@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS datum.raw.dbpr_licenses (       -- one row per line o
   expiration_date          VARCHAR,                        -- field 18: MM/DD/YYYY as text; blank on QB rows
   blank_field              VARCHAR,                        -- field 19: the layout calls it "Blank"; always empty
   renewal_period           VARCHAR,                        -- field 20: always empty in this file
-  alternate_license_number VARCHAR,                        -- field 21: the number as printed on a license, e.g. CGC1505679
+  alternate_license_number VARCHAR,                        -- field 21: the number as printed on a license, e.g. CGC9900001
   trailing_field           VARCHAR,                        -- field 22: not in the layout; an empty field at the end of every row
   source_file              VARCHAR,                        -- which staged file the row came from (provenance)
   loaded_at                TIMESTAMP_NTZ                   -- when COPY loaded it (provenance)

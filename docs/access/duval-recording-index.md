@@ -45,7 +45,7 @@ All four: pipe-delimited text, CRLF line endings, no header, no quoting, last li
 |---|---|---|
 | 1 | Record type | `DDA` |
 | 2 | County | `16` = Duval |
-| 3 | Instrument number | Year recorded + running number, e.g. `2025000582` |
+| 3 | Instrument number | Year recorded + running number, e.g. `2025900001` |
 | 4 | Document type code | 73 codes seen, e.g. `LN`, `N/C`, `JDG`, `RELEASE` |
 | 5 | Document type name | The code in words |
 | 6 | Legal description | Free text: parcel and lot, a case number, sometimes a phone number |

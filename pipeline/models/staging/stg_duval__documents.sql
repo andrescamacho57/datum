@@ -35,7 +35,7 @@ cleaned as (
     -- STEP 2: trim, blank → NULL, text → date / number.
     select
         trim(instrument_number)                            as instrument_number,
-        -- The Clerk's ID for the document, e.g. 2025000582: the year it was
+        -- The Clerk's ID for the document, e.g. 2025900001: the year it was
         -- recorded followed by a running number. Parties and links point here.
 
         nullif(trim(doc_type_code), '')                    as doc_type_code,

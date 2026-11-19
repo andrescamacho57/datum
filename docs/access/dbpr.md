@@ -71,7 +71,7 @@ Confirmed in the data as far as it can be: the only secondary statuses present a
 | 18 | Expiration Date | `expiration_date` | MM/DD/YYYY; blank on all `QB` rows |
 | 19 | Blank | `blank_field` | Always empty |
 | 20 | Renewal Period | `renewal_period` | Always empty |
-| 21 | Alternate Lic# | `alternate_license_number` | As printed on a license, e.g. `CBC006231`. Blank on `QB` rows |
+| 21 | Alternate Lic# | `alternate_license_number` | As printed on a license, e.g. `CBC099990`. Blank on `QB` rows |
 | 22 | (not documented) | `trailing_field` | Always empty |
 
 ### Which column tells business records from individual-held licenses: `occupation_code`

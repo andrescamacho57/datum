@@ -22,7 +22,7 @@
 -- name is written to this table.
 --
 -- Columns (the same in every link model):
---   source_record_id  the license number as printed, e.g. CGC1512345; or
+--   source_record_id  the license number as printed, e.g. CGC9900001; or
 --                     QB- followed by 32 characters for a QB business record
 --   party_seq         always 1: a license row names one business
 --   document_number   the company's Sunbiz document number; NULL on NO_MATCH
