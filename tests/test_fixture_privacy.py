@@ -39,7 +39,10 @@ REDACTED_NAMES = {"REDACTED PERSON", "REDACTED, PERSON"}   # the two spellings t
 # A name is "plainly a business" when its last word is one of these. Short endings that also end
 # people's names (CO, PA) are left out on purpose: a wrong "business" is the costly mistake here.
 BUSINESS_ENDINGS = {"LLC", "INC", "CORP", "CORPORATION", "COMPANY", "LP", "LLP", "LTD", "PLLC", "NA", "BANK", "ASSOCIATION"}
+# Words that join a person's name to a business name: "<person> DBA <business> LLC" ends like a business and names a person.
+ALIAS_WORDS = {"DBA", "D/B/A", "AKA", "A/K/A", "FKA", "F/K/A"}
 HEADER_NAMES = {"Licensee Name", "Respondent Name"}        # column 3 of a DBPR header row
+ADDRESS_COLUMNS = {"construction_license": (5, 6, 7), "contractor_disc": (3, 4, 5)}   # the three street-address cells, counted from 0
 BANNED_TEXT = ("Case#", "PIN ")                            # how the Clerk writes a court case number and a parcel number
 
 # The invented ranges. Each one starts above the largest real value in the files on disk (counted Nov 19, 2026).
@@ -63,8 +66,8 @@ def rows_of(path: Path) -> list[tuple[int, str]]:
 
 
 def is_plainly_a_business(name: str) -> bool:
-    words = name.replace(".", " ").replace(",", " ").split()
-    return bool(words) and words[-1].upper() in BUSINESS_ENDINGS
+    words = [word.upper() for word in name.replace(".", " ").replace(",", " ").split()]
+    return bool(words) and words[-1] in BUSINESS_ENDINGS and not ALIAS_WORDS.intersection(words)
 
 
 def is_data_line(line: str) -> bool:
@@ -171,6 +174,10 @@ def dbpr_problems(dbpr_dir: Path) -> list[str]:
                     continue                                # the header, or a row about a business
                 if name not in REDACTED_NAMES and not is_plainly_a_business(name):
                     problems.append(f"{where} line {number}: a name that is neither the redaction nor plainly a business")
+                # The READMEs promise that a person's street address is REDACTED. Hold them to it.
+                for prefix, columns in ADDRESS_COLUMNS.items():
+                    if path.name.startswith(prefix) and any(len(row) > c and row[c] not in ("", MARK) for c in columns):
+                        problems.append(f"{where} line {number}: a person's row has a street address that is not {MARK}")
                 if path.name.startswith("construction_license"):
                     if len(row) > 12 and row[12] and not INVENTED_LICENSE.fullmatch(row[12]):
                         problems.append(f"{where} line {number}: a person's row has a license number outside the invented range")
@@ -238,6 +245,11 @@ BROKEN = [
      {"duval/p2025010301id.16": "DPA|16|2024000000|1|TO|NAME REMOVED|\r\n", "duval/d2025010301id.16": "DDA|16|2024000000|N/C|NOTICE|PIN 000000-0000 L1 SOME PLACE|OR|1|1||1|12/30/2024|1|0.00|\r\n"}, "neither the redaction nor plainly a business"),
     ("the same placeholder case, which must also stop the document from counting as a business's",
      {"duval/p2025010301id.16": "DPA|16|2024000000|1|TO|NAME REMOVED|\r\n", "duval/d2025010301id.16": "DDA|16|2024000000|N/C|NOTICE|PIN 000000-0000 L1 SOME PLACE|OR|1|1||1|12/30/2024|1|0.00|\r\n"}, "'PIN'"),
+    ("a party written as a person doing business as a company, which ends like a business and is not one",
+     {"duval/p2025010301id.16": "DPA|16|2024000000|1|TO|DOE JANE DBA DOE ROOFING LLC|\r\nDPA|16|2024000000|1|FRM|BOLT BANK NA|\r\n"}, "neither the redaction nor plainly a business"),
+    ("the same doing-business-as case, which must also stop the document from counting as a business's",
+     {"duval/p2025010301id.16": "DPA|16|2024000000|1|TO|DOE JANE DBA DOE ROOFING LLC|\r\nDPA|16|2024000000|1|FRM|BOLT BANK NA|\r\n",
+      "duval/d2025010301id.16": "DDA|16|2024000000|SAT|SATISFACTION|Case# 16-|OR|1|1||1|12/30/2024|1|0.00|\r\n"}, "'Case#'"),
     ("a link row of a person's document with an out-of-range book of its own",
      {"duval/l2025010301id.16": "2024900001|1|101|OR|SAT|||||NONE\r\n"}, "link row of a person's document has a book"),
     ("a link from a person's document to an out-of-range earlier book",
@@ -256,6 +268,10 @@ BROKEN = [
      {"dbpr/construction_license_20.csv": LICENSE_ROW.format("9900001", "CBC000000")}, "alternate license number"),
     ("a person's license row that still names the business the person trades as",
      {"dbpr/construction_license_20.csv": LICENSE_ROW.format("9900001", "CBC9900001").replace("INVENTED BUILDERS INC", "ACME BUILDERS INC")}, "business name"),
+    ("a person's license row whose street address was left in",
+     {"dbpr/construction_license_20.csv": LICENSE_ROW.format("9900001", "CBC9900001").replace('"","REDACTED","",""', '"","1 SOME STREET","",""')}, "street address"),
+    ("a person's discipline row whose street address was left in",
+     {"dbpr/contractor_disc_lic_19.csv": DISCIPLINE_ROW.format("9900011", "2025900001").replace('"REDACTED","",""', '"1 SOME STREET","",""')}, "street address"),
     ("a person's discipline row with an out-of-range complaint number",
      {"dbpr/contractor_disc_lic_19.csv": DISCIPLINE_ROW.format("9900011", "2025000000")}, "complaint number"),
     ("a person's discipline row with an out-of-range license number",
