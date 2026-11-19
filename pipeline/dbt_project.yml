@@ -9,6 +9,8 @@ seed-paths: ["seeds"]                   # folder where dbt looks for .csv files 
 vars:                                   # project-wide settings a model reads with var('name')
   show_duval: false                     # ruling R20: Duval flags are built and NOT displayed until the Clerk answers on terms of use. Flip to true only when Andres says so
   show_dbpr_discipline: false           # ruling R12: DBPR discipline is built and NOT displayed until counsel has reviewed it
+  # Ruling R28: flipping either switch is not enough on its own. tests/assert_hidden_flags_stay_hidden.sql holds
+  # the word "false" for each of them and fails the build until it is changed too. Two reviewed edits, on purpose.
   sunbiz_lien_search_url: "https://dos.fl.gov/sunbiz/search/"                # ruling R9: where a reader looks up a federal lien by its filing number
   dbpr_license_search_url: "https://www.myfloridalicense.com/portalsearches/VerifyLicensee"   # ruling R27: DBPR's own "verify a license" search, by license number. The address DBPR gives in its ReadMe (docs/access/dbpr.md)
   duval_official_records_url: "https://or.duvalclerk.com/"                   # ruling R21: the Clerk's Official Records search, by instrument number or book and page

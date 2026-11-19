@@ -2,7 +2,7 @@
 
 Branch `leg/b2-flags` (stacked on `leg/b1-links`) · run 2026-11-18 (UTC) · status: **done, all tests pass. One address I could not verify (section 4, item 1) and one place where the data differs from what a ruling expected (section 4, item 2)**
 
-Rulings implemented: R5, R6, R7, R9, R12, R16, R18, R20, R21, R22, and R27 after review round 1 (`docs/phase_b_rulings.md`).
+Rulings implemented: R5, R6, R7, R9, R12, R16, R18, R20, R21, R22, and R27 and R28 after review round 1 (`docs/phase_b_rulings.md`).
 
 ## 1. What I built
 
@@ -57,7 +57,7 @@ Example rows (no names are in the mart):
 | `pipeline/models/intermediate/_intermediate__models.yml`, `pipeline/models/marts/_marts.yml` | Column tests for the three models; two unit tests |
 | `pipeline/tests/assert_every_flag_traces_to_a_confirmed_link.sql` | Every flag has a CONFIRMED link behind it, and none comes from an R7 lien |
 | `pipeline/tests/assert_duval_flags_respect_the_allowlist.sql` | Every Duval flag is an allowlisted type; no flagged judgment has the State of Florida on the FRM side |
-| `pipeline/tests/assert_hidden_flags_stay_hidden.sql` | `is_shown` agrees with the two switches |
+| `pipeline/tests/assert_hidden_flags_stay_hidden.sql` | Duval and discipline flags have `is_shown = false`, compared with the literal `false` and not with the two switches (R28, review round 1) |
 | `pipeline/tests/assert_company_flags_one_row_per_flag.sql` | A company has a record as a flag at most once |
 
 New in Snowflake: tables `DEV_INTERMEDIATE.INT_FEDERAL_LIENS_STATUS`, `DEV_INTERMEDIATE.INT_DUVAL_DOCUMENT_STATUS`, `DEV_MARTS.COMPANY_FLAGS`. Nothing existing changed.
@@ -200,5 +200,5 @@ Phase B running total: 0.45 of the 3-credit cap.
 ## 6. Three questions you should be able to answer
 
 1. A certificate of discharge (`COD`) is on seven open liens. Why does the status model leave them open, and what does the flag say about the discharge instead?
-2. `company_flags` has 14,493 rows with `is_shown = false`. Which two project variables control them, and where do they live? The test `assert_hidden_flags_stay_hidden` reads the same two variables: what mistake does it catch, and what mistake can it NOT catch?
+2. `company_flags` has 14,493 rows with `is_shown = false`. Which two project variables control them, and where do they live? The test `assert_hidden_flags_stay_hidden` first read the same two variables: what mistake could it NOT catch, and how does comparing with the literal `false` (R28) close that gap?
 3. A Duval lien recorded in 2010 shows as `open`. Give the reason it might really have been released, and say which column and which sentence warn the reader.
