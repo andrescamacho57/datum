@@ -29,9 +29,20 @@ jobs:
         run: pytest -q                         # fixtures only: no network, no credentials (CLAUDE.md rule 4)
       - name: Secrets hook still blocks
         run: bash tests/hooks/test_block_secrets.sh   # proves the hook that keeps agents out of secrets files
+      - name: Install dbt, the same version as on the Mac
+        run: |                                 # the Stop hook runs `dbt parse`, so its test needs dbt on this machine
+          curl -fsSL https://public.cdn.getdbt.com/fs/install/install.sh | sh -s -- --version 2.0.12   # dbt's own installer; --version pins the release
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"   # where the installer puts dbt; this line adds it to PATH for later steps
+      - name: Stop hook still catches a lint error
+        run: bash tests/hooks/test_offline_checks.sh   # proves the hook that makes an agent fix lint and dbt parse errors before it may finish
 
 # Syntax: YAML uses indentation for nesting; a dash starts a list item. `uses:` runs a published action,
-# `run:` runs a shell command. Each step runs in order and the job stops at the first failure.
-# Concept: CI is the "blocking automated checks" layer of code review: a pull request with a red check does not merge.
-# Design decision: dbt is not run here. `dbt parse` needs the Fusion engine installed, and the Stop hook already
-# runs it on the Mac before an agent may finish. Add it here if a parse error ever reaches a pull request.
+# `run:` runs a shell command, and `run: |` runs several, one per line. Each step runs in order and the job
+# stops at the first failure.
+# Concept: CI is the "automated checks" layer of code review. A red check is the signal not to merge. Nothing
+# stops the merge button yet: that takes branch protection on main, which is a GitHub setting and not a file
+# (docs/review_process.md, "Not yet").
+# Design decision: dbt is installed here only because the Stop hook's test needs it. The models are not built:
+# that needs Snowflake, and this job holds no secret. The version is the one in requirements.txt's header (2.0.12),
+# so CI parses the project with the same dbt as the Mac. The test finds ruff on PATH here, because this machine
+# has no .venv, and it counts "no ruff found" as a failure when CI=true, so the two cases cannot quietly skip.
