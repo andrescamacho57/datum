@@ -9,9 +9,10 @@ tests/fixtures/duval/README.md and tests/fixtures/dbpr/README.md, and repeated b
 a test that read its ranges from the files it checks could only agree with them.
 
 The check fails closed, which means that when it cannot tell, it treats the row as a person's:
-- A name must be either the redaction itself or plainly a business (its last word is LLC, INC, BANK
-  and so on). Any other name is reported, so a name that was never redacted, or was replaced with
-  some other placeholder, cannot slip through as "not a person".
+- A name must be either the redaction itself or plainly a business: its last word is LLC, INC, BANK
+  and so on, and it holds no joining word such as DBA or "KNOWN AS", which is how a record writes a
+  person next to the company that person trades as. Any other name is reported, so a name that was
+  never redacted, or was replaced with some other placeholder, cannot slip through as "not a person".
 - A Duval document counts as a business's only when a parties file lists it and every one of its
   parties is plainly a business. A document with no party rows at all is treated as a person's.
 - A file or a row in a shape this test does not know is reported, not skipped.
@@ -36,11 +37,12 @@ FIXTURES = Path(__file__).parent / "fixtures"              # tests/fixtures/
 
 MARK = "REDACTED"                                          # the word every redacted name or address contains
 REDACTED_NAMES = {"REDACTED PERSON", "REDACTED, PERSON"}   # the two spellings the fixtures use for a person's name
-# A name is "plainly a business" when its last word is one of these. Short endings that also end
+# A name is "plainly a business" when its last word is one of these and it holds no alias word or phrase (below). Short endings that also end
 # people's names (CO, PA) are left out on purpose: a wrong "business" is the costly mistake here.
 BUSINESS_ENDINGS = {"LLC", "INC", "CORP", "CORPORATION", "COMPANY", "LP", "LLP", "LTD", "PLLC", "NA", "BANK", "ASSOCIATION"}
 # Words that join a person's name to a business name: "<person> DBA <business> LLC" ends like a business and names a person.
-ALIAS_WORDS = {"DBA", "D/B/A", "AKA", "A/K/A", "FKA", "F/K/A"}
+ALIAS_WORDS = {"DBA", "D/B/A", "AKA", "A/K/A", "FKA", "F/K/A", "T/A"}
+ALIAS_PHRASES = ("KNOWN AS", "TRADING AS", "DOING BUSINESS AS")    # the same joins, spelled out
 HEADER_NAMES = {"Licensee Name", "Respondent Name"}        # column 3 of a DBPR header row
 ADDRESS_COLUMNS = {"construction_license": (5, 6, 7), "contractor_disc": (3, 4, 5)}   # the three street-address cells, counted from 0
 BANNED_TEXT = ("Case#", "PIN ")                            # how the Clerk writes a court case number and a parcel number
@@ -67,7 +69,9 @@ def rows_of(path: Path) -> list[tuple[int, str]]:
 
 def is_plainly_a_business(name: str) -> bool:
     words = [word.upper() for word in name.replace(".", " ").replace(",", " ").split()]
-    return bool(words) and words[-1] in BUSINESS_ENDINGS and not ALIAS_WORDS.intersection(words)
+    if ALIAS_WORDS.intersection(words) or any(phrase in " ".join(words) for phrase in ALIAS_PHRASES):
+        return False
+    return bool(words) and words[-1] in BUSINESS_ENDINGS
 
 
 def is_data_line(line: str) -> bool:
@@ -247,6 +251,10 @@ BROKEN = [
      {"duval/p2025010301id.16": "DPA|16|2024000000|1|TO|NAME REMOVED|\r\n", "duval/d2025010301id.16": "DDA|16|2024000000|N/C|NOTICE|PIN 000000-0000 L1 SOME PLACE|OR|1|1||1|12/30/2024|1|0.00|\r\n"}, "'PIN'"),
     ("a party written as a person doing business as a company, which ends like a business and is not one",
      {"duval/p2025010301id.16": "DPA|16|2024000000|1|TO|DOE JANE DBA DOE ROOFING LLC|\r\nDPA|16|2024000000|1|FRM|BOLT BANK NA|\r\n"}, "neither the redaction nor plainly a business"),
+    ("a party written as a person trading as a company",
+     {"duval/p2025010301id.16": "DPA|16|2024000000|1|TO|DOE JANE T/A DOE ROOFING LLC|\r\n"}, "neither the redaction nor plainly a business"),
+    ("a party written as a person also known as a company, spelled out",
+     {"duval/p2025010301id.16": "DPA|16|2024000000|1|TO|DOE JANE ALSO KNOWN AS DOE ROOFING LLC|\r\n"}, "neither the redaction nor plainly a business"),
     ("the same doing-business-as case, which must also stop the document from counting as a business's",
      {"duval/p2025010301id.16": "DPA|16|2024000000|1|TO|DOE JANE DBA DOE ROOFING LLC|\r\nDPA|16|2024000000|1|FRM|BOLT BANK NA|\r\n",
       "duval/d2025010301id.16": "DDA|16|2024000000|SAT|SATISFACTION|Case# 16-|OR|1|1||1|12/30/2024|1|0.00|\r\n"}, "'Case#'"),
