@@ -19,11 +19,17 @@
 --     snow sql -c datum -f snowflake/20_draft_lookup_cases.sql --format csv > evals/draft_test_cases_40.csv
 --
 -- One statement, no USE lines, for the reason given in script 19. The output file is in
--- .gitignore: unverified, and its notes column says which names came from a tax lien.
+-- .gitignore: its expected answers are unverified.
+--
+-- The notes column is neutral on purpose: "DRAFT, not verified. Company status on Sunbiz: A."
+-- It never says where a spelling came from. test_set.csv is public, and "from a federal lien
+-- debtor name" next to a real company would publish a lien link nobody has checked.
 --
 -- Businesses only: a name is used only if it contains a legal-entity word (LLC, INC, CORP ...),
--- the same test the link models use. The columns match test_set.csv, so a checked row can be
--- pasted in as it is.
+-- the same test the link models use. The columns match test_set.csv, but a checked row is NOT
+-- pasted in as it is. First fill in verified_on, replace the DRAFT sentence in notes, and give the
+-- row a new case_id: here ids 101 to 120 are the lien spellings and 121 to 140 the license
+-- spellings, so an id kept from this file would still say where the name came from.
 
 WITH lien_debtors AS (                                     -- step 1a: one row per corporate debtor on a lien (the same de-duplication as the link model)
   SELECT filing_doc_number, debtor_seq, debtor_name
@@ -84,15 +90,14 @@ shuffled AS (                                              -- step 5: number the
          ) AS pick
   FROM one_per_company
 )
-SELECT 100 + ROW_NUMBER() OVER (ORDER BY drawn_from DESC, case_type, pick) AS "case_id",   -- 101 to 140: clear of the ids already in test_set.csv
+SELECT 100 + ROW_NUMBER() OVER (ORDER BY drawn_from DESC, case_type, pick) AS "case_id",   -- 101 to 140: clear of the ids already in test_set.csv; draft ids only, lien spellings first (see the header)
        'source_spelling_draft'                                AS "case_group",
        source_name                                            AS "input_text",             -- what the lookup will be given
        document_number                                        AS "expected_document_number",
        entity_name                                            AS "expected_entity_name",
        case_type                                              AS "case_type",
        ''                                                     AS "verified_on",            -- empty until a person checks the row on Sunbiz
-       'DRAFT, not verified. Spelling from ' || drawn_from
-         || '. Company status on Sunbiz: ' || status_code || '.' AS "notes"
+       'DRAFT, not verified. Company status on Sunbiz: ' || status_code || '.' AS "notes"   -- neutral: no word about which source the spelling came from
 FROM shuffled
 WHERE pick <= 10                                           -- 10 per group; 2 origins x 2 kinds of difference = 40
 ORDER BY "case_id";                                        -- a quoted alias must be quoted the same way wherever it is used

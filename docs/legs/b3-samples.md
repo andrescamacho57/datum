@@ -26,7 +26,7 @@ Two files for you to check by hand, and the two scripts that make them. I only p
 | `company_search_page` | Where to look the company up by document number |
 | `verdict`, `verified_on`, `notes` | Empty, for you |
 
-**`draft_test_cases_40.csv`** has the same eight columns as `pipeline/seeds/test_set.csv` (`case_id`, `case_group`, `input_text`, `expected_document_number`, `expected_entity_name`, `case_type`, `verified_on`, `notes`), so a row you have checked can be pasted in as it is. Case ids run 101 to 140. Nothing was added to `test_set.csv`.
+**`draft_test_cases_40.csv`** has the same eight columns as `pipeline/seeds/test_set.csv` (`case_id`, `case_group`, `input_text`, `expected_document_number`, `expected_entity_name`, `case_type`, `verified_on`, `notes`), so a checked row needs no reshaping. It is not pasted in as it is, though: fill in `verified_on`, replace the DRAFT sentence in `notes`, and give the row a new `case_id` (review round 1, section 7). Case ids run 101 to 140. Nothing was added to `test_set.csv`.
 
 **How to check a link** (about two minutes a row):
 1. Open the file: in the VS Code file explorer, click `evals`, then `link_sample_20.csv`.
@@ -81,9 +81,9 @@ draft cases: rows 40 columns ['case_id', 'case_group', 'input_text', 'expected_d
 2. **The links are unverified.** Each row of the sample puts a real company's name next to a tax lien, a license or a recorded lien or judgment. The whole point of the file is that nobody has checked those links yet. Decision d19 calls a lien on the wrong company the most expensive error Datum can make; publishing 20 unchecked ones is that error in miniature.
 3. **Six rows are Duval.** Ruling R20 and the Phase A report say nothing from Duval is shown outside this repo until you say so, and the Clerk has not answered on terms of use. The brief tells me to flag anything about a source's terms, not to decide it. Not publishing is the choice that leaves the decision with you.
 
-The draft test cases get the same treatment for a milder version of reason 2: their `notes` column says which names came from a tax lien, and their expected answers are unchecked.
+The draft test cases get the same treatment for a milder version of reason 2: their expected answers are unchecked, and half of the names come from tax lien debtor lists. Since review round 1 the `notes` column no longer says which half, but the case ids still do (101 to 120).
 
-Nothing is lost by this: the scripts are in the pull request, the draw is fixed, and anyone with warehouse access gets the identical files by running the two commands above. If you want the files in git after checking them, it is one command (section 4, item 1).
+Nothing is lost by this: the scripts are in the pull request, the draw is fixed, and anyone with warehouse access gets the identical files by running the two commands above. Whether anything from `evals/` ever goes into git is your call, and section 4, item 1 says exactly what may and what may not.
 
 | Other decisions | Why | Tradeoff |
 |---|---|---|
@@ -97,7 +97,10 @@ Nothing is lost by this: the scripts are in the pull request, the draw is fixed,
 
 ## 4. What I couldn't verify, and open questions for Andres
 
-1. **Do you want the two files in git?** If yes, after your check: delete the two `evals/…` lines at the bottom of `.gitignore`, then `git add evals/ .gitignore` and commit. My recommendation: commit `draft_test_cases_40.csv` only after checking and after removing the lien wording from `notes`; keep `link_sample_20.csv` local, or commit it with the Duval rows removed until the Clerk answers.
+1. **Do you want anything from `evals/` in git?** My recommendation: no, keep both files local. Checked cases reach git when you paste them into `pipeline/seeds/test_set.csv`, and the result of the link check reaches git as counts in a report.
+   - **Never run `git add evals/`.** A folder name stages every file in it, and `link_sample_20.csv` holds 6 Duval rows.
+   - **The Duval rows stay out of git** (ruling R20: nothing from Duval is shown until the Clerk answers on terms of use, and this repo is public). So `evals/link_sample_20.csv` stays ignored. Leave its line in `.gitignore`.
+   - **If you do want one file published, it is this one and only this one:** `evals/draft_test_cases_40.csv`, after your check. It has no Duval rows. Delete only its own line (`evals/draft_test_cases_40.csv`) from the bottom of `.gitignore`, then run `git add .gitignore evals/draft_test_cases_40.csv` and commit. Before that, renumber the case ids, because ids 101 to 120 mark the names that came from tax lien debtor lists.
 2. **I verified none of the 20 links.** That is the hand check, and it is yours. What to look for, from leg B1: about 1% of CONFIRMED links join names whose legal form differs (`INC` against `LLC`). If one of those turns up wrong, the fix is a small addition to ruling R1.
 3. **The federal lien search address in the sample is the state's search hub**, not the lien search form itself (leg B2, section 4, item 1). You will need one extra click to reach "search by document number".
 4. **The 40 draft cases are the easy kind.** The plan asks for at least 5 `NEEDS_MORE_INFO` cases, 5 inactive companies and 5 near-twins. Inactive is covered (18 of 40). The other two kinds can't come from CONFIRMED links: they come from the AMBIGUOUS and NO_MATCH records, where a person has to find the right answer first.
