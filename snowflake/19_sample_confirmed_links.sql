@@ -53,8 +53,12 @@ WITH confirmed AS (                                        -- step 1: every CONF
   WHERE link_status = 'CONFIRMED'
 ),
 one_per_link AS (                                          -- step 2: a lien with two debtors confirmed to one company is ONE link to check
-  SELECT DISTINCT source, source_record_id, document_number, matched_on, source_date, rows_to_take
+  SELECT source, source_record_id, document_number,        -- these three columns ARE the link: one row for each combination
+         MIN(matched_on)   AS matched_on,                  -- two debtors confirmed in two ways (name_zip and unique_name) still make one row; MIN keeps name_zip, first in the alphabet
+         MIN(source_date)  AS source_date,                 -- one record has one date, so MIN changes nothing; it is here because every column outside GROUP BY needs an aggregate
+         MIN(rows_to_take) AS rows_to_take                 -- the same number on every row of a source
   FROM confirmed
+  GROUP BY source, source_record_id, document_number       -- DISTINCT over all six columns left such a link as two rows with the same sort value in step 3
 ),
 shuffled AS (                                              -- step 3: number the links of each source in a fixed pseudo-random order
   SELECT *,
@@ -91,8 +95,8 @@ WHERE s.pick <= s.rows_to_take                             -- the first 8, 6 and
 ORDER BY s.source, s.pick;                                 -- grouped by source, in draw order
 
 
--- Syntax: an alias in double quotes (AS "verdict") keeps its lower-case spelling; without the quotes Snowflake would print the column header as VERDICT. ROW_NUMBER() OVER (PARTITION BY a ORDER BY b) numbers the rows 1, 2, 3 ... separately inside each value of a, in the order of b. MD5(text) returns a 32-character checksum of the text. CASE x WHEN 'a' THEN ... END compares one expression with a list of values; here it sits inside a JOIN's ON condition, translating this script's source label into the seed's name for it. DISTINCT removes repeated rows.
+-- Syntax: an alias in double quotes (AS "verdict") keeps its lower-case spelling; without the quotes Snowflake would print the column header as VERDICT. ROW_NUMBER() OVER (PARTITION BY a ORDER BY b) numbers the rows 1, 2, 3 ... separately inside each value of a, in the order of b. MD5(text) returns a 32-character checksum of the text. CASE x WHEN 'a' THEN ... END compares one expression with a list of values; here it sits inside a JOIN's ON condition, translating this script's source label into the seed's name for it. GROUP BY a, b, c folds all rows that share a, b and c into one row, and MIN(x) picks the smallest x among the folded rows (for text, the first in alphabetical order).
 
 -- Concept: a hand-checked sample is how a matching rule is measured. The rule cannot grade itself: its tests only prove that it does what it was written to do. Twenty links checked against the official record estimate how often what it was written to do is actually right. Zero wrong in 20 does not prove zero wrong in 10,000, which is why the plan asks for at least 30 over time and for the count of wrong ones, not a pass mark.
 
--- Design decision: the order is pseudo-random and fixed (sorted by a checksum that includes the text 'sample-2026-11-18'), not ORDER BY RANDOM() as in script 08. A fixed draw means the file can be regenerated exactly, and that a second person checking the sample checks the same 20 links. To draw a fresh sample, change that text. The sample is stratified: 8, 6 and 6 by source, as the brief asks, so each source gets looked at even though DBPR has ten times more links. The tradeoff: 20 rows cannot say much about any one source, and the draw ignores how the link was matched; nearly every lien and license link is name_zip, so the few unique_name links outside Duval will rarely be drawn. QB business records are left out because the state gives them no number to look up.
+-- Design decision: the order is pseudo-random and fixed (sorted by a checksum that includes the text 'sample-2026-11-18'), not ORDER BY RANDOM() as in script 08. A fixed draw means the file can be regenerated exactly, and that a second person checking the sample checks the same 20 links. That only holds when no two rows share a sort value, which is why step 2 leaves exactly one row per link: the checksum is computed from the three columns that identify a link, so one row per link means no ties. To draw a fresh sample, change that text. The sample is stratified: 8, 6 and 6 by source, as the brief asks, so each source gets looked at even though DBPR has ten times more links. The tradeoff: 20 rows cannot say much about any one source, and the draw ignores how the link was matched; nearly every lien and license link is name_zip, so the few unique_name links outside Duval will rarely be drawn. QB business records are left out because the state gives them no number to look up.

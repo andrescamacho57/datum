@@ -74,7 +74,7 @@ one_per_company AS (                                       -- step 4: a company 
   SELECT *
   FROM labelled
   WHERE case_type <> 'identical'
-  QUALIFY ROW_NUMBER() OVER (PARTITION BY document_number ORDER BY MD5(source_name || '|cases-2026-11-18')) = 1
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY document_number ORDER BY MD5(source_name || '|' || drawn_from || '|cases-2026-11-18')) = 1   -- drawn_from is in the checksum so a name spelled the same on a lien and on a license does not tie
 ),
 shuffled AS (                                              -- step 5: number the cases inside each (origin, kind of difference) group, in a fixed pseudo-random order
   SELECT *,
