@@ -105,11 +105,24 @@ releases as (
         -- wording ONLY. NULL when there is none, or when its date is unreadable.
         min_by(e.source_file,
                case when e.published_on > f.published_on
-                    then coalesce(e.event_filing_date, '9999-12-31'::date) end)    as release_source_file
+                    then to_char(coalesce(e.event_filing_date, '9999-12-31'::date), 'YYYYMMDD')
+                         || '|' || to_char(e.published_on, 'YYYYMMDD')
+                         || '|' || e.source_file
+               end)                                                                as release_source_file
         -- min_by(a, b) returns the value of a on the row where b is
         -- smallest: here, the file holding that first later release. Rows
-        -- where b is NULL are ignored, so a release with no readable date is
-        -- given the year 9999: it sorts last and still names its file.
+        -- where b is NULL are ignored, which is how earlier releases drop out.
+        --
+        -- b is a FULL ordering written as one piece of text. Two releases
+        -- can only tie when they are in the same file, so the same file is
+        -- named on every run:
+        --   1. the release's filing date (a release with no readable date
+        --      is given the year 9999: it sorts last and still names its file)
+        --   2. then the date its file was published, earliest first
+        --   3. then the file name itself
+        -- Dates written as YYYYMMDD sort as text in the same order as dates.
+        -- The file decides fetched_at in company_flags, so an arbitrary pick
+        -- here would make a flag's fetch time change between runs.
     from filing_rows as f
     inner join lien_events as e
         on  e.filing_doc_number = f.filing_doc_number
