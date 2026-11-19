@@ -9,20 +9,28 @@
 -- How it checks: it doesn't look at data, it looks at the tables' SHAPE.
 -- Snowflake keeps a catalogue of every table and column in a schema called
 -- information_schema. This test lists the columns of every table in the
--- intermediate schema and returns any whose name looks like it holds a name.
--- So a model can't gain a debtor_name or party_name column by accident: the
--- build fails the moment one appears.
+-- INTERMEDIATE schema and in the MARTS schema, and returns any whose name
+-- looks like it holds a name. So a model can't gain a debtor_name or
+-- party_name column by accident: the build fails the moment one appears.
 --
--- The one exception: int_company_match_keys, whose name_key holds registered
--- business names from the state's corporate register.
+-- The marts schema is scanned too because the mart is what the app reads:
+-- company_flags is one step from a report, so a name column there matters
+-- most of all.
+--
+-- The two exceptions, each named below, each a table of REGISTERED BUSINESS
+-- names from the state's corporate register, never a person's name:
+--   INT_COMPANY_MATCH_KEYS   (intermediate)  name_key
+--   ENTITY_LOOKUP            (marts)         entity_name, name_key: the
+--                            company's own name, which a report has to show
+-- A new exception needs a reason written here, not just a line in the query.
 --
 -- What it can't see: a name hidden inside a column called something else.
 -- The link models' headers say what each column holds; review covers that.
 --
 -- The depends_on lines below are how dbt learns to run this test AFTER the
--- intermediate models are built. They are comments to Snowflake, and dbt
--- reads the ref() calls inside them. Add a line when a new intermediate
--- model is added.
+-- models are built. They are comments to Snowflake, and dbt reads the ref()
+-- calls inside them. Add a line when a new intermediate or mart model is
+-- added.
 -- ---------------------------------------------------------------------------
 
 -- depends_on: {{ ref('int_company_match_keys') }}
@@ -32,21 +40,29 @@
 -- depends_on: {{ ref('int_duval_party_links') }}
 -- depends_on: {{ ref('int_federal_liens_status') }}
 -- depends_on: {{ ref('int_duval_document_status') }}
+-- depends_on: {{ ref('entity_lookup') }}
+-- depends_on: {{ ref('company_flags') }}
 
-{% set a_model = ref('int_company_match_keys') %}
-{#- set stores a value in a Jinja variable. Here it is the relation object for
-    one intermediate model, which knows the database and schema it was built
-    in. Every intermediate model is built in the same schema. -#}
+{% set an_intermediate_model = ref('int_company_match_keys') %}
+{% set a_mart_model = ref('company_flags') %}
+{#- set stores a value in a Jinja variable. Each of these is the relation
+    object for one model, which knows the database and schema it was built
+    in. Every intermediate model is built in one schema and every mart in
+    another, so one model of each kind is enough to find both schemas. -#}
 
 select
+    table_schema,                                -- DEV_INTERMEDIATE or DEV_MARTS
     table_name,                                  -- the model with the offending column
     column_name                                  -- the column whose name looks like a name
-from {{ a_model.database }}.information_schema.columns
+from {{ an_intermediate_model.database }}.information_schema.columns
 -- The catalogue of every column in the DATUM database.
-where upper(table_schema) = upper('{{ a_model.schema }}')
--- Only the intermediate schema (DEV_INTERMEDIATE). upper() on both sides
--- because Snowflake stores names in capitals.
-  and table_name <> 'INT_COMPANY_MATCH_KEYS'     -- the one allowed exception
+where (
+        (    upper(table_schema) = upper('{{ an_intermediate_model.schema }}')
+         and table_name <> 'INT_COMPANY_MATCH_KEYS' )   -- the one allowed exception in intermediate
+     or (    upper(table_schema) = upper('{{ a_mart_model.schema }}')
+         and table_name <> 'ENTITY_LOOKUP' )            -- the one allowed exception in marts
+      )
+-- upper() on both sides because Snowflake stores names in capitals.
   and (   column_name ilike '%NAME%'             -- ilike = like, ignoring upper/lower case; % = any text
        or column_name ilike '%LICENSEE%'
        or column_name ilike '%RESPONDENT%'
