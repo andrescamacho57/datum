@@ -6,7 +6,22 @@ logs/
 
 __pycache__/
 
+# Secrets. The repo is public and `git add .` stages whatever is not named here.
+# The same names are kept away from agents by .claude/settings.json and .claude/hooks/block-secrets.sh.
+# Checked by tests/test_gitignore_secrets.py.
 .env
+# Variants of the dotenv file, such as .env.local.
+.env.*
+# Private keys: .p8 is the form Snowflake's key-pair login uses, .pem is the other common form.
+*.p8
+*.pem
+# The Snowflake command-line tool's config folder, in case it is ever copied into the repo.
+.snowflake/
+# dbt's credentials file, in case it is ever copied in from ~/.dbt/.
+profiles.yml
+# The one exception: a placeholder profile with no credentials, which the Stop hook needs to run `dbt parse` offline.
+!.claude/hooks/offline-profile/profiles.yml
+
 .ruff_cache/
 .codex/
 
