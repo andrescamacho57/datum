@@ -1,0 +1,8 @@
+pr,leg,risk_tier,tier_set_by,files_changed,lines_added,lines_removed,ai_review,rounds,findings_important,findings_nit,findings_preexisting,human_depth,reverted,report,notes
+1,A1 federal liens,Medium,snowflake/13_federal_liens_raw.sql,11,1010,0,none,0,0,0,0,explain-back,no,docs/legs/a1-federal-liens.md,Before the review process: author's own checks only
+2,A2 DBPR licenses,Medium,src/datum/dbpr.py,17,1210,0,none,0,0,0,0,report-and-skim,no,docs/legs/a2-dbpr-licenses.md,Before the review process. A stray decision-log commit caused a merge conflict that was fixed before merging
+3,A3 Duval recording index,Medium,src/datum/duval.py,18,1466,0,none,0,0,0,0,report-and-skim,no,docs/legs/a3-duval-recording-index.md,Before the review process
+4,B0 close the gaps,Medium,src/datum/sunbiz_flr.py,32,2326,15,none,0,0,0,0,checks-only,no,docs/legs/b0-close-gaps.md,Before the review process. Andres ran the one command the agent could not
+5,B1 link models,High,pipeline/macros/company_matching.sql,15,1528,0,none,0,0,0,0,report-and-skim,no,docs/legs/b1-links.md,Before the review process. Open call: ZIP code differs on 5115 lien debtors
+6,B2 flags mart,High,pipeline/models/marts/,12,1244,0,none,0,0,0,0,,no,docs/legs/b2-flags.md,Open. First pull request to get a Deep review
+7,B3 hand-check samples,Medium,snowflake/19_sample_confirmed_links.sql,4,321,0,none,0,0,0,0,,no,docs/legs/b3-samples.md,Open

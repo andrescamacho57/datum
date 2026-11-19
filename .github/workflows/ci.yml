@@ -1,0 +1,37 @@
+# ci.yml: the checks GitHub runs on every pull request and on every push to main.
+# CI = continuous integration: a clean machine installs the project and runs its checks,
+# so "it works on my Mac" is never the only proof.
+name: checks                                   # the name shown next to each commit on GitHub
+
+on:                                            # when this workflow runs
+  pull_request:                                # on every pull request, and each new commit pushed to one
+  push:
+    branches: [main]                           # and on every commit that lands on main
+
+permissions:
+  contents: read                               # the job may read the repo and nothing else
+
+jobs:
+  offline-checks:                              # one job; "offline" because no step needs Snowflake or a secret
+    runs-on: ubuntu-latest                     # a fresh Linux machine from GitHub, free for public repos
+    timeout-minutes: 10                        # stop a stuck run instead of letting it sit
+    steps:
+      - uses: actions/checkout@v4              # copy the repo onto the machine
+      - uses: actions/setup-python@v5          # install Python
+        with:
+          python-version: "3.12"               # the same version as the .venv on the Mac
+          cache: pip                           # reuse downloaded packages between runs
+      - name: Install the pinned packages
+        run: pip install -r requirements.txt   # exact versions, so CI and the Mac run the same code
+      - name: Lint
+        run: ruff check src tests              # the rules pinned in ruff.toml
+      - name: Tests
+        run: pytest -q                         # fixtures only: no network, no credentials (CLAUDE.md rule 4)
+      - name: Secrets hook still blocks
+        run: bash tests/hooks/test_block_secrets.sh   # proves the hook that keeps agents out of secrets files
+
+# Syntax: YAML uses indentation for nesting; a dash starts a list item. `uses:` runs a published action,
+# `run:` runs a shell command. Each step runs in order and the job stops at the first failure.
+# Concept: CI is the "blocking automated checks" layer of code review: a pull request with a red check does not merge.
+# Design decision: dbt is not run here. `dbt parse` needs the Fusion engine installed, and the Stop hook already
+# runs it on the Mac before an agent may finish. Add it here if a parse error ever reaches a pull request.

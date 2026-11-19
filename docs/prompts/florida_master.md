@@ -44,11 +44,23 @@ Datum checks a small trade contractor's commercial client before a job: is it a 
 - You need a credential, a login, a purchase or a product decision: stop and ask in the leg report.
 - Anything about a source's terms of use, or the FCRA (Fair Credit Reporting Act): stop and flag it. Don't decide it.
 
+**Review before the pull request** (see `REVIEW.md` and `docs/review_process.md`)
+- When the leg's checks pass, set its risk tier from the table in `REVIEW.md`. The highest tier of any file it touches wins.
+- Review the leg's diff in a fresh context with the `reviewer` subagent, which runs on Opus so the reviewer is a different model from the author:
+  - Low: one pass.
+  - Medium: one pass, plus `/security-review` when `src/` changed.
+  - High: three `reviewer` subagents in parallel, each told to hunt one thing (a wrong link or wrong status; a person's data past staging; a test that cannot fail). Then a fourth checks every finding against the code and drops any it cannot confirm with a file and line.
+- Fix every `Important` finding, or answer it with a one-line reason. Review again, looking only at the new diff. Three rounds at most; if `Important` findings remain after the third, stop the leg and say so in the report.
+- Open the pull request with `.github/pull_request_template.md` filled in, then the leg report below it.
+- Add one row for the pull request to `docs/review_log.csv`.
+- Never ask a question or wait for approval during review.
+
 **Leg report**: for every leg, write `docs/legs/<leg-name>.md` and put the same text in the pull request body:
 1. What I built (files, tables, models), in plain English a new engineer could repeat out loud
 2. Checks: each check, the command, and its pasted output
 3. Decisions I made and why, with the tradeoff
 4. What I couldn't verify, and open questions for Andres
+   (include the review: tier, depth, rounds, and each finding with how it was answered)
 5. Credits used
 6. Three questions Andres should be able to answer after reviewing
 

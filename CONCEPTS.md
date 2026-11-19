@@ -669,3 +669,30 @@ the same reason you pin package versions.
 - A symbolic link is a signpost: `~/datum` holds no files, it points at `~/Work Streams/datum`.
 - It also removed the space from every command path. Spaces in paths need quotes everywhere, or the shell reads
   two words.
+
+---
+
+## Layered Code Review (Nov 18)
+
+Source: Anthropic, "How the Claude Code team does code review" (Oct 2026). Full mapping: `docs/review_process.md`.
+
+- **The idea:** no single check catches everything, so stack cheap ones. Each layer catches a different kind
+  of mistake, and a person's attention goes only where a machine can't judge.
+- **Datum's layers, in the order a change meets them:**
+  1. The author proves it before opening the pull request (the leg's "done when" checks, `pytest`, `dbt build`).
+  2. A reviewer with **fresh context** reads the diff. Fresh context means a new agent that never saw the
+     author's reasoning, so it can't inherit the author's blind spots.
+  3. A security pass when `src/` changed (secrets, injection, personal data).
+  4. **Continuous integration (CI):** GitHub runs `ruff`, `pytest` and the secrets-hook test on every pull
+     request (`.github/workflows/ci.yml`). A red X blocks the merge.
+  5. A person approves, and how closely depends on the **risk tier**.
+- **Risk tier is set by the change, not the author.** The highest-tier path a diff touches sets it
+  (`REVIEW.md`). High = what a contractor sees or what could accuse the wrong company (marts, matching
+  rules). Medium = loaders and staging. Low = docs and tests.
+- **Findings are tagged** Important (fix or answer before merge), Nit (optional, at most 3) or Pre-existing
+  (not caused by this change; log it, don't block). Three review rounds at most; after round 1 the reviewer
+  reads only what changed.
+- **What gets measured** (`docs/review_log.csv`, shown on the Datum Roadmap's Reviews tab): hours a pull
+  request waits on a person, share with an AI review, findings per review, rounds to pass, reverts.
+- **`REVIEW.md` vs `CLAUDE.md`:** `CLAUDE.md` tells the agent how to build. `REVIEW.md` tells the reviewer
+  what "wrong" means here: the ways Datum fails (accuses, leaks, miscounts, reassures, asserts, exposes, bills).
