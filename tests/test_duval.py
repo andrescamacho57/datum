@@ -42,7 +42,7 @@ def test_other_names_in_the_folder_are_ignored():
 
 @pytest.mark.parametrize(                   # run the same test once per (file, expected rows) pair
     "name, expected_rows",
-    [("d2025010301id.16", 12), ("p2025010301id.16", 34), ("l2025010301id.16", 14), ("m2025010301d.16", 85)],
+    [("d2025010301id.16", 11), ("p2025010301id.16", 32), ("l2025010301id.16", 13), ("m2025010301d.16", 85)],
 )
 def test_row_count_matches_the_eof_trailer(name, expected_rows):
     report = verify_file(FIXTURES / name)
@@ -58,8 +58,8 @@ def test_file_with_nothing_recorded_passes_with_zero_rows(tmp_path):
 
 
 def test_trailer_that_disagrees_with_the_rows_is_rejected():
-    # 12 rows in the file, but the trailer says 13: a row went missing somewhere.
-    with pytest.raises(DuvalVerificationError, match=r"12 rows in the file, but the trailer says EOF\|13"):
+    # 11 rows in the file, but the trailer says 12: a row went missing somewhere.
+    with pytest.raises(DuvalVerificationError, match=r"11 rows in the file, but the trailer says EOF\|12"):
         verify_file(FIXTURES / "d2025010401id.16")
 
 
@@ -84,7 +84,7 @@ def test_verify_all_counts_failures_and_keeps_going(capsys):
     printed = capsys.readouterr().out
     assert failures == 2                                                  # the two corrupted fixtures
     assert "FAIL  d2025010401id.16" in printed and "FAIL  d2025010501id.16" in printed
-    assert "OK    documents: 1 files, 12 rows" in printed                  # the good files were still checked
+    assert "OK    documents: 1 files, 11 rows" in printed                  # the good files were still checked
     assert (FIXTURES / "d2025010401id.16").exists()                       # without quarantine, nothing is moved
 
 
@@ -114,8 +114,9 @@ def test_repair_joins_continuation_lines_with_one_space(tmp_path):
     assert (report.rows, report.lines_joined, report.blank_lines_dropped) == (14, 2, 1)
     repaired = (tmp_path / "d2026011501id.16").read_bytes().split(b"\r\n")
     # The record that was spread over three lines (text, blank, rest) is one line again, with one space at the join.
-    assert b"DDA|16|2004349401|MTG|MORTGAGE|L12 B4 TIMUQUANA ACRES |OR|12125|334||6|11/03/2004|8210|35500.00|" in repaired
-    assert b"DDA|16|2004349407|MTG|MORTGAGE|SEC 23 4 27 |OR|12125|370||6|11/03/2004|8210|100000.00|" in repaired
+    # The instrument number, book, page and legal description are invented (see the fixture README); the break is where the Clerk's was.
+    assert b"DDA|16|2004900004|MTG|MORTGAGE|L4 B1 INVENTED ACRES |OR|90010|119||6|11/03/2004|8210|35500.00|" in repaired
+    assert b"DDA|16|2004900010|MTG|MORTGAGE|SEC 99 9 99 INVENTED |OR|90010|155||6|11/03/2004|8210|100000.00|" in repaired
     assert all(line.startswith(b"DDA|") for line in repaired[:-2])        # every data line starts a record again
     assert repaired[-2:] == [b"EOF|14", b""]                              # the Clerk's trailer is kept as sent
     assert verify_file(tmp_path / "d2026011501id.16").rows == 14          # and the copy now passes the same check as any file
