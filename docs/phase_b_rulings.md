@@ -73,3 +73,12 @@ This is the opposite of the grantor/grantee guess most people start with, which 
 | R24 | Add `requirements.txt` with exact versions, including `paramiko` below 4. | The virtual environment broke when the folder moved, and nothing recorded what was in it. | When a package is added |
 | R25 | The DBPR validator rejects a license file whose first row looks like a header. | It would load as one bad data row. | Never |
 | R26 | The hardcoded snapshot date in staging gets replaced before the January 2027 snapshot. Target: Dec 15, 2026. | Five models now repeat it. | Dec 15, 2026 |
+
+## Review round 1 of pull request 6 (decided by Andres, Nov 19, 2026)
+
+The Deep review of pull request 6 (the flags mart) found two calls no ruling covered. Andres decided both on Nov 19, 2026.
+
+| # | Decision | Why | Revisit |
+|---|---|---|---|
+| R27 | A DBPR flag cites DBPR's official "verify a license" search page, `https://www.myfloridalicense.com/portalsearches/VerifyLicensee`, the address DBPR itself gives (quoted in `docs/access/dbpr.md`). The citation always carries the license number, on a discipline flag as well as a license flag, so a reader can look the record up. The sources allowed to cite a search page are listed in the seed `search_page_sources`, and a test fails when a shown flag's source is not in it. | DBPR offers no stable link to a single record, and this matches R9 and R21. | If DBPR publishes per-record links |
+| R28 | Un-hiding a flag takes two reviewed edits: the project variable, and the test. `assert_hidden_flags_stay_hidden` compares `is_shown` to the literal `false` for Duval and for DBPR discipline, not to the project variable. | A test that reads the same switch as the model agrees with whatever the switch says. | When counsel or the Clerk clears a source |
