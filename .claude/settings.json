@@ -21,7 +21,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "[Bb][Aa][Ss][Hh]",
+        "matcher": "[Bb][Aa][Ss][Hh]|Monitor|PowerShell",
         "hooks": [
           {
             "type": "command",

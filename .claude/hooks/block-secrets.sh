@@ -6,10 +6,16 @@
 # settings.json is strict JSON and cannot hold comments, so its wiring is explained here:
 #   permissions.deny lists Read/Edit/Write rules for the same files (blocks the file tools).
 #     `**/.env` is the dotenv file and `**/.env.*` is every variant of it (.env.local and so on).
-#   hooks.PreToolUse (matcher "[Bb][Aa][Ss][Hh]") runs this script (blocks shell access to them).
+#     On Nov 19, 2026, on this Mac, Claude Code refused to write a file ending .P8 under the lower-case
+#     rule, so the path rules ignored letter case that day. That is one observation, not a promise.
+#   hooks.PreToolUse (matcher "[Bb][Aa][Ss][Hh]|Monitor|PowerShell") runs this script (blocks shell access to them).
 #     The matcher is a regular expression, tested anywhere in the tool's name, so it fires for the
 #     built-in Bash tool and for any other tool with "bash" in its name, in any letter case.
+#     Monitor and PowerShell are named as well, because they run shell commands under other names.
 #     The plain word "Bash" would be read as one exact name and would miss a tool called "bash".
+#     Keep the matcher to letters, [..] sets and |. Claude Code runs it as JavaScript, where a shortcut
+#     such as (?i) is an error that would switch this hook off. tests/test_claude_settings.py checks that.
+#     A shell tool under a name not listed here is not covered: a matcher can only name what is known.
 #     Source: https://code.claude.com/docs/en/hooks, "Matcher patterns".
 # What it reads: every piece of text in the tool's input, whatever the field is called.
 #   The cost is one known over-match: a description that merely names a secrets file is blocked too.
