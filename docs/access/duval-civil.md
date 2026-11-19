@@ -253,8 +253,8 @@ Supporting, also fetched and verified today:
 | UCN | Internal caseId | What it is | Fetched (UTC) |
 |---|---|---|---|
 | `16-2025-CC-017137-AXXX-MA` | `14217260` | Ferguson Enterprises LLC v. J. Williams Industrial Group Inc. — contract/debt $15–30K, default final judgment | 09:02:24Z |
-| `16-2026-CA-005557-AXXX-MA` | `14430333` | McMillan v. Winn Dixie Stores LLC — business transactions, open | 09:01:33Z |
-| `16-2024-CA-005914-AXXX-MA` | `13999717` | Nelson v. Winn Dixie Stores Inc — voluntarily dismissed with prejudice | 09:02:01Z |
+| `16-2026-CA-005557-AXXX-MA` | `14430333` | REDACTED PERSON v. Winn Dixie Stores LLC — business transactions, open | 09:01:33Z |
+| `16-2024-CA-005914-AXXX-MA` | `13999717` | REDACTED PERSON v. Winn Dixie Stores Inc — voluntarily dismissed with prejudice | 09:02:01Z |
 
 **Generalized request patterns** (documentation only — no code is being written here, and none should be until the authorization question is settled):
 
@@ -308,7 +308,7 @@ POST https://core.duvalclerk.com/internal/CoreWebSvc.asmx/GetCaseById
                                 <div class="searchResultItem_Parties">
                                 <div class="searchResultItem_Party" style="padding: 3px; margin-bottom: 5px;">
                                     <div class='searchResultItem_PartyName'>
-                                        MCMILLAN, JAMES 
+                                        REDACTED PERSON 
                                         (P)
                                     </div>
                                 </div>        
