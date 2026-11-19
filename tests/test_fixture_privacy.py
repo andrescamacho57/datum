@@ -128,6 +128,9 @@ def dbpr_problems(dbpr_dir: Path) -> list[str]:
                         problems.append(f"{where} line {number}: a person's row has a license number outside the invented range")
                     if len(row) > 20 and row[20] and not INVENTED_ALTERNATE.fullmatch(row[20]):
                         problems.append(f"{where} line {number}: a person's row has an alternate license number outside the invented range")
+                    # Column 4 is the business the person does business as. DBPR's search finds the person by that name too.
+                    if len(row) > 3 and row[3] and INVENTED_WORD not in row[3]:
+                        problems.append(f"{where} line {number}: a person's row has a business name without the word {INVENTED_WORD}")
                 elif path.name.startswith("contractor_disc"):
                     if not INVENTED_LICENSE.fullmatch(row[1]):
                         problems.append(f"{where} line {number}: a person's row has a license number outside the invented range")
@@ -165,7 +168,7 @@ def test_no_fixture_row_about_a_person_leads_back_to_that_person():
 # running number is 000000, which no source issues.
 
 PERSON = "DPA|16|2024900001|1|TO|REDACTED PERSON|\r\n"                       # makes 2024900001 a person's document
-LICENSE_ROW = '"06","CBC","REDACTED, PERSON","ACME BUILDERS INC","","REDACTED","","","TAMPA","FL","33675","39","{}","C","A","","","","","","{}",""\r\n'
+LICENSE_ROW = '"06","CBC","REDACTED, PERSON","INVENTED BUILDERS INC","","REDACTED","","","TAMPA","FL","33675","39","{}","C","A","","","","","","{}",""\r\n'
 DISCIPLINE_ROW = '"Certified Building Contractor","{}","REDACTED, PERSON","REDACTED","","","TAMPA","FL","33675","DADE","{}","Licensed Activity","","","","",""\r\n'
 
 BROKEN = [
@@ -187,6 +190,8 @@ BROKEN = [
      {"dbpr/construction_license_20.csv": LICENSE_ROW.format("0000000", "CBC9900001")}, "license number"),
     ("a person's license row with an out-of-range alternate license number",
      {"dbpr/construction_license_20.csv": LICENSE_ROW.format("9900001", "CBC000000")}, "alternate license number"),
+    ("a person's license row that still names the business the person trades as",
+     {"dbpr/construction_license_20.csv": LICENSE_ROW.format("9900001", "CBC9900001").replace("INVENTED BUILDERS INC", "ACME BUILDERS INC")}, "business name"),
     ("a person's discipline row with an out-of-range complaint number",
      {"dbpr/contractor_disc_lic_19.csv": DISCIPLINE_ROW.format("9900011", "2025000000")}, "complaint number"),
     ("a redacted row in a DBPR file whose layout the test does not know",
