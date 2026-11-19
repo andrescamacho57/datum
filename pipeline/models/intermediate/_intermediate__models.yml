@@ -91,7 +91,7 @@ models:
     columns: *link_columns
 
   - name: int_dbpr_discipline_links
-    description: One row per DBPR discipline complaint per candidate company, reached through the license. Built, not displayed (R12). No names.
+    description: One row per DBPR discipline complaint per candidate company, reached through the license, with that license's number for the citation (R27). Built, not displayed (R12). No names.
     columns: *link_columns
 
   - name: int_duval_party_links
@@ -287,10 +287,15 @@ unit_tests:
 
   - name: lien_status_follows_rulings_r5_r6_and_r7
     description: >
-      Eight liens, one per case: nothing filed since; released by a later
+      Eleven liens, one per case: nothing filed since; released by a later
       daily; discharged only; a release older than the snapshot that lists
       it; filed and released in dailies; a cancellation date; a status-C
-      party row; a filing status that is not active.
+      party row; a filing status that is not active; a later release whose
+      date could not be read; an earlier release whose date could not be
+      read; two later releases with unreadable dates in two different
+      files. The ninth and tenth prove the status is decided on the release
+      EVENT existing, not on its date. The eleventh proves the release's
+      source file is the same one on every run: the earliest published.
     model: int_federal_liens_status
     given:
       - input: ref('stg_sunbiz__flr_filings')
@@ -303,6 +308,9 @@ unit_tests:
           - {filing_doc_number: L6, filing_date: 2020-01-01, filing_status: A, cancellation_date: 2021-01-01, source_kind: quarterly, published_on: 2026-10-03, source_file: FLRF.TXT.gz,         loaded_at: 2026-11-12}
           - {filing_doc_number: L7, filing_date: 2020-01-01, filing_status: A, cancellation_date: null,       source_kind: quarterly, published_on: 2026-10-03, source_file: FLRF.TXT.gz,         loaded_at: 2026-11-12}
           - {filing_doc_number: L8, filing_date: 2020-01-01, filing_status: L, cancellation_date: null,       source_kind: quarterly, published_on: 2026-10-03, source_file: FLRF.TXT.gz,         loaded_at: 2026-11-12}
+          - {filing_doc_number: L9, filing_date: 2020-01-01, filing_status: A, cancellation_date: null,       source_kind: quarterly, published_on: 2026-10-03, source_file: FLRF.TXT.gz,         loaded_at: 2026-11-12}
+          - {filing_doc_number: L10, filing_date: 2020-01-01, filing_status: A, cancellation_date: null,      source_kind: quarterly, published_on: 2026-10-03, source_file: FLRF.TXT.gz,         loaded_at: 2026-11-12}
+          - {filing_doc_number: L11, filing_date: 2020-01-01, filing_status: A, cancellation_date: null,      source_kind: quarterly, published_on: 2026-10-03, source_file: FLRF.TXT.gz,         loaded_at: 2026-11-12}
       - input: ref('stg_sunbiz__flr_events')
         rows:
           - {filing_doc_number: L2, event_doc_number: E2, action_code: COR, event_filing_date: 2026-10-30, published_on: 2026-10-30, source_file: 20261030flre.txt.gz, loaded_at: 2026-11-18}   # released after the snapshot
@@ -310,6 +318,10 @@ unit_tests:
           - {filing_doc_number: L4, event_doc_number: E4, action_code: COR, event_filing_date: 2023-03-28, published_on: 2026-10-03, source_file: FLRE.TXT.gz,         loaded_at: 2026-11-12}   # a release OLDER than the snapshot that still lists the lien
           - {filing_doc_number: L5, event_doc_number: E5, action_code: COR, event_filing_date: 2026-11-04, published_on: 2026-11-04, source_file: 20261104flre.txt.gz, loaded_at: 2026-11-12}   # filed 10-19, released 11-04
           - {filing_doc_number: L1, event_doc_number: E1, action_code: AGI, event_filing_date: 2026-11-16, published_on: 2026-11-16, source_file: 20261116flre.txt.gz, loaded_at: 2026-11-18}   # an amendment changes nothing
+          - {filing_doc_number: L9, event_doc_number: E9, action_code: COR, event_filing_date: null,       published_on: 2026-11-09, source_file: 20261109flre.txt.gz, loaded_at: 2026-11-18}   # released after the snapshot, but the date text did not parse
+          - {filing_doc_number: L10, event_doc_number: E10, action_code: COR, event_filing_date: null,     published_on: 2026-10-03, source_file: FLRE.TXT.gz,         loaded_at: 2026-11-12}   # a release in the snapshot itself, date unreadable
+          - {filing_doc_number: L11, event_doc_number: E11B, action_code: COR, event_filing_date: null,    published_on: 2026-11-12, source_file: 20261112flre.txt.gz, loaded_at: 2026-11-18}   # two later releases, neither date readable,
+          - {filing_doc_number: L11, event_doc_number: E11A, action_code: COR, event_filing_date: null,    published_on: 2026-11-05, source_file: 20261105flre.txt.gz, loaded_at: 2026-11-18}   # in two files: the earlier-published file must win
       - input: ref('stg_sunbiz__flr_debtors')
         rows:
           - {filing_doc_number: L7, filing_status: C}   # the undocumented status letter
@@ -327,12 +339,21 @@ unit_tests:
           - {filing_doc_number: L6, lien_status: open,   closed_reason: null,                     released_on: null,       discharge_recorded_on: null,       is_unexplained: true,  unexplained_reason: cancellation_date_on_an_active_lien,                release_source_file: null}
           - {filing_doc_number: L7, lien_status: open,   closed_reason: null,                     released_on: null,       discharge_recorded_on: null,       is_unexplained: true,  unexplained_reason: party_row_with_status_c,                            release_source_file: null}
           - {filing_doc_number: L8, lien_status: closed, closed_reason: filing_status_not_active, released_on: null,       discharge_recorded_on: null,       is_unexplained: false, unexplained_reason: null,                                               release_source_file: null}
+          - {filing_doc_number: L9, lien_status: closed, closed_reason: certificate_of_release,   released_on: null,       discharge_recorded_on: null,       is_unexplained: false, unexplained_reason: null,                                               release_source_file: 20261109flre.txt.gz}
+          - {filing_doc_number: L10, lien_status: open,  closed_reason: null,                     released_on: null,       discharge_recorded_on: null,       is_unexplained: true,  unexplained_reason: release_recorded_before_the_snapshot_that_lists_it, release_source_file: null}
+          - {filing_doc_number: L11, lien_status: closed, closed_reason: certificate_of_release,  released_on: null,       discharge_recorded_on: null,       is_unexplained: false, unexplained_reason: null,                                               release_source_file: 20261105flre.txt.gz}
 
   - name: duval_status_follows_ruling_r18
     description: >
-      Five documents: no link; released by instrument number; satisfied by a
-      link that gives only book and page as text; a partial release only; and
-      a release of some OTHER document that must not close anything here.
+      Six documents: no link; released by instrument number; satisfied by a
+      link that gives only book and page as text; a partial release only; a
+      release of some OTHER document that must not close anything here; and
+      one closed by TWO documents recorded on the same day, where "closed
+      by" must name one of them whole (the lower instrument number), never
+      the number of one with the type or file of the other. The lower
+      number, R6, is given the type code that sorts LAST (SAT after
+      RELEASE), so the test fails if the instrument number ever stops
+      deciding the tie.
     model: int_duval_document_status
     given:
       - input: ref('duval_doc_type_allowlist')
@@ -349,6 +370,7 @@ unit_tests:
           - {source_record_id: D3}
           - {source_record_id: D4}
           - {source_record_id: D5}
+          - {source_record_id: D6}
       - input: ref('stg_duval__documents')
         rows:
           - {instrument_number: D1, doc_type_code: LN,      book_type: OR, book: '21000', page: '10',  recorded_date: 2025-03-01, file_date: 2025-03-02, loaded_at: 2026-11-12, source_file: d2025030201id.16.gz}
@@ -360,12 +382,17 @@ unit_tests:
           - {instrument_number: S3, doc_type_code: SAT,     book_type: OR, book: '21100', page: '2',   recorded_date: 2025-07-01, file_date: 2025-07-02, loaded_at: 2026-11-12, source_file: d2025070201id.16.gz}
           - {instrument_number: P4, doc_type_code: PTL REL, book_type: OR, book: '21100', page: '3',   recorded_date: 2025-08-01, file_date: 2025-08-02, loaded_at: 2026-11-12, source_file: d2025080201id.16.gz}
           - {instrument_number: R9, doc_type_code: RELEASE, book_type: OR, book: '21100', page: '4',   recorded_date: 2025-09-01, file_date: 2025-09-02, loaded_at: 2026-11-12, source_file: d2025090201id.16.gz}
+          - {instrument_number: D6, doc_type_code: LN,      book_type: OR, book: '21000', page: '60',  recorded_date: 2025-03-01, file_date: 2025-03-02, loaded_at: 2026-11-12, source_file: d2025030201id.16.gz}
+          - {instrument_number: S6, doc_type_code: RELEASE, book_type: OR, book: '21100', page: '5',   recorded_date: 2025-10-01, file_date: 2025-10-02, loaded_at: 2026-11-12, source_file: d2025100201id.16.gz}
+          - {instrument_number: R6, doc_type_code: SAT,     book_type: OR, book: '21100', page: '6',   recorded_date: 2025-10-01, file_date: 2025-10-03, loaded_at: 2026-11-12, source_file: d2025100301id.16.gz}
       - input: ref('stg_duval__links')
         rows:
           - {instrument_number: R2, doc_type_code: RELEASE, linked_instrument_number: D2,   linked_book: null, linked_page: null, linked_doc_type_code: LN,                has_link: true, file_date: 2025-06-02, loaded_at: 2026-11-12}   # by instrument number
           - {instrument_number: S3, doc_type_code: SAT,     linked_instrument_number: null, linked_book: null, linked_page: null, linked_doc_type_code: '-OR 012292/1479', has_link: true, file_date: 2025-07-02, loaded_at: 2026-11-12}   # by book and page, written as text with a leading zero
           - {instrument_number: P4, doc_type_code: PTL REL, linked_instrument_number: D4,   linked_book: null, linked_page: null, linked_doc_type_code: LN,                has_link: true, file_date: 2025-08-02, loaded_at: 2026-11-12}   # a partial release
           - {instrument_number: R9, doc_type_code: RELEASE, linked_instrument_number: X99,  linked_book: null, linked_page: null, linked_doc_type_code: MTG,               has_link: true, file_date: 2025-09-02, loaded_at: 2026-11-12}   # releases a mortgage we don't track
+          - {instrument_number: S6, doc_type_code: RELEASE, linked_instrument_number: D6,   linked_book: null, linked_page: null, linked_doc_type_code: LN,                has_link: true, file_date: 2025-10-02, loaded_at: 2026-11-12}   # two closing documents,
+          - {instrument_number: R6, doc_type_code: SAT,     linked_instrument_number: D6,   linked_book: null, linked_page: null, linked_doc_type_code: LN,                has_link: true, file_date: 2025-10-03, loaded_at: 2026-11-12}   # both recorded 2025-10-01
     expect:
       rows:
           - {instrument_number: D1, flag_type: duval_lien,     document_status: open,   closed_on: null,       closed_by_instrument_number: null, closed_by_doc_type_code: null,    partial_release_count: 0, last_partial_release_on: null,       recorded_before_window: false, closed_by_source_file: null}
@@ -373,4 +400,5 @@ unit_tests:
           - {instrument_number: D3, flag_type: duval_judgment, document_status: closed, closed_on: 2025-07-01, closed_by_instrument_number: S3,   closed_by_doc_type_code: SAT,     partial_release_count: 0, last_partial_release_on: null,       recorded_before_window: true,  closed_by_source_file: d2025070201id.16.gz}
           - {instrument_number: D4, flag_type: duval_lien,     document_status: open,   closed_on: null,       closed_by_instrument_number: null, closed_by_doc_type_code: null,    partial_release_count: 1, last_partial_release_on: 2025-08-01, recorded_before_window: false, closed_by_source_file: null}
           - {instrument_number: D5, flag_type: duval_lien,     document_status: open,   closed_on: null,       closed_by_instrument_number: null, closed_by_doc_type_code: null,    partial_release_count: 0, last_partial_release_on: null,       recorded_before_window: false, closed_by_source_file: null}
+          - {instrument_number: D6, flag_type: duval_lien,     document_status: closed, closed_on: 2025-10-01, closed_by_instrument_number: R6,   closed_by_doc_type_code: SAT,     partial_release_count: 0, last_partial_release_on: null,       recorded_before_window: false, closed_by_source_file: d2025100301id.16.gz}
 

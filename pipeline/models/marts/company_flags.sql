@@ -38,6 +38,13 @@
 -- Becomes the table DATUM.DEV_MARTS.COMPANY_FLAGS.
 -- ---------------------------------------------------------------------------
 
+-- depends_on: {{ ref('search_page_sources') }}
+-- This model does not READ that seed: its addresses come from the project
+-- variables, and the test assert_shown_flags_cite_an_approved_search_page
+-- compares them with the seed, so the two stay independent. The line above
+-- only tells dbt the seed belongs to this model's build, so that
+-- `dbt build --select +company_flags` loads the list before the test needs it.
+
 
 with manifest as (
     -- When each source file was fetched (ruling R23). Joined below on the
@@ -138,6 +145,8 @@ license_flags as (
         'dbpr'                                       as source,
         lic.alternate_license_number                 as source_record_id,
         '{{ var("dbpr_license_search_url") }}'       as source_url,
+        -- DBPR offers no link to one license (ruling R27): this is its own
+        -- "verify a license" search page, and the license number finds the record.
         'Florida DBPR license ' || lic.alternate_license_number as citation,
         lic.source_file,
         m.fetched_at_utc                             as fetched_at,
@@ -196,7 +205,11 @@ discipline_flags as (
         'dbpr'                                       as source,
         c.complaint_number                           as source_record_id,
         '{{ var("dbpr_license_search_url") }}'       as source_url,
-        'Florida DBPR complaint ' || c.complaint_number as citation,
+        'Florida DBPR license ' || dl.alternate_license_number
+            || ', complaint ' || c.complaint_number  as citation,
+        -- Ruling R27: DBPR's search page looks a record up by LICENSE
+        -- number, so the citation carries it as well as the complaint
+        -- number. A complaint number alone could not be traced.
         c.source_file,
         m.fetched_at_utc                             as fetched_at,
         'A discipline record is against the individual license holder, not the business. DBPR''s published discipline files run through '

@@ -1,8 +1,8 @@
 # Leg B2: open or closed, then the flags mart
 
-Branch `leg/b2-flags` (stacked on `leg/b1-links`) · run 2026-11-18 (UTC) · status: **done, all tests pass. One address I could not verify (section 4, item 1) and one place where the data differs from what a ruling expected (section 4, item 2)**
+Branch `leg/b2-flags` (stacked on `leg/b1-links`) · run 2026-11-18 (UTC) · status: **done, all tests pass. One address I could not verify (section 4, item 1) and one place where the data differs from what a ruling expected (section 4, item 2)** · **review round 1 answered 2026-11-19 (sections 7 and 8)**
 
-Rulings implemented: R5, R6, R7, R9, R12, R16, R18, R20, R21, R22 (`docs/phase_b_rulings.md`).
+Rulings implemented: R5, R6, R7, R9, R12, R16, R18, R20, R21, R22, and R27 and R28 after review round 1 (`docs/phase_b_rulings.md`).
 
 ## 1. What I built
 
@@ -32,8 +32,8 @@ stg_datum__fetch_manifest ─▶ fetched_at on every row
 | `status` | `open` or `closed`; `inactive` for a license |
 | `status_note` | The events on the record, as sentences of fact: "Certificate of release filed 2026-11-16." |
 | `source` | `sunbiz_flr`, `dbpr` or `duval` |
-| `source_record_id` | The number to type into the official search: filing number, license number, complaint number, instrument number |
-| `source_url` | The official search page (no source offers a link to one record: R9, R21) |
+| `source_record_id` | The record's own number: filing number, license number, complaint number, instrument number. DBPR's search takes a license number, so a complaint's citation carries its license number as well (R27) |
+| `source_url` | The official search page. No source offers a link to one record, so one ruling per source allows it: R9 for federal liens, R21 for Duval, R27 for DBPR. The approved addresses are the seed `search_page_sources` |
 | `citation` | The record in words: "Duval County Official Records instrument 2010293806, book 15465 page 290" |
 | `source_file` | The exact file the fact came from |
 | `fetched_at` | When we fetched that file, in UTC, from the fetch manifest |
@@ -57,7 +57,7 @@ Example rows (no names are in the mart):
 | `pipeline/models/intermediate/_intermediate__models.yml`, `pipeline/models/marts/_marts.yml` | Column tests for the three models; two unit tests |
 | `pipeline/tests/assert_every_flag_traces_to_a_confirmed_link.sql` | Every flag has a CONFIRMED link behind it, and none comes from an R7 lien |
 | `pipeline/tests/assert_duval_flags_respect_the_allowlist.sql` | Every Duval flag is an allowlisted type; no flagged judgment has the State of Florida on the FRM side |
-| `pipeline/tests/assert_hidden_flags_stay_hidden.sql` | `is_shown` agrees with the two switches |
+| `pipeline/tests/assert_hidden_flags_stay_hidden.sql` | Duval and discipline flags have `is_shown = false`, compared with the literal `false` and not with the two switches (R28, review round 1) |
 | `pipeline/tests/assert_company_flags_one_row_per_flag.sql` | A company has a record as a flag at most once |
 
 New in Snowflake: tables `DEV_INTERMEDIATE.INT_FEDERAL_LIENS_STATUS`, `DEV_INTERMEDIATE.INT_DUVAL_DOCUMENT_STATUS`, `DEV_MARTS.COMPANY_FLAGS`. Nothing existing changed.
@@ -171,12 +171,12 @@ All checks passed!
 | A Duval document recorded before 2025-01-01 gets an extra sentence in its caveat | Our files start on that day. A release recorded earlier can't be seen, so "open" is weaker for those documents (section 4, item 3) | A longer caveat on 7,248 open documents |
 | The Duval caveat does not say liens lapse after a year | Q5 in the open-questions log: not stated on the report until counsel confirms | The plan's draft wording for that caveat is not used |
 | The lien caveat states the date the lien files run through | "Open" is only known up to the last file the state published (2026-11-16), and the state publishes about weekly | The text changes whenever new files load |
-| When a new quarterly snapshot is loaded, a lien that is only in an older one is closed | R6: "in the latest snapshot". Today there is one snapshot, so this branch is not yet exercised by real data; the unit test covers the status letter, not this case | Unproven on real data until January 2027 |
+| The rule "only in an older snapshot means closed" is written, and it cannot fire yet | R6: "in the latest snapshot". Staging stamps every quarterly row with one hardcoded date (2026-10-03), so if a second snapshot were loaded today both would carry the same date, and a lien the state dropped would stay open. Ruling R26 replaces that date by Dec 15, 2026. Until then the test `assert_flr_quarterly_rows_come_from_one_load` stops the build if quarterly rows come from more than one load (corrected in review round 1: this row first said such liens are closed) | Dropped liens are **not** closed today. One snapshot is loaded, so no lien is affected yet |
 | Discipline `status` is `closed` when DBPR recorded a disposition date, else `open` | The plan's example is "Discipline case closed 2025-01-10" | 9 complaints have no disposition date |
 
 ## 4. What I couldn't verify, and open questions for Andres
 
-1. **The federal lien search address is not verified.** 🟡 R9 says to cite "the Sunbiz federal lien search page". The state's site refuses automated requests (HTTP 403), so I could not open it. I used the state's search hub, `https://dos.fl.gov/sunbiz/search/`, which lists the federal lien search and which a web search confirms exists. Please open it in your browser, click through to the federal lien search by document number, and give me that page's address. It is one line in `pipeline/dbt_project.yml` (`sunbiz_lien_search_url`). The other two addresses are verified: `https://www.myfloridalicense.com/wl11.asp` ✅ (DBPR's license search, found on the official site) and `https://or.duvalclerk.com/` ✅ (in `docs/access/duval-official-records.md`).
+1. **The federal lien search address is not verified.** 🟡 R9 says to cite "the Sunbiz federal lien search page". The state's site refuses automated requests (HTTP 403), so I could not open it. I used the state's search hub, `https://dos.fl.gov/sunbiz/search/`, which lists the federal lien search and which a web search confirms exists. Please open it in your browser, click through to the federal lien search by document number, and give me that page's address. It is one line in `pipeline/dbt_project.yml` (`sunbiz_lien_search_url`). The other two addresses are verified: `https://www.myfloridalicense.com/portalsearches/VerifyLicensee` ✅ (the address DBPR gives in its own ReadMe, quoted in `docs/access/dbpr.md`; it answered HTTP 200 on Nov 19) and `https://or.duvalclerk.com/` ✅ (in `docs/access/duval-official-records.md`). *Corrected in review round 1: this report first used `https://www.myfloridalicense.com/wl11.asp` for DBPR and leaned on R9 and R21, which cover federal liens and Duval only. Ruling R27 (Nov 19) now covers DBPR.*
 2. **R18 expected 10,674 links that carry only book and page. The data has about 890.** When a link has no instrument number, the Clerk's file leaves the book and page columns empty and writes text into the last field instead. Of 10,717 such links: 9,021 say `-NONE`, 890 give a book and page I can read (`-OR 12292/1479`, `-O 12292/1479` or `-12292/1479`), and about 800 hold other text (`-NA`, a lone number, a place name). I followed the ruling: the 890 are matched by book and page. The effect is small: **8 of the 3,436 closed documents were closed through book and page**; 3,428 through an instrument number. A release whose link says `-NONE` can't close anything: 1,540 release-family rows are like that.
 3. **"Open" is weak for old documents.** 7,248 of the 18,585 open Duval documents (6,808 of them liens) were recorded before 2025-01-01 and appear in our files only because the Clerk re-indexed them. A release recorded before 2025 is not in any file we hold, so some of these are surely released. The ruling says closed needs a linking document, so they are open, with a caveat sentence and the marker `recorded_before_window`. Before Duval is ever displayed, this needs a decision: load older files, or don't show documents recorded before the window.
 4. **Only 24 inactive-license flags.** Inactive licenses rarely name a business (497 of 12,592), and 24 of those are CONFIRMED. The license flag is close to empty; the useful DBPR line for a contractor is probably "license active, expires …", which is information, not a flag.
@@ -200,5 +200,128 @@ Phase B running total: 0.45 of the 3-credit cap.
 ## 6. Three questions you should be able to answer
 
 1. A certificate of discharge (`COD`) is on seven open liens. Why does the status model leave them open, and what does the flag say about the discharge instead?
-2. `company_flags` has 14,493 rows with `is_shown = false`. Which two project variables control them, and where do they live? The test `assert_hidden_flags_stay_hidden` reads the same two variables: what mistake does it catch, and what mistake can it NOT catch?
+2. `company_flags` has 14,493 rows with `is_shown = false`. Which two project variables control them, and where do they live? The test `assert_hidden_flags_stay_hidden` first read the same two variables: what mistake could it NOT catch, and how does comparing with the literal `false` (R28) close that gap?
 3. A Duval lien recorded in 2010 shows as `open`. Give the reason it might really have been released, and say which column and which sentence warn the reader.
+
+## 7. Review round 1: what changed (2026-11-19)
+
+Pull request 6 got a Deep review under `REVIEW.md`: 6 findings, 2 Important, 3 Nit, 1 Pre-existing. Andres made two rulings to answer it, R27 and R28 (`docs/phase_b_rulings.md`). Each fix is one commit with its test.
+
+| Finding | What changed | The test that now catches it | Commit |
+|---|---|---|---|
+| Rulings | R27 (how a DBPR flag is cited) and R28 (un-hiding a flag takes two reviewed edits) recorded | | `67bcade` |
+| **Important 1.** A release with no readable date left the lien open | `int_federal_liens_status` decides `lien_status`, `closed_reason` and `is_unexplained` on a release **event** existing (`has_later_release`, `has_earlier_release`, both `count_if`). `released_on` is kept for wording only | Two rows added to the unit test `lien_status_follows_rulings_r5_r6_and_r7`: a later release with a null date must be `closed`; an earlier one must be unexplained. Both failed on the old code. A blocking `not_null` on the events' `published_on` was added, because "later" compares that date | `030c094` |
+| **Important 2.** DBPR flags cited a search page no ruling allowed | R27. The address is now the one DBPR documents, `https://www.myfloridalicense.com/portalsearches/VerifyLicensee`. A discipline citation reads "Florida DBPR license CAC045900, complaint 2023016290": license number first, because DBPR's search takes a license number | New seed `search_page_sources` (three approved rows: R9, R21, R27). `assert_shown_flags_cite_an_approved_search_page` failed on 24 rows before the fix. `assert_dbpr_citations_carry_the_license_number` failed on 379 | `2245a58`, `b2fc5fa` |
+| R28 | `assert_hidden_flags_stay_hidden` compares `is_shown` with the literal `false` for Duval and for discipline, not with the project variables | The test is the change. With 10 hidden flags forced to shown in a throwaway query, the new test returns them; the old one, with the switches on, returned none | `b23611e` |
+| **Nit 1.** "Missing from the latest snapshot means closed" cannot fire yet | Guarded, not fixed (R26 fixes it by Dec 15, 2026). R26 now lists `int_federal_liens_status`. Section 3 of this report no longer claims dropped liens are closed | `assert_flr_quarterly_rows_come_from_one_load` fails when quarterly rows that share one `published_on` come from more than one load | `a07f36b` |
+| **Nit 2.** The no-names test skipped the mart | `assert_no_name_columns_past_staging` scans `DEV_MARTS` as well as `DEV_INTERMEDIATE`. `ENTITY_LOOKUP` is the one named exception: registered business names | The test is the change. Without the exception it returns `ENTITY_LOOKUP.ENTITY_NAME` and `NAME_KEY`, so the schema is really read | `9f8c4fd` |
+| **Nit 3.** Tied dates could name the wrong closing document | `int_duval_document_status` picks one closing row with `row_number()` ordered by recording date, then instrument number, then type code | A document closed by two documents on the same day was added to the unit test `duval_status_follows_ruling_r18`. It failed on the old code | `a140727` |
+| **Pre-existing.** Garnishees can be flagged as judgment debtors | Not fixed here: logged as Q25 in `docs/open_questions.md`, to be settled before `show_duval` is turned on | | `064beda` |
+
+**A pre-push check of the fixes found three more nits, all fixed.** Before pushing, one `reviewer` subagent read the fix commits in a fresh context. This was a single pass, not a Deep round, so the review log still says one round. It reported 0 Important findings and 3 nits:
+
+| Nit from the pre-push check | What changed | Commit |
+|---|---|---|
+| The tied-date unit test would have passed without the instrument-number key | The lower instrument number now carries the type code that sorts last, so only that key can produce the expected row | `ac18d30` |
+| The release's source file could still be picked arbitrarily on a tie, and it decides `fetched_at` | One full ordering key: filing date, then the file's publish date, then the file name. A lien with two undated releases in two files was added to the unit test, and it failed on the old code | `40c342a` |
+| The DBPR citation test compared a license's digits only, and DBPR reuses digits across license kinds | It compares the kind as well. Of 78 simulated wrong-kind citations the old check caught 0 and the new one catches 78 | `b013862` |
+
+**Flag counts did not change.** The table in section 2 is still exact: 24,465 flags on 12,295 companies, 9,972 of them shown. Why nothing moved:
+
+- Important 1 changes a result only for a release whose date is unreadable, and there are none today (section 8, query 1). Lien status is the same four rows as before: 20,695 open, 176 closed, 2 and 1 unexplained.
+- Important 2 changed the `source_url` and `citation` text of the 403 DBPR flags (24 license, 379 discipline). No row was added or removed.
+- Nit 3 changed which same-day release is named on 4 of the 22,021 Duval documents. No document moved between open and closed (18,585 and 3,436, as before).
+
+**One thing left for Andres, not changed here.** A lien closed by a release whose date is unreadable is now `closed`, and its `status_note` has no "Certificate of release filed …" sentence, because that sentence needs the date. Zero liens are in that state today. What the report should say in that case is wording on a report, so it is his call.
+
+### Checks after the fixes
+
+`cd pipeline && dbt build --select +company_flags` (the mart and everything upstream of it), run last, after every commit in this section. The three warnings are staging checks that earlier legs set to warn on purpose, and they warned before this round too (mistyped years on a few liens; status `C` on party rows, ruling R7). Nothing failed.
+
+```
+ Succeeded seed  DEV_reference.search_page_sources (table)
+    Passed test  assert_flr_filings_unique_per_file
+    Passed test  assert_flr_quarterly_rows_come_from_one_load
+    Warned test  warn_flr_filings_year_out_of_range
+    Passed test  not_null_stg_sunbiz__flr_events_published_on
+    Warned test  accepted_values_stg_sunbiz__flr_debtors_filing_status__A__L__T
+    Warned test  accepted_values_stg_sunbiz__flr_secured_filing_status__A__L__T
+    Passed unit_test DEV_intermediate_dbt_test__audit.lien_status_follows_rulings_r5_r6_and_r7
+ Succeeded model DEV_intermediate.int_federal_liens_status (table)
+    Passed unit_test DEV_intermediate_dbt_test__audit.match_key_strips_one_trailing_legal_suffix
+    Passed unit_test DEV_intermediate_dbt_test__audit.lien_links_follow_rulings_r1_and_r2
+    Passed unit_test DEV_intermediate_dbt_test__audit.duval_links_keep_only_to_side_businesses_on_allowlisted_documents
+ Succeeded model DEV_intermediate.int_dbpr_discipline_links (table)
+    Passed test  assert_no_confirmed_link_before_company_filed
+    Passed test  assert_link_rows_are_consistent
+    Passed unit_test DEV_intermediate_dbt_test__audit.duval_status_follows_ruling_r18
+ Succeeded model DEV_intermediate.int_duval_document_status (table)
+ Succeeded model DEV_marts.company_flags (table)
+    Passed test  assert_hidden_flags_stay_hidden
+    Passed test  assert_company_flags_one_row_per_flag
+    Passed test  assert_shown_flags_cite_an_approved_search_page
+    Passed test  assert_dbpr_citations_carry_the_license_number
+    Passed test  assert_every_flag_traces_to_a_confirmed_link
+    Passed test  assert_duval_flags_respect_the_allowlist
+    Passed test  assert_no_name_columns_past_staging
+    ... (16 more models, 2 more seeds and 122 more passing tests, left out here)
+Finished 'build' with 3 warnings for target 'dev' [1m 16s]
+Processed: 20 models | 137 tests | 3 seeds | 5 unit tests
+Summary: 165 total | 162 success | 3 warn
+```
+
+```
+$ ruff check src tests
+All checks passed!
+$ pytest -q
+60 passed in 0.23s
+```
+
+## 8. Review round 1: data checks
+
+The reviewers had no Snowflake access, so the review ended with three queries to run on the real data. Run 2026-11-19 (UTC) with `snow sql -c datum -q "..."`, before the fixes and again after the last rebuild, with the same results.
+
+**1. Does Important 1 affect today's data? No.**
+
+`select count(*) cor_rows, count_if(event_filing_date is null) null_dates from datum.dev_staging.stg_sunbiz__flr_events where action_code = 'COR';`
+
+```
+| COR_ROWS | NULL_DATES |
+| 95488    | 0          |
+```
+
+All 95,488 certificates of release have a readable date. The bug was real and no lien was shown wrongly because of it.
+
+**2. Do any discipline notes mix two dispositions? No.**
+
+`select count(*) from (select complaint_number from datum.dev_staging.stg_dbpr__discipline group by 1 having count(distinct disposition) > 1 or count(distinct disposition_date) > 1);`
+
+```
+| COUNT(*) |
+| 0        |
+```
+
+Every complaint has one disposition and one disposition date, so taking `max()` of each in `company_flags` cannot pair the disposition of one line with the date of another.
+
+**3. How big is the garnishee problem, roughly? 7 flags on 4 companies.**
+
+`select count(*) flags, count(distinct f.document_number) companies from datum.dev_marts.company_flags f join datum.dev_marts.entity_lookup e using (document_number) where f.flag_type = 'duval_judgment' and e.entity_name ilike any ('%BANK%', '%CREDIT UNION%', '%SAVINGS%');`
+
+```
+| FLAGS | COMPANIES |
+| 7     | 4         |
+```
+
+Of 4,528 hidden `duval_judgment` flags, 7 sit on a company whose name contains BANK, CREDIT UNION or SAVINGS. 🟡 This is a floor, not a count: a garnishee can be an employer or any business holding the debtor's money, and a bank can be a real judgment debtor. It is small, hidden (R20), and logged as Q25.
+
+### Credits used in review round 1
+
+**About 0.29 credits** on `datum_wh` (X-Small), roughly $0.59 at the $2 per credit this report uses in section 5. The warehouse had been idle for 12 hours before this round, so the whole reading belongs to it: 783 queries between 23:24 and 23:44 Pacific on Nov 18 (Nov 19 UTC), which covers the test runs before and after each fix, three partial builds, three full `dbt build --select +company_flags` runs and the data checks.
+
+```
+snow sql -c datum -q "SELECT start_time, end_time, credits_used FROM TABLE(datum.information_schema.warehouse_metering_history(DATE_TRUNC('hour', DATEADD('hour', -12, CURRENT_TIMESTAMP())), CURRENT_TIMESTAMP(), 'DATUM_WH')) ORDER BY start_time"
+before the round (23:24 Pacific, Nov 18):  no rows (nothing used in the last 12 hours)
+after the round  (23:44 Pacific, Nov 18):  0.294902500
+```
+
+Read while the warehouse was still running, so the meter can add a little for the last minute before it suspends.
