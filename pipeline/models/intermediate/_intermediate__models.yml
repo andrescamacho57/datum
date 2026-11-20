@@ -243,12 +243,15 @@ unit_tests:
 
   - name: lien_links_follow_ruling_r29
     description: >
-      Ruling R29. Seven debtors whose names each match a company. A ZIP code
+      Ruling R29. Eight debtors whose names each match a company. A ZIP code
       that is present but is not 5 digits can't be read, so the link is
       AMBIGUOUS with the reason zip_unreadable, whether one company has the
       name or two. Only a ZIP code that is empty (NULL, an empty text, or
       only spaces) may still be CONFIRMED on a unique name. A debtor with an
-      unreadable ZIP code and no company at all stays NO_MATCH.
+      unreadable ZIP code and no company at all stays NO_MATCH. Z8 is the
+      case where the state's 9-character ZIP field starts with five blanks
+      and has something after them: staging's zip5 is then NULL although the
+      field is not empty, and the link must still be AMBIGUOUS.
     model: int_federal_lien_links
     given:
       - input: ref('stg_sunbiz__flr_filings')
@@ -260,6 +263,7 @@ unit_tests:
           - {filing_doc_number: Z5, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
           - {filing_doc_number: Z6, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
           - {filing_doc_number: Z7, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: Z8, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
       - input: ref('stg_sunbiz__flr_debtors')
         rows:
           - {filing_doc_number: Z1, debtor_seq: 1, debtor_name: 'JULIETT LLC',  zip5: '3225',  published_on: 2026-10-03, loaded_at: 2026-11-12}   # four digits
@@ -269,6 +273,7 @@ unit_tests:
           - {filing_doc_number: Z5, debtor_seq: 1, debtor_name: 'NOVEMBER LLC', zip5: '   ',   published_on: 2026-10-03, loaded_at: 2026-11-12}   # empty: only spaces
           - {filing_doc_number: Z6, debtor_seq: 1, debtor_name: 'OSCAR LLC',    zip5: '3225',  published_on: 2026-10-03, loaded_at: 2026-11-12}   # unreadable, and two companies share the name
           - {filing_doc_number: Z7, debtor_seq: 1, debtor_name: 'PAPA LLC',     zip5: '3225',  published_on: 2026-10-03, loaded_at: 2026-11-12}   # unreadable, and no company has the name
+          - {filing_doc_number: Z8, debtor_seq: 1, debtor_name: 'QUEBEC LLC',   zip5: null,    zip: '1234', published_on: 2026-10-03, loaded_at: 2026-11-12}   # the first five characters are blank, and the whole field is not
       - input: ref('int_company_match_keys')
         rows:
           - {document_number: C21, match_key: 'JULIETT',  zip5: '32256', file_date: 2001-01-01}   # the only JULIETT
@@ -278,6 +283,7 @@ unit_tests:
           - {document_number: C25, match_key: 'NOVEMBER', zip5: '32256', file_date: 2001-01-01}   # the only NOVEMBER
           - {document_number: C26, match_key: 'OSCAR',    zip5: '32256', file_date: 2001-01-01}   # two OSCARs
           - {document_number: C27, match_key: 'OSCAR',    zip5: '33101', file_date: 2001-01-01}
+          - {document_number: C28, match_key: 'QUEBEC',   zip5: '32256', file_date: 2001-01-01}   # the only QUEBEC
     expect:
       rows:
           - {source_record_id: Z1, party_seq: 1, document_number: C21,  link_status: AMBIGUOUS, matched_on: null,        link_reason: zip_unreadable}
@@ -288,6 +294,7 @@ unit_tests:
           - {source_record_id: Z6, party_seq: 1, document_number: C26,  link_status: AMBIGUOUS, matched_on: null,        link_reason: zip_unreadable}
           - {source_record_id: Z6, party_seq: 1, document_number: C27,  link_status: AMBIGUOUS, matched_on: null,        link_reason: zip_unreadable}
           - {source_record_id: Z7, party_seq: 1, document_number: null, link_status: NO_MATCH,  matched_on: null,        link_reason: no_company_with_this_match_key}
+          - {source_record_id: Z8, party_seq: 1, document_number: C28,  link_status: AMBIGUOUS, matched_on: null,        link_reason: zip_unreadable}
 
   - name: dbpr_license_links_follow_ruling_r29
     description: >
