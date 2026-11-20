@@ -1,16 +1,21 @@
 """test_claude_settings.py: the two guardrails in .claude/settings.json still cover what they are meant to cover.
 
 .claude/settings.json is strict JSON, so it cannot explain itself in comments, and one wrong character
-in it switches a guardrail off without any error. This test reads the file and checks two things:
+in it switches a guardrail off without any error. This test reads the file and checks three things:
 
-1. The secrets hook runs for the shell tools we know of: every tool with "bash" in its name, in any
+1. The secrets hook runs exactly block-secrets.sh, and that script exists and may be run. Claude Code
+   treats a hook that cannot start as a non-blocking error and lets the tool call go ahead
+   (https://code.claude.com/docs/en/hooks, "Exit code output"), and so a one-character change to the
+   command, such as block-secrets.sh.disabled, would switch the guardrail off with no error. That is
+   why the command is compared whole, and not found by a part of its name.
+2. The secrets hook runs for the shell tools we know of: every tool with "bash" in its name, in any
    letter case, plus Monitor and PowerShell, which run shell commands under other names. Claude Code
    reads a hook's "matcher" as an exact tool name when it holds only letters, digits and a few plain
    characters, and as an unanchored JavaScript regular expression otherwise
    (https://code.claude.com/docs/en/hooks, "Matcher patterns"). The exact name "Bash" would miss a
    tool called "bash" or "mcp__server__run_bash". A shell tool under a name nobody has listed here is
    still not covered: a matcher can only name what is known.
-2. The Read, Edit and Write tools are denied the dotenv file and its variants (.env.local and so on).
+3. The Read, Edit and Write tools are denied the dotenv file and its variants (.env.local and so on).
    Path rules use gitignore patterns (https://code.claude.com/docs/en/permissions).
 
 It checks the settings as written. It cannot prove how Claude Code applies them: that is Claude Code's
@@ -22,13 +27,17 @@ Run from the repo root:  pytest tests/test_claude_settings.py
 """
 
 import json                                 # reads the settings file
+import os                                   # asks the operating system whether the hook script may be run
 import re                                   # regular expressions, to try the matcher on tool names
 from pathlib import Path                    # file paths
 
 import pytest                               # the test runner; parametrize runs one test body over several cases
 
-SETTINGS = json.loads((Path(__file__).parent.parent / ".claude" / "settings.json").read_text())
+REPO_ROOT = Path(__file__).parent.parent                                    # tests/ -> repo root
+SETTINGS = json.loads((REPO_ROOT / ".claude" / "settings.json").read_text())
 
+SECRETS_HOOK_COMMAND = '"$CLAUDE_PROJECT_DIR"/.claude/hooks/block-secrets.sh'   # the whole command, character for character
+PROJECT_DIR_PREFIX = '"$CLAUDE_PROJECT_DIR"/'                               # Claude Code sets this variable to the repo root
 FILE_TOOLS = ("Read", "Edit", "Write")                     # the three tools that open a file by its path
 EXACT_NAME_ONLY = re.compile(r"[A-Za-z0-9_\- ,|]*")        # a matcher made only of these is an exact name, not a pattern
 # The only pieces the matcher may be built from: plain letters, a bracketed set of letters such as [Bb], and | for "or".
@@ -37,11 +46,24 @@ EXACT_NAME_ONLY = re.compile(r"[A-Za-z0-9_\- ,|]*")        # a matcher made only
 SAFE_IN_BOTH = re.compile(r"(\[[A-Za-z]+\]|[A-Za-z]+|\|)+")
 
 
+def secrets_hook_entry() -> dict:
+    """The one PreToolUse entry whose hook runs exactly SECRETS_HOOK_COMMAND."""
+    entries = [e for e in SETTINGS["hooks"]["PreToolUse"] if any(h.get("command") == SECRETS_HOOK_COMMAND for h in e["hooks"])]
+    assert len(entries) == 1, "exactly one PreToolUse entry should run the secrets hook, by its exact command"
+    return entries[0]
+
+
 def secrets_hook_matcher() -> str:
-    """The matcher of the PreToolUse entry that runs block-secrets.sh."""
-    entries = [e for e in SETTINGS["hooks"]["PreToolUse"] if any("block-secrets.sh" in h["command"] for h in e["hooks"])]
-    assert len(entries) == 1, "exactly one PreToolUse entry should run block-secrets.sh"
-    return entries[0]["matcher"]
+    """The matcher of that entry: the pattern of tool names it runs for."""
+    return secrets_hook_entry()["matcher"]
+
+
+def test_the_secrets_hook_runs_its_exact_command_and_the_script_can_run():
+    # One hook in the entry, and no other key on it that could change how it runs.
+    assert secrets_hook_entry()["hooks"] == [{"type": "command", "command": SECRETS_HOOK_COMMAND}]
+    script = REPO_ROOT / SECRETS_HOOK_COMMAND.removeprefix(PROJECT_DIR_PREFIX)    # the file the command starts
+    assert script.is_file(), f"{script} is missing, and so the hook could not start"
+    assert os.access(script, os.X_OK), f"{script} is not executable, and so the hook could not start"
 
 
 def test_the_matcher_is_a_pattern_that_javascript_reads_the_same_way():
