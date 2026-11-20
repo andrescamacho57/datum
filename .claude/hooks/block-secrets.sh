@@ -4,7 +4,9 @@
 # Exit 0 lets the command run; exit 2 blocks it and shows stderr to Claude.
 # This is a guardrail, not a boundary: obfuscated paths (e.g. `cat .e*`) get through.
 # settings.json is strict JSON and cannot hold comments, so its wiring is explained here:
-#   permissions.deny lists Read/Edit/Write rules for the same files (blocks the file tools).
+#   permissions.deny lists Read and Edit rules for the same files (blocks the file tools). There are no Write
+#     rules: Claude Code never matches a path rule written for Write, and the Edit rules cover the Write tool.
+#     Source: https://code.claude.com/docs/en/permissions, "Write(path), Glob(path), and Grep(path) rules don't match".
 #     `**/.env` is the dotenv file and `**/.env.*` is every variant of it (.env.local and so on).
 #     On Nov 19, 2026, on this Mac, Claude Code refused to write a file ending .P8 under the lower-case
 #     rule, so the path rules ignored letter case that day. That is one observation, not a promise.

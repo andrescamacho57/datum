@@ -15,8 +15,10 @@ in it switches a guardrail off without any error. This test reads the file and c
    (https://code.claude.com/docs/en/hooks, "Matcher patterns"). The exact name "Bash" would miss a
    tool called "bash" or "mcp__server__run_bash". A shell tool under a name nobody has listed here is
    still not covered: a matcher can only name what is known.
-3. The Read, Edit and Write tools are denied the dotenv file and its variants (.env.local and so on).
-   Path rules use gitignore patterns (https://code.claude.com/docs/en/permissions).
+3. The Read and Edit tools are denied the dotenv file and its variants (.env.local and so on).
+   Claude Code checks only Read and Edit path rules, and the Edit rules also cover the Write tool,
+   which is why there is no Write rule to check. Path rules use gitignore patterns
+   (https://code.claude.com/docs/en/permissions).
 
 It checks the settings as written. It cannot prove how Claude Code applies them: that is Claude Code's
 own behaviour, and the two pages above are the source for it. One thing was observed and not just
@@ -38,7 +40,11 @@ SETTINGS = json.loads((REPO_ROOT / ".claude" / "settings.json").read_text())
 
 SECRETS_HOOK_COMMAND = '"$CLAUDE_PROJECT_DIR"/.claude/hooks/block-secrets.sh'   # the whole command, character for character
 PROJECT_DIR_PREFIX = '"$CLAUDE_PROJECT_DIR"/'                               # Claude Code sets this variable to the repo root
-FILE_TOOLS = ("Read", "Edit", "Write")                     # the three tools that open a file by its path
+# Claude Code checks only Read and Edit path rules. It accepts a path rule written for Write and never matches
+# anything against it, and the Edit rules cover the Write tool, because "Edit rules apply to all built-in tools
+# that edit files" (https://code.claude.com/docs/en/permissions, "What Read and Edit rules cover" and
+# "Write(path), Glob(path), and Grep(path) rules don't match"). And so no Write rule is asked for here.
+FILE_TOOLS = ("Read", "Edit")                              # the two tools whose path rules Claude Code checks
 EXACT_NAME_ONLY = re.compile(r"[A-Za-z0-9_\- ,|]*")        # a matcher made only of these is an exact name, not a pattern
 # The only pieces the matcher may be built from: plain letters, a bracketed set of letters such as [Bb], and | for "or".
 # Python tries the matcher below, but Claude Code runs it as JavaScript, and the two do not accept the same syntax:

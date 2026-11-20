@@ -10,12 +10,7 @@
       "Edit(**/.env.*)",
       "Edit(~/.dbt/profiles.yml)",
       "Edit(~/.snowflake/**)",
-      "Edit(**/*.p8)",
-      "Write(**/.env)",
-      "Write(**/.env.*)",
-      "Write(~/.dbt/profiles.yml)",
-      "Write(~/.snowflake/**)",
-      "Write(**/*.p8)"
+      "Edit(**/*.p8)"
     ]
   },
   "hooks": {
