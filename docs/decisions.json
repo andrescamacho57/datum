@@ -214,5 +214,13 @@
   "why": "search.sunbiz.org blocks automated access, so the first run held 10 good prospects. The email makes no claim about the company; Sunbiz verification matters for reports, which already use the bulk files.",
   "status": "Approved",
   "revisit": "If a sent email reaches a dissolved or wrong company, or when the agent can check Sunbiz against Datum's own bulk-file data"
+ },
+ {
+  "id": "d27",
+  "date": "Nov 19, 2026",
+  "decision": "The Gmail drafts box holds at most 30 outreach drafts at a time, set by draft_box_cap in the ledger's config tab. The night run drafts only enough new emails to refill the box, and once send_mode is switched to auto, the morning run sends the drafts the night run already reviewed, up to daily_cap each weekday.",
+  "why": "On Nov 19 the box held 69 drafts, because the night run added 15 every weeknight while about 10 a day were sent by hand. Drafts that wait for days go stale, and a full night run costs about 20 minutes of Opus. With a cap, the two runs become a steady loop in which about as many emails are researched each night as are sent each morning.",
+  "status": "Approved",
+  "revisit": "Raise or lower draft_box_cap or daily_cap in the config tab if replies call for more or fewer emails. The switch to auto-send still waits on the d23 targets, which are 30 or more initial emails sent, 10% or fewer edited before sending, and a bounce rate under 2%."
  }
 ]
