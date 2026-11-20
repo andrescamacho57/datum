@@ -414,10 +414,11 @@ unit_tests:
       E3 and E4 are near-namesakes that one small part of the key catches:
       the "one or more" on the suffix step, and the trim after AND is
       removed. Both must be AMBIGUOUS.
-      E5 to E8 are controls that must stay CONFIRMED, one for each guard in
+      E5 to E10 are controls that must stay CONFIRMED, one for each guard in
       the key: AND inside a longer word, THE in the middle of a name, a
-      word that only starts with THE, and a legal suffix in the middle of a
-      name. Each case fails if its one part of the key is taken away.
+      word that only starts with THE, a legal suffix in the middle of a
+      name, a word that ends in AND, and a word that starts with AND. Each
+      case fails if its one part of the key is taken away.
     model: int_federal_lien_links
     given:
       - input: ref('stg_sunbiz__flr_filings')
@@ -429,15 +430,19 @@ unit_tests:
           - {filing_doc_number: E6, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
           - {filing_doc_number: E7, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
           - {filing_doc_number: E8, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: E9, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: E10, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
       - input: ref('stg_sunbiz__flr_debtors')
         rows:
           - {filing_doc_number: E2, debtor_seq: 1, debtor_name: 'CORPORATION LLC',       zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # the other company is THE CORPORATION INC: a leading THE more
           - {filing_doc_number: E3, debtor_seq: 1, debtor_name: 'GOLF LLC',              zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # the other company is GOLF CO LTD INC: its match key still ends in TWO suffixes
           - {filing_doc_number: E4, debtor_seq: 1, debtor_name: 'INDIA LLC',             zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # the other company is AND THE INDIA INC: the THE leads only once the AND is gone
-          - {filing_doc_number: E5, debtor_seq: 1, debtor_name: 'SANDY ROOFING LLC',     zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # control: the AND inside SANDY is not the word AND
+          - {filing_doc_number: E5, debtor_seq: 1, debtor_name: 'CANDLE WORKS LLC',      zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # control: the AND inside CANDLE is not the word AND
           - {filing_doc_number: E6, debtor_seq: 1, debtor_name: 'OVER THE TOP LLC',      zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # control: a THE in the middle of a name stays
           - {filing_doc_number: E7, debtor_seq: 1, debtor_name: 'THEODORE LLC',          zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # control: THEODORE only starts with the letters THE
           - {filing_doc_number: E8, debtor_seq: 1, debtor_name: 'HOTEL CO SERVICES LLC', zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # control: a CO in the middle of a name stays
+          - {filing_doc_number: E9, debtor_seq: 1, debtor_name: 'ISLAND WORKS LLC',      zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # control: ISLAND only ends in the letters AND
+          - {filing_doc_number: E10, debtor_seq: 1, debtor_name: 'ANDROID WORKS LLC',    zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # control: ANDROID only starts with the letters AND
       - input: ref('int_company_match_keys')
         rows:
           - {document_number: C83, match_key: 'CORPORATION',       zip5: '32256', file_date: 2001-01-01}   # CORPORATION LLC: E2's company
@@ -446,14 +451,18 @@ unit_tests:
           - {document_number: C86, match_key: 'GOLF CO LTD',       zip5: '33101', file_date: 2001-01-01}   # GOLF CO LTD INC: the match key dropped INC, and CO and LTD are both still there
           - {document_number: C87, match_key: 'INDIA',             zip5: '32256', file_date: 2001-01-01}   # E4's company
           - {document_number: C88, match_key: 'AND THE INDIA',     zip5: '33101', file_date: 2001-01-01}
-          - {document_number: C89, match_key: 'SANDY ROOFING',     zip5: '32256', file_date: 2001-01-01}   # E5's company
-          - {document_number: C90, match_key: 'S Y ROOFING',       zip5: '33101', file_date: 2001-01-01}   # what SANDY ROOFING would turn into if the AND inside it were cut out
+          - {document_number: C89, match_key: 'CANDLE WORKS',      zip5: '32256', file_date: 2001-01-01}   # E5's company
+          - {document_number: C90, match_key: 'C LE WORKS',        zip5: '33101', file_date: 2001-01-01}   # what CANDLE WORKS would turn into if the AND inside it were cut out
           - {document_number: C91, match_key: 'OVER THE TOP',      zip5: '32256', file_date: 2001-01-01}   # E6's company
           - {document_number: C92, match_key: 'OVER TOP',          zip5: '33101', file_date: 2001-01-01}
           - {document_number: C93, match_key: 'THEODORE',          zip5: '32256', file_date: 2001-01-01}   # E7's company
           - {document_number: C94, match_key: 'ODORE',             zip5: '33101', file_date: 2001-01-01}   # what THEODORE would turn into if its first three letters were cut off
           - {document_number: C95, match_key: 'HOTEL CO SERVICES', zip5: '32256', file_date: 2001-01-01}   # E8's company
           - {document_number: C96, match_key: 'HOTEL SERVICES',    zip5: '33101', file_date: 2001-01-01}
+          - {document_number: C97, match_key: 'ISLAND WORKS',      zip5: '32256', file_date: 2001-01-01}   # E9's company
+          - {document_number: C98, match_key: 'ISL WORKS',         zip5: '33101', file_date: 2001-01-01}   # what ISLAND WORKS would turn into if AND were cut off the end of a word
+          - {document_number: C99, match_key: 'ANDROID WORKS',     zip5: '32256', file_date: 2001-01-01}   # E10's company
+          - {document_number: C100, match_key: 'ROID WORKS',       zip5: '33101', file_date: 2001-01-01}   # what ANDROID WORKS would turn into if AND were cut off the start of a word
     expect:
       rows:
           - {source_record_id: E2, party_seq: 1, document_number: C83, link_status: AMBIGUOUS, matched_on: null,        link_reason: several_similar_names}
@@ -463,6 +472,8 @@ unit_tests:
           - {source_record_id: E6, party_seq: 1, document_number: C91, link_status: CONFIRMED, matched_on: unique_name, link_reason: unique_name}
           - {source_record_id: E7, party_seq: 1, document_number: C93, link_status: CONFIRMED, matched_on: unique_name, link_reason: unique_name}
           - {source_record_id: E8, party_seq: 1, document_number: C95, link_status: CONFIRMED, matched_on: unique_name, link_reason: unique_name}
+          - {source_record_id: E9, party_seq: 1, document_number: C97, link_status: CONFIRMED, matched_on: unique_name, link_reason: unique_name}
+          - {source_record_id: E10, party_seq: 1, document_number: C99, link_status: CONFIRMED, matched_on: unique_name, link_reason: unique_name}
 
   - name: lien_links_namesake_key_names_of_only_the_and_legal_words
     description: >

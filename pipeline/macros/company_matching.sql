@@ -73,8 +73,9 @@
           1. every whole word AND becomes a space. A name_key has already
              turned & into a space, so "A AND B" and "A & B" now look the
              same. \\b means "the edge of a word", so the AND inside
-             "SANDY" stays. The backslash is typed twice because SQL text
-             uses one backslash to escape the next character.
+             CANDLE, at the end of ISLAND and at the start of ANDROID all
+             stay. The backslash is typed twice because SQL text uses one
+             backslash to escape the next character.
           2. runs of spaces left by step 1 become one space, and the ends
              are trimmed.
           3. a leading THE is removed: "THE ACME" becomes "ACME". The +
