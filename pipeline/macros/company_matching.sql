@@ -69,7 +69,7 @@
         still the match key's job. Two companies whose names differ only in
         the ways below get the same namesake key, and a record filed against
         one name can't be pinned on one of two such companies.
-        Read the four steps from the inside out:
+        Read the steps from the inside out:
           1. every whole word AND becomes a space. A name_key has already
              turned & into a space, so "A AND B" and "A & B" now look the
              same. \\b means "the edge of a word", so the AND inside
@@ -77,20 +77,32 @@
              uses one backslash to escape the next character.
           2. runs of spaces left by step 1 become one space, and the ends
              are trimmed.
-          3. a leading THE is removed: "THE ACME" becomes "ACME".
+          3. a leading THE is removed: "THE ACME" becomes "ACME". One space
+             is added to the end first (|| joins two pieces of text), so
+             that a key that is only the word THE is removed too, and the
+             result is trimmed again. The space in the pattern keeps
+             THEODORE whole, and the ^ (start of the text) keeps OVER THE
+             TOP whole.
           4. EVERY trailing legal suffix is removed, where the match key
              removed only one: "ACME CO" (from ACME CO INC) becomes "ACME".
-             The + after the group means "one or more of these in a row".
-        A name that IS only a suffix, or only THE, is left alone, as in
-        match_key. A match key that is only the word AND becomes an empty
-        namesake key, which it shares with any other such name. That can
-        only make a link AMBIGUOUS, never CONFIRMED. -#}
+             The + after the group means "one or more of these in a row",
+             and the $ (end of the text) keeps a CO in the middle of a name.
+             One space is added to the front first, so that a key that is
+             only legal suffixes is removed whole.
+        Steps 3 and 4 mean that a name made only of THE, AND and legal-form
+        words ("THE LIMITED INC", "CORPORATION LLC") ends up with an EMPTY
+        namesake key, and all such names share it. That is on purpose. The
+        match key has already cut a suffix off these names, so no order of
+        the steps can pair up "THE LIMITED" with "THE LIMITED INC" and also
+        "CORPORATION LLC" with "THE CORPORATION INC" unless all of them get
+        the same key. A shared key can only make a link AMBIGUOUS, never
+        CONFIRMED. -#}
     trim(regexp_replace(
-        regexp_replace(
+        ' ' || trim(regexp_replace(
             trim(regexp_replace(
                 regexp_replace({{ match_key_column }}, '\\bAND\\b', ' '),
-                ' +', ' ')),
-            '^THE ', ''),
+                ' +', ' ')) || ' ',
+            '^THE ', '')),
         '( ({{ legal_suffixes() }}))+$', ''))
 {%- endmacro %}
 

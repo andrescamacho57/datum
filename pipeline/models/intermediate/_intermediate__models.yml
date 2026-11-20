@@ -390,6 +390,36 @@ unit_tests:
           - {source_record_id: N10, party_seq: 1, document_number: C57, link_status: CONFIRMED, matched_on: name_zip,    link_reason: name_zip}
           - {source_record_id: N11, party_seq: 1, document_number: C59, link_status: CONFIRMED, matched_on: unique_name, link_reason: unique_name}
 
+  - name: lien_links_namesake_key_edge_cases
+    description: >
+      Ruling R30, the edges of the namesake key. Every debtor here has no ZIP
+      code and exactly one company on its match key, so each case turns only
+      on whether the second company counts as a near-namesake.
+      E1 and E2 are names made only of THE and legal-form words. The match
+      key has already cut one suffix off them, and whichever of THE and the
+      suffixes is removed first, one of these two pairs used to slip through.
+      Both must be AMBIGUOUS.
+    model: int_federal_lien_links
+    given:
+      - input: ref('stg_sunbiz__flr_filings')
+        rows:
+          - {filing_doc_number: E1, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: E2, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+      - input: ref('stg_sunbiz__flr_debtors')
+        rows:
+          - {filing_doc_number: E1, debtor_seq: 1, debtor_name: 'THE LIMITED INC',  zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # the other company is THE LIMITED: one suffix fewer
+          - {filing_doc_number: E2, debtor_seq: 1, debtor_name: 'CORPORATION LLC',  zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # the other company is THE CORPORATION INC: a leading THE more
+      - input: ref('int_company_match_keys')
+        rows:
+          - {document_number: C81, match_key: 'THE LIMITED',     zip5: '32256', file_date: 2001-01-01}   # THE LIMITED INC: E1's company
+          - {document_number: C82, match_key: 'THE',             zip5: '33101', file_date: 2001-01-01}   # THE LIMITED: the match key cut LIMITED off and left only THE
+          - {document_number: C83, match_key: 'CORPORATION',     zip5: '32256', file_date: 2001-01-01}   # CORPORATION LLC: E2's company
+          - {document_number: C84, match_key: 'THE CORPORATION', zip5: '33101', file_date: 2001-01-01}   # THE CORPORATION INC
+    expect:
+      rows:
+          - {source_record_id: E1, party_seq: 1, document_number: C81, link_status: AMBIGUOUS, matched_on: null, link_reason: several_similar_names}
+          - {source_record_id: E2, party_seq: 1, document_number: C83, link_status: AMBIGUOUS, matched_on: null, link_reason: several_similar_names}
+
   - name: dbpr_license_links_follow_ruling_r30
     description: >
       Ruling R30 on the DBPR license model. A contractor license with a ZIP
