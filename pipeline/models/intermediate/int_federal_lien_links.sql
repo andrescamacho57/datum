@@ -4,15 +4,18 @@
 --
 -- What this model does: takes every corporate debtor on a federal tax lien
 -- (stg_sunbiz__flr_debtors) and looks for the company with the same match
--- key, following rulings R1, R2 and R29:
+-- key, following rulings R1, R2, R29 and R30:
 --   CONFIRMED  the match key and the 5-digit ZIP code both agree with exactly
 --              one company (name_zip); or the debtor row has no ZIP code,
 --              exactly one company of any status has the match key, and the
---              debtor's name carries a legal-entity word (unique_name)
+--              debtor's name carries a legal-entity word (unique_name). In
+--              both cases no other company may be a near-namesake (R30)
 --   AMBIGUOUS  the name matches but the ZIP code doesn't, or several
 --              companies fit, or the lien is older than the company (R2),
 --              or the debtor row has a ZIP code that is not 5 digits and so
---              can't be read (R29)
+--              can't be read (R29), or another company's name differs only
+--              by a leading THE, by AND versus &, or by trailing legal
+--              suffixes (R30)
 --   NO_MATCH   no company has that match key
 -- The rule itself is the macro link_to_companies (macros/company_matching.sql),
 -- shared by all four link models.

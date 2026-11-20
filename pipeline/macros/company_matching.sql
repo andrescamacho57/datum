@@ -14,7 +14,7 @@
   mistake Datum can make (decision d19), so the rule lives in exactly one
   place, where one review and one set of tests covers all four.
 
-  The rule itself is rulings R1, R2 and R29 in docs/phase_b_rulings.md.
+  The rule itself is rulings R1, R2, R29 and R30 in docs/phase_b_rulings.md.
 
   To see the SQL a macro produces: run `dbt compile --select <model>` from
   pipeline/ and open the file under pipeline/target/compiled/.
@@ -63,6 +63,38 @@
 {%- endmacro %}
 
 
+{% macro namesake_key(match_key_column) -%}
+    {#- A LOOSER key than the match key, used only to COUNT near-namesakes
+        (ruling R30). It is never used to find a record's company: that is
+        still the match key's job. Two companies whose names differ only in
+        the ways below get the same namesake key, and a record filed against
+        one name can't be pinned on one of two such companies.
+        Read the four steps from the inside out:
+          1. every whole word AND becomes a space. A name_key has already
+             turned & into a space, so "A AND B" and "A & B" now look the
+             same. \\b means "the edge of a word", so the AND inside
+             "SANDY" stays. The backslash is typed twice because SQL text
+             uses one backslash to escape the next character.
+          2. runs of spaces left by step 1 become one space, and the ends
+             are trimmed.
+          3. a leading THE is removed: "THE ACME" becomes "ACME".
+          4. EVERY trailing legal suffix is removed, where the match key
+             removed only one: "ACME CO" (from ACME CO INC) becomes "ACME".
+             The + after the group means "one or more of these in a row".
+        A name that IS only a suffix, or only THE, is left alone, as in
+        match_key. A match key that is only the word AND becomes an empty
+        namesake key, which it shares with any other such name. That can
+        only make a link AMBIGUOUS, never CONFIRMED. -#}
+    trim(regexp_replace(
+        regexp_replace(
+            trim(regexp_replace(
+                regexp_replace({{ match_key_column }}, '\\bAND\\b', ' '),
+                ' +', ' ')),
+            '^THE ', ''),
+        '( ({{ legal_suffixes() }}))+$', ''))
+{%- endmacro %}
+
+
 {% macro has_entity_word(name_key_column) -%}
     {#- TRUE when the name contains a legal-entity word as a whole word.
         regexp_like must match the WHOLE text, so the pattern is: optionally
@@ -75,8 +107,8 @@
 
 {% macro link_to_companies(names_relation, use_zip) %}
     {#-
-      The linking rule (R1 and R2), as the tail of a query. A link model
-      prepares one CTE of source names and calls this macro after it.
+      The linking rule (R1, R2, R29 and R30), as the tail of a query. A link
+      model prepares one CTE of source names and calls this macro after it.
 
       names_relation: the name of a CTE with exactly these columns
           source_record_id   the source record's identifier (a lien number, a license number ...)
@@ -90,7 +122,8 @@
 
       One output row per source party per candidate company:
           CONFIRMED  exactly one row for that party
-          AMBIGUOUS  one row per possible company
+          AMBIGUOUS  one row per company that has the party's match key. A near-namesake that
+                     blocked the link (R30) is counted, and it is not added as a row of its own
           NO_MATCH   one row, document_number NULL
     -#}
     keyed as (
@@ -106,6 +139,10 @@
             source_zip5 is not null
                 and trim(source_zip5) <> ''
                 and not regexp_like(source_zip5, '[0-9]{5}') as source_zip_is_unreadable,
+            -- Here source_zip5 is the column as the link model sent it, not
+            -- the cleaned value on the line above. When a column and a new
+            -- name made in the same SELECT share a name, Snowflake reads the
+            -- column. The R29 unit tests fail if that ever stops being true.
             -- Ruling R29: TRUE when the source DID give a ZIP code, but it is
             -- not 5 digits. That is different from giving none. An empty ZIP
             -- code (NULL, or only spaces) says "nothing to compare", while a
@@ -118,8 +155,45 @@
             -- With no ZIP code column at all, there is nothing to misread.
             {%- endif %}
             {{ match_key('source_name_key') }} as source_match_key,
+            {{ namesake_key(match_key('source_name_key')) }} as source_namesake_key,
+            -- The looser key of ruling R30, made from the match key. It is
+            -- used below only to count near-namesakes, never to match.
             {{ has_entity_word('source_name_key') }} as source_has_entity_word
         from {{ names_relation }}
+    ),
+
+    company_namesake_keys as (
+        -- Ruling R30, step 1: every company's namesake key, next to its ZIP
+        -- code. One row per company.
+        select
+            {{ namesake_key('match_key') }} as namesake_key,
+            zip5
+        from {{ ref('int_company_match_keys') }}
+    ),
+
+    company_namesakes as (
+        -- Ruling R30, step 2: how many companies share each namesake key at
+        -- each ZIP code. One row per namesake key per ZIP code. Companies
+        -- with no ZIP code form a group of their own (zip5 is NULL), which
+        -- the same-ZIP join below can never pick up, because NULL = NULL is
+        -- not true in SQL.
+        select
+            namesake_key,
+            zip5,
+            count(*) as company_count
+        from company_namesake_keys
+        group by namesake_key, zip5
+    ),
+
+    namesakes_anywhere as (
+        -- Ruling R30, step 3: the same counts added up over every ZIP code,
+        -- including the companies with none. One row per namesake key:
+        -- how many companies in Florida, of any status, share it.
+        select
+            namesake_key,
+            sum(company_count) as company_count
+        from company_namesakes
+        group by namesake_key
     ),
 
     candidates as (
@@ -139,15 +213,32 @@
             count(c.document_number) over (partition by k.source_record_id, k.party_seq) as candidate_count,
             -- How many companies share this party's match key. count(column)
             -- skips NULLs, so a party with no company gets 0.
-            count_if(c.zip5 = k.source_zip5) over (partition by k.source_record_id, k.party_seq) as same_zip_count
+            count_if(c.zip5 = k.source_zip5) over (partition by k.source_record_id, k.party_seq) as same_zip_count,
             -- How many of those companies are also at the party's ZIP code.
             -- "over (partition by ...)" computes the count per source party
             -- and writes it on each of that party's rows (a window function).
+            a.company_count as namesake_count,
+            -- Ruling R30: how many companies anywhere in Florida share the
+            -- party's NAMESAKE key. Every company with the party's match key
+            -- has the same namesake key too, because the namesake key is
+            -- made from the match key. So this count is never smaller than
+            -- candidate_count, and it is larger exactly when a near-namesake
+            -- exists.
+            z.company_count as namesake_same_zip_count
+            -- Ruling R30: how many of those companies are at the party's ZIP
+            -- code. NULL when the party has no usable ZIP code.
         from keyed as k
         left join {{ ref('int_company_match_keys') }} as c
             on  c.match_key = k.source_match_key
             and k.source_match_key <> ''
             -- An empty key (a name made only of punctuation) matches nothing.
+        left join namesakes_anywhere as a
+            on a.namesake_key = k.source_namesake_key
+        left join company_namesakes as z
+            on  z.namesake_key = k.source_namesake_key
+            and z.zip5 = k.source_zip5
+        -- Both of these joins find at most one row for a party, and so they
+        -- add columns without adding rows.
     ),
 
     r1 as (
@@ -167,9 +258,20 @@
                 -- a source that gave no ZIP code at all. Every company with
                 -- this match key is offered as a possible match.
 
-                when source_zip5 is not null and same_zip_count = 1 and company_zip5 = source_zip5 then 'name_zip'
+                when source_zip5 is not null and same_zip_count = 1 and company_zip5 = source_zip5
+                     and namesake_same_zip_count = 1 then 'name_zip'
                 -- The source has a ZIP code, and exactly one company with this
                 -- match key is at that ZIP code: this row is that company.
+                -- Ruling R30 adds the last condition: that company must also
+                -- be the only one at that ZIP code with the looser namesake
+                -- key. The test is "= 1" and not "not more than 1" on
+                -- purpose, so that a missing count can never confirm a link.
+
+                when source_zip5 is not null and same_zip_count = 1 and company_zip5 = source_zip5 then 'several_similar_names_same_zip'
+                -- Ruling R30: same as above, except that a near-namesake (a
+                -- name that differs only by a leading THE, by AND versus &,
+                -- or by trailing legal suffixes) is at the same ZIP code. The
+                -- record can't be pinned on one of the two.
 
                 when source_zip5 is not null and same_zip_count = 1 then 'drop_other_zip'
                 -- Same party, but this row is a namesake at ANOTHER ZIP code.
@@ -197,9 +299,15 @@
                 -- LLC / INC / CORP ... It may be a person whose name equals a
                 -- company's once "LLC" is stripped.
 
-                else 'unique_name'
+                when namesake_count = 1 then 'unique_name'
                 -- No ZIP code, exactly one company in Florida has this match
                 -- key, and the source name carries a legal-entity word.
+                -- Ruling R30 adds this condition: that company is also the
+                -- only one in Florida with the looser namesake key.
+
+                else 'several_similar_names'
+                -- Ruling R30: one company has this match key, but another
+                -- company somewhere in Florida is a near-namesake of it.
             end as r1_outcome
         from candidates
     ),

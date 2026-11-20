@@ -314,6 +314,144 @@ unit_tests:
           - {party_seq: 1, document_number: C32, link_status: AMBIGUOUS, matched_on: null,        link_reason: zip_unreadable}
           - {party_seq: 1, document_number: C33, link_status: CONFIRMED, matched_on: unique_name, link_reason: unique_name}
 
+  - name: lien_links_follow_ruling_r30
+    description: >
+      Ruling R30. Eleven debtors, each with exactly one company on its match
+      key, so the old rule would confirm every one of them. In eight cases a
+      second company has a name that differs only by a leading THE, by AND
+      versus &, or by trailing legal suffixes, and that near-namesake must
+      turn the link AMBIGUOUS. N1 to N5 have a ZIP code, and so the
+      near-namesake counts when it is at the same ZIP code. N6 to N8 have no
+      ZIP code, and so it counts anywhere in Florida. N9 to N11 are the
+      controls that must stay CONFIRMED: a near-namesake at ANOTHER ZIP code
+      does not block a name-and-ZIP link, a second company whose extra word
+      is not a legal suffix is not a near-namesake, and a name with AND in
+      it is still unique when no other company shares it.
+    model: int_federal_lien_links
+    given:
+      - input: ref('stg_sunbiz__flr_filings')
+        rows:
+          - {filing_doc_number: N1, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: N2, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: N3, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: N4, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: N5, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: N6, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: N7, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: N8, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: N9, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: N10, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: N11, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+      - input: ref('stg_sunbiz__flr_debtors')
+        rows:
+          - {filing_doc_number: N1,  debtor_seq: 1, debtor_name: 'TANGO LLC',             zip5: '32256', published_on: 2026-10-03, loaded_at: 2026-11-12}   # a company called THE TANGO is at the same ZIP code
+          - {filing_doc_number: N2,  debtor_seq: 1, debtor_name: 'THE TANGO LLC',         zip5: '32256', published_on: 2026-10-03, loaded_at: 2026-11-12}   # the same pair seen from the other side: the debtor has the THE
+          - {filing_doc_number: N3,  debtor_seq: 1, debtor_name: 'UNIFORM & SONS, LLC',   zip5: '32256', published_on: 2026-10-03, loaded_at: 2026-11-12}   # & here, AND on the other company
+          - {filing_doc_number: N4,  debtor_seq: 1, debtor_name: 'VICTOR LLC',            zip5: '32256', published_on: 2026-10-03, loaded_at: 2026-11-12}   # the other company is VICTOR CO INC: two suffixes
+          - {filing_doc_number: N5,  debtor_seq: 1, debtor_name: 'XRAY AND CO',           zip5: '32256', published_on: 2026-10-03, loaded_at: 2026-11-12}   # the other company is XRAY & CO: the AND sits right before the suffix
+          - {filing_doc_number: N6,  debtor_seq: 1, debtor_name: 'YANKEE LLC',            zip5: null,    published_on: 2026-10-03, loaded_at: 2026-11-12}   # no ZIP code; THE YANKEE is somewhere else in Florida
+          - {filing_doc_number: N7,  debtor_seq: 1, debtor_name: 'ZULU AND SONS INC',     zip5: null,    published_on: 2026-10-03, loaded_at: 2026-11-12}   # no ZIP code; AND here, & on the other company
+          - {filing_doc_number: N8,  debtor_seq: 1, debtor_name: 'ALFA LLC',              zip5: null,    published_on: 2026-10-03, loaded_at: 2026-11-12}   # no ZIP code; the other company is ALFA CO INC
+          - {filing_doc_number: N9,  debtor_seq: 1, debtor_name: 'WHISKEY LLC',           zip5: '32256', published_on: 2026-10-03, loaded_at: 2026-11-12}   # control: THE WHISKEY is at another ZIP code
+          - {filing_doc_number: N10, debtor_seq: 1, debtor_name: 'FOXTROT LLC',           zip5: '32256', published_on: 2026-10-03, loaded_at: 2026-11-12}   # control: FOXTROT GROUP is a different name, not a suffix
+          - {filing_doc_number: N11, debtor_seq: 1, debtor_name: 'CHARLIE AND DELTA LLC', zip5: null,    published_on: 2026-10-03, loaded_at: 2026-11-12}   # control: an AND in the name, and no other company like it
+      - input: ref('int_company_match_keys')
+        rows:
+          - {document_number: C41, match_key: 'TANGO',             zip5: '32256', file_date: 2001-01-01}   # N1's company
+          - {document_number: C42, match_key: 'THE TANGO',         zip5: '32256', file_date: 2001-01-01}   # N2's company, and each is the other's near-namesake
+          - {document_number: C43, match_key: 'UNIFORM SONS',      zip5: '32256', file_date: 2001-01-01}   # registered as UNIFORM & SONS: the & became a space
+          - {document_number: C44, match_key: 'UNIFORM AND SONS',  zip5: '32256', file_date: 2001-01-01}
+          - {document_number: C45, match_key: 'VICTOR',            zip5: '32256', file_date: 2001-01-01}
+          - {document_number: C46, match_key: 'VICTOR CO',         zip5: '32256', file_date: 2001-01-01}   # VICTOR CO INC: the match key drops only INC
+          - {document_number: C47, match_key: 'XRAY AND',          zip5: '32256', file_date: 2001-01-01}   # XRAY AND CO: the match key drops CO and leaves a trailing AND
+          - {document_number: C48, match_key: 'XRAY',              zip5: '32256', file_date: 2001-01-01}   # XRAY & CO
+          - {document_number: C49, match_key: 'YANKEE',            zip5: '32256', file_date: 2001-01-01}
+          - {document_number: C50, match_key: 'THE YANKEE',        zip5: '33101', file_date: 2001-01-01}   # another city: still counts for a debtor with no ZIP code
+          - {document_number: C51, match_key: 'ZULU AND SONS',     zip5: '32256', file_date: 2001-01-01}
+          - {document_number: C52, match_key: 'ZULU SONS',         zip5: '33101', file_date: 2001-01-01}
+          - {document_number: C53, match_key: 'ALFA',              zip5: '32256', file_date: 2001-01-01}
+          - {document_number: C54, match_key: 'ALFA CO',           zip5: null,    file_date: 2001-01-01}   # a near-namesake with no ZIP code of its own still counts
+          - {document_number: C55, match_key: 'WHISKEY',           zip5: '32256', file_date: 2001-01-01}
+          - {document_number: C56, match_key: 'THE WHISKEY',       zip5: '33101', file_date: 2001-01-01}
+          - {document_number: C57, match_key: 'FOXTROT',           zip5: '32256', file_date: 2001-01-01}
+          - {document_number: C58, match_key: 'FOXTROT GROUP',     zip5: '32256', file_date: 2001-01-01}
+          - {document_number: C59, match_key: 'CHARLIE AND DELTA', zip5: '32256', file_date: 2001-01-01}
+    expect:
+      rows:
+          - {source_record_id: N1,  party_seq: 1, document_number: C41, link_status: AMBIGUOUS, matched_on: null,        link_reason: several_similar_names_same_zip}
+          - {source_record_id: N2,  party_seq: 1, document_number: C42, link_status: AMBIGUOUS, matched_on: null,        link_reason: several_similar_names_same_zip}
+          - {source_record_id: N3,  party_seq: 1, document_number: C43, link_status: AMBIGUOUS, matched_on: null,        link_reason: several_similar_names_same_zip}
+          - {source_record_id: N4,  party_seq: 1, document_number: C45, link_status: AMBIGUOUS, matched_on: null,        link_reason: several_similar_names_same_zip}
+          - {source_record_id: N5,  party_seq: 1, document_number: C47, link_status: AMBIGUOUS, matched_on: null,        link_reason: several_similar_names_same_zip}
+          - {source_record_id: N6,  party_seq: 1, document_number: C49, link_status: AMBIGUOUS, matched_on: null,        link_reason: several_similar_names}
+          - {source_record_id: N7,  party_seq: 1, document_number: C51, link_status: AMBIGUOUS, matched_on: null,        link_reason: several_similar_names}
+          - {source_record_id: N8,  party_seq: 1, document_number: C53, link_status: AMBIGUOUS, matched_on: null,        link_reason: several_similar_names}
+          - {source_record_id: N9,  party_seq: 1, document_number: C55, link_status: CONFIRMED, matched_on: name_zip,    link_reason: name_zip}
+          - {source_record_id: N10, party_seq: 1, document_number: C57, link_status: CONFIRMED, matched_on: name_zip,    link_reason: name_zip}
+          - {source_record_id: N11, party_seq: 1, document_number: C59, link_status: CONFIRMED, matched_on: unique_name, link_reason: unique_name}
+
+  - name: dbpr_license_links_follow_ruling_r30
+    description: >
+      Ruling R30 on the DBPR license model. A contractor license with a ZIP
+      code has a near-namesake at the same ZIP code, and a QB business
+      record with no ZIP code has one elsewhere in Florida. Neither may be
+      CONFIRMED. A third license has no near-namesake and still is. The
+      names and the license numbers are invented.
+    model: int_dbpr_license_links
+    given:
+      - input: ref('stg_dbpr__licenses')
+        rows:
+          - {record_kind: contractor_license, alternate_license_number: TEST011, dba_name: 'QUEBEC BUILDERS LLC', licensee_name: null,                    zip5: '32256', effective_date: 2024-03-01}   # THE QUEBEC BUILDERS is at the same ZIP code
+          - {record_kind: business,           alternate_license_number: null,    dba_name: null,                  licensee_name: 'ROMEO AND SIERRA INC',  zip5: null,    effective_date: 2024-03-01}   # ROMEO & SIERRA is somewhere else
+          - {record_kind: contractor_license, alternate_license_number: TEST013, dba_name: 'PAPA PLUMBING LLC',   licensee_name: null,                    zip5: '32256', effective_date: 2024-03-01}   # control: no near-namesake
+      - input: ref('int_company_match_keys')
+        rows:
+          - {document_number: C61, match_key: 'QUEBEC BUILDERS',     zip5: '32256', file_date: 2001-01-01}
+          - {document_number: C62, match_key: 'THE QUEBEC BUILDERS', zip5: '32256', file_date: 2001-01-01}
+          - {document_number: C63, match_key: 'ROMEO AND SIERRA',    zip5: '32256', file_date: 2001-01-01}
+          - {document_number: C64, match_key: 'ROMEO SIERRA',        zip5: '33101', file_date: 2001-01-01}
+          - {document_number: C65, match_key: 'PAPA PLUMBING',       zip5: '32256', file_date: 2001-01-01}
+    expect:
+      rows:
+          - {party_seq: 1, document_number: C61, link_status: AMBIGUOUS, matched_on: null,     link_reason: several_similar_names_same_zip}
+          - {party_seq: 1, document_number: C63, link_status: AMBIGUOUS, matched_on: null,     link_reason: several_similar_names}
+          - {party_seq: 1, document_number: C65, link_status: CONFIRMED, matched_on: name_zip, link_reason: name_zip}
+
+  - name: duval_links_follow_ruling_r30
+    description: >
+      Ruling R30 on the Duval model, where no record has a ZIP code and so a
+      near-namesake counts anywhere in Florida. Two TO-side parties each
+      have a company on their match key and a second company whose name
+      differs only by a leading THE or by an extra legal suffix. Neither
+      may be CONFIRMED. A third party has no near-namesake and still is.
+    model: int_duval_party_links
+    given:
+      - input: ref('duval_doc_type_allowlist')
+        rows:
+          - {doc_type_code: LN, used_for: flag, flag_type: duval_lien}
+      - input: ref('stg_duval__documents')
+        rows:
+          - {instrument_number: I11, doc_type_code: LN, recorded_date: 2025-02-01, file_date: 2025-02-02, loaded_at: 2026-11-12}
+          - {instrument_number: I12, doc_type_code: LN, recorded_date: 2025-02-01, file_date: 2025-02-02, loaded_at: 2026-11-12}
+          - {instrument_number: I13, doc_type_code: LN, recorded_date: 2025-02-01, file_date: 2025-02-02, loaded_at: 2026-11-12}
+      - input: ref('stg_duval__parties')
+        rows:
+          - {instrument_number: I11, party_role: TO, party_seq: 1, party_name: 'LIMA ROOFING LLC',   file_date: 2025-02-02}   # THE LIMA ROOFING also exists
+          - {instrument_number: I12, party_role: TO, party_seq: 1, party_name: 'MIKE ELECTRIC INC',  file_date: 2025-02-02}   # MIKE ELECTRIC CO INC also exists
+          - {instrument_number: I13, party_role: TO, party_seq: 1, party_name: 'OSCAR PAVING CORP',  file_date: 2025-02-02}   # control: the only one
+      - input: ref('int_company_match_keys')
+        rows:
+          - {document_number: C71, match_key: 'LIMA ROOFING',     zip5: '32256', file_date: 2020-01-01}
+          - {document_number: C72, match_key: 'THE LIMA ROOFING', zip5: '33101', file_date: 2020-01-01}
+          - {document_number: C73, match_key: 'MIKE ELECTRIC',    zip5: '32256', file_date: 2020-01-01}
+          - {document_number: C74, match_key: 'MIKE ELECTRIC CO', zip5: '32256', file_date: 2020-01-01}
+          - {document_number: C75, match_key: 'OSCAR PAVING',     zip5: '32256', file_date: 2020-01-01}
+    expect:
+      rows:
+          - {source_record_id: I11, party_seq: 1, document_number: C71, link_status: AMBIGUOUS, matched_on: null,        link_reason: several_similar_names}
+          - {source_record_id: I12, party_seq: 1, document_number: C73, link_status: AMBIGUOUS, matched_on: null,        link_reason: several_similar_names}
+          - {source_record_id: I13, party_seq: 1, document_number: C75, link_status: CONFIRMED, matched_on: unique_name, link_reason: unique_name}
+
   - name: duval_links_keep_only_to_side_businesses_on_allowlisted_documents
     description: >
       What may enter the Duval link model: TO-side parties with a
