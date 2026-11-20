@@ -347,7 +347,7 @@ unit_tests:
           - {filing_doc_number: N1,  debtor_seq: 1, debtor_name: 'TANGO LLC',             zip5: '32256', published_on: 2026-10-03, loaded_at: 2026-11-12}   # a company called THE TANGO is at the same ZIP code
           - {filing_doc_number: N2,  debtor_seq: 1, debtor_name: 'THE TANGO LLC',         zip5: '32256', published_on: 2026-10-03, loaded_at: 2026-11-12}   # the same pair seen from the other side: the debtor has the THE
           - {filing_doc_number: N3,  debtor_seq: 1, debtor_name: 'UNIFORM & SONS, LLC',   zip5: '32256', published_on: 2026-10-03, loaded_at: 2026-11-12}   # & here, AND on the other company
-          - {filing_doc_number: N4,  debtor_seq: 1, debtor_name: 'VICTOR LLC',            zip5: '32256', published_on: 2026-10-03, loaded_at: 2026-11-12}   # the other company is VICTOR CO INC: two suffixes
+          - {filing_doc_number: N4,  debtor_seq: 1, debtor_name: 'VICTOR LLC',            zip5: '32256', published_on: 2026-10-03, loaded_at: 2026-11-12}   # the other company is VICTOR CO INC: one suffix more
           - {filing_doc_number: N5,  debtor_seq: 1, debtor_name: 'XRAY AND CO',           zip5: '32256', published_on: 2026-10-03, loaded_at: 2026-11-12}   # the other company is XRAY & CO: the AND sits right before the suffix
           - {filing_doc_number: N6,  debtor_seq: 1, debtor_name: 'YANKEE LLC',            zip5: null,    published_on: 2026-10-03, loaded_at: 2026-11-12}   # no ZIP code; THE YANKEE is somewhere else in Florida
           - {filing_doc_number: N7,  debtor_seq: 1, debtor_name: 'ZULU AND SONS INC',     zip5: null,    published_on: 2026-10-03, loaded_at: 2026-11-12}   # no ZIP code; AND here, & on the other company
@@ -399,26 +399,63 @@ unit_tests:
       key has already cut one suffix off them, and whichever of THE and the
       suffixes is removed first, one of these two pairs used to slip through.
       Both must be AMBIGUOUS.
+      E3 and E4 are near-namesakes that one small part of the key catches:
+      the "one or more" on the suffix step, and the trim after AND is
+      removed. Both must be AMBIGUOUS.
+      E5 to E8 are controls that must stay CONFIRMED, one for each guard in
+      the key: AND inside a longer word, THE in the middle of a name, a
+      word that only starts with THE, and a legal suffix in the middle of a
+      name. Each case fails if its one part of the key is taken away.
     model: int_federal_lien_links
     given:
       - input: ref('stg_sunbiz__flr_filings')
         rows:
           - {filing_doc_number: E1, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
           - {filing_doc_number: E2, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: E3, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: E4, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: E5, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: E6, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: E7, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: E8, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
       - input: ref('stg_sunbiz__flr_debtors')
         rows:
           - {filing_doc_number: E1, debtor_seq: 1, debtor_name: 'THE LIMITED INC',  zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # the other company is THE LIMITED: one suffix fewer
           - {filing_doc_number: E2, debtor_seq: 1, debtor_name: 'CORPORATION LLC',  zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # the other company is THE CORPORATION INC: a leading THE more
+          - {filing_doc_number: E3, debtor_seq: 1, debtor_name: 'GOLF LLC',              zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # the other company is GOLF CO LTD INC: its match key still ends in TWO suffixes
+          - {filing_doc_number: E4, debtor_seq: 1, debtor_name: 'INDIA LLC',             zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # the other company is AND THE INDIA INC: the THE leads only once the AND is gone
+          - {filing_doc_number: E5, debtor_seq: 1, debtor_name: 'SANDY ROOFING LLC',     zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # control: the AND inside SANDY is not the word AND
+          - {filing_doc_number: E6, debtor_seq: 1, debtor_name: 'OVER THE TOP LLC',      zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # control: a THE in the middle of a name stays
+          - {filing_doc_number: E7, debtor_seq: 1, debtor_name: 'THEODORE LLC',          zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # control: THEODORE only starts with the letters THE
+          - {filing_doc_number: E8, debtor_seq: 1, debtor_name: 'HOTEL CO SERVICES LLC', zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # control: a CO in the middle of a name stays
       - input: ref('int_company_match_keys')
         rows:
           - {document_number: C81, match_key: 'THE LIMITED',     zip5: '32256', file_date: 2001-01-01}   # THE LIMITED INC: E1's company
           - {document_number: C82, match_key: 'THE',             zip5: '33101', file_date: 2001-01-01}   # THE LIMITED: the match key cut LIMITED off and left only THE
           - {document_number: C83, match_key: 'CORPORATION',     zip5: '32256', file_date: 2001-01-01}   # CORPORATION LLC: E2's company
           - {document_number: C84, match_key: 'THE CORPORATION', zip5: '33101', file_date: 2001-01-01}   # THE CORPORATION INC
+          - {document_number: C85, match_key: 'GOLF',              zip5: '32256', file_date: 2001-01-01}   # E3's company
+          - {document_number: C86, match_key: 'GOLF CO LTD',       zip5: '33101', file_date: 2001-01-01}   # GOLF CO LTD INC: the match key dropped INC, and CO and LTD are both still there
+          - {document_number: C87, match_key: 'INDIA',             zip5: '32256', file_date: 2001-01-01}   # E4's company
+          - {document_number: C88, match_key: 'AND THE INDIA',     zip5: '33101', file_date: 2001-01-01}
+          - {document_number: C89, match_key: 'SANDY ROOFING',     zip5: '32256', file_date: 2001-01-01}   # E5's company
+          - {document_number: C90, match_key: 'S Y ROOFING',       zip5: '33101', file_date: 2001-01-01}   # what SANDY ROOFING would turn into if the AND inside it were cut out
+          - {document_number: C91, match_key: 'OVER THE TOP',      zip5: '32256', file_date: 2001-01-01}   # E6's company
+          - {document_number: C92, match_key: 'OVER TOP',          zip5: '33101', file_date: 2001-01-01}
+          - {document_number: C93, match_key: 'THEODORE',          zip5: '32256', file_date: 2001-01-01}   # E7's company
+          - {document_number: C94, match_key: 'ODORE',             zip5: '33101', file_date: 2001-01-01}   # what THEODORE would turn into if its first three letters were cut off
+          - {document_number: C95, match_key: 'HOTEL CO SERVICES', zip5: '32256', file_date: 2001-01-01}   # E8's company
+          - {document_number: C96, match_key: 'HOTEL SERVICES',    zip5: '33101', file_date: 2001-01-01}
     expect:
       rows:
-          - {source_record_id: E1, party_seq: 1, document_number: C81, link_status: AMBIGUOUS, matched_on: null, link_reason: several_similar_names}
-          - {source_record_id: E2, party_seq: 1, document_number: C83, link_status: AMBIGUOUS, matched_on: null, link_reason: several_similar_names}
+          - {source_record_id: E1, party_seq: 1, document_number: C81, link_status: AMBIGUOUS, matched_on: null,        link_reason: several_similar_names}
+          - {source_record_id: E2, party_seq: 1, document_number: C83, link_status: AMBIGUOUS, matched_on: null,        link_reason: several_similar_names}
+          - {source_record_id: E3, party_seq: 1, document_number: C85, link_status: AMBIGUOUS, matched_on: null,        link_reason: several_similar_names}
+          - {source_record_id: E4, party_seq: 1, document_number: C87, link_status: AMBIGUOUS, matched_on: null,        link_reason: several_similar_names}
+          - {source_record_id: E5, party_seq: 1, document_number: C89, link_status: CONFIRMED, matched_on: unique_name, link_reason: unique_name}
+          - {source_record_id: E6, party_seq: 1, document_number: C91, link_status: CONFIRMED, matched_on: unique_name, link_reason: unique_name}
+          - {source_record_id: E7, party_seq: 1, document_number: C93, link_status: CONFIRMED, matched_on: unique_name, link_reason: unique_name}
+          - {source_record_id: E8, party_seq: 1, document_number: C95, link_status: CONFIRMED, matched_on: unique_name, link_reason: unique_name}
 
   - name: dbpr_license_links_follow_ruling_r30
     description: >
