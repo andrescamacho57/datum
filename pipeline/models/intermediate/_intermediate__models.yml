@@ -406,10 +406,11 @@ unit_tests:
       Ruling R30, the edges of the namesake key. Every debtor here has no ZIP
       code and exactly one company on its match key, so each case turns only
       on whether the second company counts as a near-namesake.
-      E1 and E2 are names made only of THE and legal-form words. The match
-      key has already cut one suffix off them, and whichever of THE and the
-      suffixes is removed first, one of these two pairs used to slip through.
-      Both must be AMBIGUOUS.
+      E2 is a name made only of legal-form words, next to the same name
+      with a leading THE. It must be AMBIGUOUS, and it is the case that
+      breaks if the key ever removes the suffixes before the THE. Its
+      partner case, E1, is in the next test, on its own, so that neither
+      case can hide the other.
       E3 and E4 are near-namesakes that one small part of the key catches:
       the "one or more" on the suffix step, and the trim after AND is
       removed. Both must be AMBIGUOUS.
@@ -421,7 +422,6 @@ unit_tests:
     given:
       - input: ref('stg_sunbiz__flr_filings')
         rows:
-          - {filing_doc_number: E1, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
           - {filing_doc_number: E2, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
           - {filing_doc_number: E3, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
           - {filing_doc_number: E4, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
@@ -431,8 +431,7 @@ unit_tests:
           - {filing_doc_number: E8, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
       - input: ref('stg_sunbiz__flr_debtors')
         rows:
-          - {filing_doc_number: E1, debtor_seq: 1, debtor_name: 'THE LIMITED INC',  zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # the other company is THE LIMITED: one suffix fewer
-          - {filing_doc_number: E2, debtor_seq: 1, debtor_name: 'CORPORATION LLC',  zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # the other company is THE CORPORATION INC: a leading THE more
+          - {filing_doc_number: E2, debtor_seq: 1, debtor_name: 'CORPORATION LLC',       zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # the other company is THE CORPORATION INC: a leading THE more
           - {filing_doc_number: E3, debtor_seq: 1, debtor_name: 'GOLF LLC',              zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # the other company is GOLF CO LTD INC: its match key still ends in TWO suffixes
           - {filing_doc_number: E4, debtor_seq: 1, debtor_name: 'INDIA LLC',             zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # the other company is AND THE INDIA INC: the THE leads only once the AND is gone
           - {filing_doc_number: E5, debtor_seq: 1, debtor_name: 'SANDY ROOFING LLC',     zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # control: the AND inside SANDY is not the word AND
@@ -441,10 +440,8 @@ unit_tests:
           - {filing_doc_number: E8, debtor_seq: 1, debtor_name: 'HOTEL CO SERVICES LLC', zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # control: a CO in the middle of a name stays
       - input: ref('int_company_match_keys')
         rows:
-          - {document_number: C81, match_key: 'THE LIMITED',     zip5: '32256', file_date: 2001-01-01}   # THE LIMITED INC: E1's company
-          - {document_number: C82, match_key: 'THE',             zip5: '33101', file_date: 2001-01-01}   # THE LIMITED: the match key cut LIMITED off and left only THE
-          - {document_number: C83, match_key: 'CORPORATION',     zip5: '32256', file_date: 2001-01-01}   # CORPORATION LLC: E2's company
-          - {document_number: C84, match_key: 'THE CORPORATION', zip5: '33101', file_date: 2001-01-01}   # THE CORPORATION INC
+          - {document_number: C83, match_key: 'CORPORATION',       zip5: '32256', file_date: 2001-01-01}   # CORPORATION LLC: E2's company
+          - {document_number: C84, match_key: 'THE CORPORATION',   zip5: '33101', file_date: 2001-01-01}   # THE CORPORATION INC
           - {document_number: C85, match_key: 'GOLF',              zip5: '32256', file_date: 2001-01-01}   # E3's company
           - {document_number: C86, match_key: 'GOLF CO LTD',       zip5: '33101', file_date: 2001-01-01}   # GOLF CO LTD INC: the match key dropped INC, and CO and LTD are both still there
           - {document_number: C87, match_key: 'INDIA',             zip5: '32256', file_date: 2001-01-01}   # E4's company
@@ -459,7 +456,6 @@ unit_tests:
           - {document_number: C96, match_key: 'HOTEL SERVICES',    zip5: '33101', file_date: 2001-01-01}
     expect:
       rows:
-          - {source_record_id: E1, party_seq: 1, document_number: C81, link_status: AMBIGUOUS, matched_on: null,        link_reason: several_similar_names}
           - {source_record_id: E2, party_seq: 1, document_number: C83, link_status: AMBIGUOUS, matched_on: null,        link_reason: several_similar_names}
           - {source_record_id: E3, party_seq: 1, document_number: C85, link_status: AMBIGUOUS, matched_on: null,        link_reason: several_similar_names}
           - {source_record_id: E4, party_seq: 1, document_number: C87, link_status: AMBIGUOUS, matched_on: null,        link_reason: several_similar_names}
@@ -467,6 +463,38 @@ unit_tests:
           - {source_record_id: E6, party_seq: 1, document_number: C91, link_status: CONFIRMED, matched_on: unique_name, link_reason: unique_name}
           - {source_record_id: E7, party_seq: 1, document_number: C93, link_status: CONFIRMED, matched_on: unique_name, link_reason: unique_name}
           - {source_record_id: E8, party_seq: 1, document_number: C95, link_status: CONFIRMED, matched_on: unique_name, link_reason: unique_name}
+
+  - name: lien_links_namesake_key_names_of_only_the_and_legal_words
+    description: >
+      Ruling R30, for names made only of THE and legal-form words. The match
+      key has already cut one suffix off such a name, so the namesake key
+      has to remove a THE that stands alone and a name that is nothing
+      except suffixes. E1 is THE LIMITED INC next to THE LIMITED, which
+      differ only by a trailing suffix. E11 is THE THE INC next to THE INC,
+      which differ only by a leading THE. Both must be AMBIGUOUS. These two
+      cases sit in a test of their own, apart from E2 in the test above,
+      because all such names share one empty key: in one test, a third
+      company with an empty key would keep a case AMBIGUOUS even after the
+      part of the key written for it had been taken away.
+    model: int_federal_lien_links
+    given:
+      - input: ref('stg_sunbiz__flr_filings')
+        rows:
+          - {filing_doc_number: E1,  filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: E11, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+      - input: ref('stg_sunbiz__flr_debtors')
+        rows:
+          - {filing_doc_number: E1,  debtor_seq: 1, debtor_name: 'THE LIMITED INC', zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # the other company is THE LIMITED: one suffix fewer
+          - {filing_doc_number: E11, debtor_seq: 1, debtor_name: 'THE THE INC',     zip5: null, published_on: 2026-10-03, loaded_at: 2026-11-12}   # the other company is THE INC: one THE fewer
+      - input: ref('int_company_match_keys')
+        rows:
+          - {document_number: C81, match_key: 'THE LIMITED', zip5: '32256', file_date: 2001-01-01}   # THE LIMITED INC: E1's company
+          - {document_number: C82, match_key: 'THE',         zip5: '33101', file_date: 2001-01-01}   # THE LIMITED, or THE INC: the match key cut the suffix off and left only THE
+          - {document_number: C101, match_key: 'THE THE',    zip5: '32256', file_date: 2001-01-01}   # THE THE INC: E11's company
+    expect:
+      rows:
+          - {source_record_id: E1,  party_seq: 1, document_number: C81,  link_status: AMBIGUOUS, matched_on: null, link_reason: several_similar_names}
+          - {source_record_id: E11, party_seq: 1, document_number: C101, link_status: AMBIGUOUS, matched_on: null, link_reason: several_similar_names}
 
   - name: dbpr_license_links_follow_ruling_r30
     description: >

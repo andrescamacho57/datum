@@ -77,12 +77,13 @@
              uses one backslash to escape the next character.
           2. runs of spaces left by step 1 become one space, and the ends
              are trimmed.
-          3. a leading THE is removed: "THE ACME" becomes "ACME". One space
-             is added to the end first (|| joins two pieces of text), so
-             that a key that is only the word THE is removed too, and the
-             result is trimmed again. The space in the pattern keeps
-             THEODORE whole, and the ^ (start of the text) keeps OVER THE
-             TOP whole.
+          3. a leading THE is removed: "THE ACME" becomes "ACME". The +
+             after (THE ) means "one or more in a row", so "THE THE ACME"
+             becomes "ACME" too. One space is added to the end first
+             (|| joins two pieces of text), so that a key that is only the
+             word THE is removed too, and the result is trimmed again. The
+             space in the pattern keeps THEODORE whole, and the ^ (start of
+             the text) keeps OVER THE TOP whole.
           4. EVERY trailing legal suffix is removed, where the match key
              removed only one: "ACME CO" (from ACME CO INC) becomes "ACME".
              The + after the group means "one or more of these in a row",
@@ -102,7 +103,7 @@
             trim(regexp_replace(
                 regexp_replace({{ match_key_column }}, '\\bAND\\b', ' '),
                 ' +', ' ')) || ' ',
-            '^THE ', '')),
+            '^(THE )+', '')),
         '( ({{ legal_suffixes() }}))+$', ''))
 {%- endmacro %}
 
