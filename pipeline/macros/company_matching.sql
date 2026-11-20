@@ -14,7 +14,7 @@
   mistake Datum can make (decision d19), so the rule lives in exactly one
   place, where one review and one set of tests covers all four.
 
-  The rule itself is rulings R1 and R2 in docs/phase_b_rulings.md.
+  The rule itself is rulings R1, R2 and R29 in docs/phase_b_rulings.md.
 
   To see the SQL a macro produces: run `dbt compile --select <model>` from
   pipeline/ and open the file under pipeline/target/compiled/.
@@ -82,7 +82,8 @@
           source_record_id   the source record's identifier (a lien number, a license number ...)
           party_seq          which party on that record (1 when the record has one name)
           source_name_key    the party's name, simplified with name_key(); used here and NOT output (R4)
-          source_zip5        the party's 5-digit ZIP code, or NULL
+          source_zip5        the party's ZIP code as staging has it: 5 digits when it is good, NULL when
+                             the source gave none, and anything else when the source's ZIP code is malformed
           source_date        the record's date
       use_zip: true when the source carries an address. false for Duval, whose
           records have none, so only the unique-name branch applies (R3).
@@ -100,10 +101,21 @@
             source_date,
             {% if use_zip -%}
             case when regexp_like(source_zip5, '[0-9]{5}') then source_zip5 end as source_zip5,
-            -- Only a real 5-digit ZIP counts. Anything else is treated as "no ZIP".
+            -- Only a real 5-digit ZIP code is kept for matching. regexp_like
+            -- must match the WHOLE text, so '3225' and '3225-' both fail.
+            source_zip5 is not null
+                and trim(source_zip5) <> ''
+                and not regexp_like(source_zip5, '[0-9]{5}') as source_zip_is_unreadable,
+            -- Ruling R29: TRUE when the source DID give a ZIP code, but it is
+            -- not 5 digits. That is different from giving none. An empty ZIP
+            -- code (NULL, or only spaces) says "nothing to compare", while a
+            -- malformed one says "there was something here that we can't
+            -- read", and so the row can't be confirmed on its name alone.
             {%- else -%}
             cast(null as varchar) as source_zip5,
             -- This source has no address: every row takes the unique-name branch (R3).
+            false as source_zip_is_unreadable,
+            -- With no ZIP code column at all, there is nothing to misread.
             {%- endif %}
             {{ match_key('source_name_key') }} as source_match_key,
             {{ has_entity_word('source_name_key') }} as source_has_entity_word
@@ -119,6 +131,7 @@
             k.party_seq,
             k.source_date,
             k.source_zip5,
+            k.source_zip_is_unreadable,
             k.source_has_entity_word,
             c.document_number,
             c.zip5      as company_zip5,
@@ -146,6 +159,14 @@
                 when document_number is null then 'no_company_with_this_match_key'
                 -- No company in Florida, of any status, has this match key.
 
+                when source_zip_is_unreadable then 'zip_unreadable'
+                -- Ruling R29: the source gave a ZIP code that is not 5 digits.
+                -- The row can't take the ZIP code branches below, because
+                -- there is no ZIP code to compare. It doesn't take the
+                -- unique-name branch either, because that branch is only for
+                -- a source that gave no ZIP code at all. Every company with
+                -- this match key is offered as a possible match.
+
                 when source_zip5 is not null and same_zip_count = 1 and company_zip5 = source_zip5 then 'name_zip'
                 -- The source has a ZIP code, and exactly one company with this
                 -- match key is at that ZIP code: this row is that company.
@@ -163,6 +184,9 @@
                 -- The name matches, but no company with this match key is at
                 -- the source's ZIP code. R1's unique-name branch is only for
                 -- sources WITHOUT a ZIP code, so this is never CONFIRMED.
+
+                -- From here down is the unique-name branch. A row only gets
+                -- this far when the source gave no ZIP code at all.
 
                 when candidate_count > 1 then 'several_companies'
                 -- No ZIP code to go on, and more than one company (of any

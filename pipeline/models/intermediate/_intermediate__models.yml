@@ -241,6 +241,79 @@ unit_tests:
           - {source_record_id: L8, party_seq: 1, document_number: null, link_status: NO_MATCH,  matched_on: null,        link_reason: no_company_with_this_match_key}
           - {source_record_id: L9, party_seq: 1, document_number: C11,  link_status: AMBIGUOUS, matched_on: null,        link_reason: date_unknown}
 
+  - name: lien_links_follow_ruling_r29
+    description: >
+      Ruling R29. Seven debtors whose names each match a company. A ZIP code
+      that is present but is not 5 digits can't be read, so the link is
+      AMBIGUOUS with the reason zip_unreadable, whether one company has the
+      name or two. Only a ZIP code that is empty (NULL, an empty text, or
+      only spaces) may still be CONFIRMED on a unique name. A debtor with an
+      unreadable ZIP code and no company at all stays NO_MATCH.
+    model: int_federal_lien_links
+    given:
+      - input: ref('stg_sunbiz__flr_filings')
+        rows:
+          - {filing_doc_number: Z1, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: Z2, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: Z3, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: Z4, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: Z5, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: Z6, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+          - {filing_doc_number: Z7, filing_date: 2024-03-01, published_on: 2026-10-03, loaded_at: 2026-11-12}
+      - input: ref('stg_sunbiz__flr_debtors')
+        rows:
+          - {filing_doc_number: Z1, debtor_seq: 1, debtor_name: 'JULIETT LLC',  zip5: '3225',  published_on: 2026-10-03, loaded_at: 2026-11-12}   # four digits
+          - {filing_doc_number: Z2, debtor_seq: 1, debtor_name: 'KILO LLC',     zip5: 'FL 32', published_on: 2026-10-03, loaded_at: 2026-11-12}   # five characters, not five digits
+          - {filing_doc_number: Z3, debtor_seq: 1, debtor_name: 'LIMA LLC',     zip5: null,    published_on: 2026-10-03, loaded_at: 2026-11-12}   # empty: NULL
+          - {filing_doc_number: Z4, debtor_seq: 1, debtor_name: 'MIKE LLC',     zip5: '',      published_on: 2026-10-03, loaded_at: 2026-11-12}   # empty: a text with nothing in it
+          - {filing_doc_number: Z5, debtor_seq: 1, debtor_name: 'NOVEMBER LLC', zip5: '   ',   published_on: 2026-10-03, loaded_at: 2026-11-12}   # empty: only spaces
+          - {filing_doc_number: Z6, debtor_seq: 1, debtor_name: 'OSCAR LLC',    zip5: '3225',  published_on: 2026-10-03, loaded_at: 2026-11-12}   # unreadable, and two companies share the name
+          - {filing_doc_number: Z7, debtor_seq: 1, debtor_name: 'PAPA LLC',     zip5: '3225',  published_on: 2026-10-03, loaded_at: 2026-11-12}   # unreadable, and no company has the name
+      - input: ref('int_company_match_keys')
+        rows:
+          - {document_number: C21, match_key: 'JULIETT',  zip5: '32256', file_date: 2001-01-01}   # the only JULIETT
+          - {document_number: C22, match_key: 'KILO',     zip5: '32256', file_date: 2001-01-01}   # the only KILO
+          - {document_number: C23, match_key: 'LIMA',     zip5: '32256', file_date: 2001-01-01}   # the only LIMA
+          - {document_number: C24, match_key: 'MIKE',     zip5: '32256', file_date: 2001-01-01}   # the only MIKE
+          - {document_number: C25, match_key: 'NOVEMBER', zip5: '32256', file_date: 2001-01-01}   # the only NOVEMBER
+          - {document_number: C26, match_key: 'OSCAR',    zip5: '32256', file_date: 2001-01-01}   # two OSCARs
+          - {document_number: C27, match_key: 'OSCAR',    zip5: '33101', file_date: 2001-01-01}
+    expect:
+      rows:
+          - {source_record_id: Z1, party_seq: 1, document_number: C21,  link_status: AMBIGUOUS, matched_on: null,        link_reason: zip_unreadable}
+          - {source_record_id: Z2, party_seq: 1, document_number: C22,  link_status: AMBIGUOUS, matched_on: null,        link_reason: zip_unreadable}
+          - {source_record_id: Z3, party_seq: 1, document_number: C23,  link_status: CONFIRMED, matched_on: unique_name, link_reason: unique_name}
+          - {source_record_id: Z4, party_seq: 1, document_number: C24,  link_status: CONFIRMED, matched_on: unique_name, link_reason: unique_name}
+          - {source_record_id: Z5, party_seq: 1, document_number: C25,  link_status: CONFIRMED, matched_on: unique_name, link_reason: unique_name}
+          - {source_record_id: Z6, party_seq: 1, document_number: C26,  link_status: AMBIGUOUS, matched_on: null,        link_reason: zip_unreadable}
+          - {source_record_id: Z6, party_seq: 1, document_number: C27,  link_status: AMBIGUOUS, matched_on: null,        link_reason: zip_unreadable}
+          - {source_record_id: Z7, party_seq: 1, document_number: null, link_status: NO_MATCH,  matched_on: null,        link_reason: no_company_with_this_match_key}
+
+  - name: dbpr_license_links_follow_ruling_r29
+    description: >
+      Ruling R29 on the DBPR license model, which feeds the macro from two
+      kinds of row. A contractor license and a QB business record each carry
+      a ZIP code that is not 5 digits, and so neither may be CONFIRMED on a
+      unique name. A third license has no ZIP code at all and still is. The
+      names and the license numbers are invented.
+    model: int_dbpr_license_links
+    given:
+      - input: ref('stg_dbpr__licenses')
+        rows:
+          - {record_kind: contractor_license, alternate_license_number: TEST001, dba_name: 'QUEBEC BUILDERS LLC', licensee_name: null,                  zip5: '3225-', effective_date: 2024-03-01}   # a ZIP code cut short, then the dash of ZIP+4
+          - {record_kind: business,           alternate_license_number: null,    dba_name: null,                  licensee_name: 'ROMEO ROOFING INC',   zip5: '3225',  effective_date: 2024-03-01}   # a QB business record with four digits
+          - {record_kind: contractor_license, alternate_license_number: TEST003, dba_name: 'SIERRA PLUMBING LLC', licensee_name: null,                  zip5: null,    effective_date: 2024-03-01}   # no ZIP code at all
+      - input: ref('int_company_match_keys')
+        rows:
+          - {document_number: C31, match_key: 'QUEBEC BUILDERS', zip5: '32256', file_date: 2001-01-01}
+          - {document_number: C32, match_key: 'ROMEO ROOFING',   zip5: '32256', file_date: 2001-01-01}
+          - {document_number: C33, match_key: 'SIERRA PLUMBING', zip5: '32256', file_date: 2001-01-01}
+    expect:
+      rows:
+          - {party_seq: 1, document_number: C31, link_status: AMBIGUOUS, matched_on: null,        link_reason: zip_unreadable}
+          - {party_seq: 1, document_number: C32, link_status: AMBIGUOUS, matched_on: null,        link_reason: zip_unreadable}
+          - {party_seq: 1, document_number: C33, link_status: CONFIRMED, matched_on: unique_name, link_reason: unique_name}
+
   - name: duval_links_keep_only_to_side_businesses_on_allowlisted_documents
     description: >
       What may enter the Duval link model: TO-side parties with a
