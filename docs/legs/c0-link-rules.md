@@ -1,6 +1,6 @@
 # Leg C0: two link rules from the review of pull request 5 (R29 and R30)
 
-Branch `leg/c0-link-rules` (from `origin/main`) · run on Nov 19, 2026, Pacific time · risk tier **High** · status: **done. Every check passes, and the Deep review ended after three rounds with no Important finding left open.**
+Branch `leg/c0-link-rules` (from `origin/main`) · pull request [#13](https://github.com/andrescamacho57/datum/pull/13) · run on Nov 19, 2026, Pacific time · risk tier **High** · status: **done. Every check passes, and the Deep review ended after three rounds with no Important finding left open.**
 
 This is one extra leg that runs before Phase C. It changes the rule that decides whether a public record belongs to a company, and it changes nothing else.
 
