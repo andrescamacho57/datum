@@ -218,9 +218,9 @@
  {
   "id": "d27",
   "date": "Nov 19, 2026",
-  "decision": "The Gmail drafts box holds at most 30 outreach drafts at a time, set by draft_box_cap in the ledger's config tab. The night run drafts only enough new emails to refill the box, and once send_mode is switched to auto, the morning run sends the drafts the night run already reviewed, up to daily_cap each weekday.",
-  "why": "On Nov 19 the box held 69 drafts, because the night run added 15 every weeknight while about 10 a day were sent by hand. Drafts that wait for days go stale, and a full night run costs about 20 minutes of Opus. With a cap, the two runs become a steady loop in which about as many emails are researched each night as are sent each morning.",
+  "decision": "The Gmail drafts box holds at most 30 outreach drafts at a time, set by draft_box_cap in the config tab of the ledger (the outreach Google Sheet). The night run drafts only enough new emails to refill the box, and it leaves room for the follow-up drafts the morning run will add, so follow-ups count toward the cap. Reply drafts to contractors who answered are never held back, so on a rare morning the box can go a little above 30. Once send_mode is switched to auto, the morning run sends the drafts the night run already reviewed, up to daily_cap each weekday, and it sends follow-ups instead of drafting them.",
+  "why": "On Nov 19 the box held 69 drafts, because the night run added 15 new drafts every weeknight while Andres sent about 10 emails a day by hand. Drafts that wait for days go stale, and the Nov 19 night run took about 23 minutes on an Opus model. With a cap, the two runs become a steady loop in which about as many emails are researched each night as are sent each morning.",
   "status": "Approved",
-  "revisit": "Raise or lower draft_box_cap or daily_cap in the config tab if replies call for more or fewer emails. The switch to auto-send still waits on the d23 targets, which are 30 or more initial emails sent, 10% or fewer edited before sending, and a bounce rate under 2%."
+  "revisit": "Raise or lower draft_box_cap or daily_cap in the config tab if replies call for more or fewer emails. Raising daily_cap above 30 also needs draft_box_cap raised, and it reopens the second sending domain that d25 named for that point. The switch to auto-send still waits on the d23 targets, which are 30 or more initial emails sent, 10% or fewer edited before sending, and a bounce rate under 2%."
  }
 ]
