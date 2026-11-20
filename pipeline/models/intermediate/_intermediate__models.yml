@@ -317,16 +317,19 @@ unit_tests:
   - name: lien_links_follow_ruling_r30
     description: >
       Ruling R30. Eleven debtors, each with exactly one company on its match
-      key, so the old rule would confirm every one of them. In eight cases a
-      second company has a name that differs only by a leading THE, by AND
-      versus &, or by trailing legal suffixes, and that near-namesake must
-      turn the link AMBIGUOUS. N1 to N5 have a ZIP code, and so the
-      near-namesake counts when it is at the same ZIP code. N6 to N8 have no
-      ZIP code, and so it counts anywhere in Florida. N9 to N11 are the
-      controls that must stay CONFIRMED: a near-namesake at ANOTHER ZIP code
-      does not block a name-and-ZIP link, a second company whose extra word
-      is not a legal suffix is not a near-namesake, and a name with AND in
-      it is still unique when no other company shares it.
+      key at its ZIP code or in all of Florida, so the old rule would confirm
+      every one of them. In eight cases a second company has a name that
+      differs only by a leading THE, by AND versus &, or by trailing legal
+      suffixes, and that near-namesake must turn the link AMBIGUOUS. N1 to
+      N5 have a ZIP code, and so the near-namesake counts when it is at the
+      same ZIP code. N1 also has a second company on its own match key at
+      ANOTHER ZIP code. That company is left out, as it was before R30, and
+      so N1 has exactly one row. N6 to N8 have no ZIP code, and so the
+      near-namesake counts anywhere in Florida. N9 to N11 are the controls
+      that must stay CONFIRMED: a near-namesake at ANOTHER ZIP code does not
+      block a name-and-ZIP link, a second company whose extra word is not a
+      legal suffix is not a near-namesake, and a name with AND in it is
+      still unique when no other company shares it.
     model: int_federal_lien_links
     given:
       - input: ref('stg_sunbiz__flr_filings')
@@ -359,6 +362,7 @@ unit_tests:
         rows:
           - {document_number: C41, match_key: 'TANGO',             zip5: '32256', file_date: 2001-01-01}   # N1's company
           - {document_number: C42, match_key: 'THE TANGO',         zip5: '32256', file_date: 2001-01-01}   # N2's company, and each is the other's near-namesake
+          - {document_number: C60, match_key: 'TANGO',             zip5: '33101', file_date: 2001-01-01}   # a second TANGO in another city: N1's ZIP code rules it out, so it gets no row
           - {document_number: C43, match_key: 'UNIFORM SONS',      zip5: '32256', file_date: 2001-01-01}   # registered as UNIFORM & SONS: the & became a space
           - {document_number: C44, match_key: 'UNIFORM AND SONS',  zip5: '32256', file_date: 2001-01-01}
           - {document_number: C45, match_key: 'VICTOR',            zip5: '32256', file_date: 2001-01-01}

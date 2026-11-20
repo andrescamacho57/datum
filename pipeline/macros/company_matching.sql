@@ -134,8 +134,10 @@
 
       One output row per source party per candidate company:
           CONFIRMED  exactly one row for that party
-          AMBIGUOUS  one row per company that has the party's match key. A near-namesake that
-                     blocked the link (R30) is counted, and it is not added as a row of its own
+          AMBIGUOUS  one row per company that has the party's match key, with one exception: when the
+                     ZIP code singles out one of them, the ones at other ZIP codes get no row, and
+                     that stays true when a near-namesake at the same ZIP code then blocks the link
+                     (R30). A near-namesake is counted, and it never gets a row of its own
           NO_MATCH   one row, document_number NULL
     -#}
     keyed as (
@@ -283,7 +285,9 @@
                 -- Ruling R30: same as above, except that a near-namesake (a
                 -- name that differs only by a leading THE, by AND versus &,
                 -- or by trailing legal suffixes) is at the same ZIP code. The
-                -- record can't be pinned on one of the two.
+                -- record can't be pinned on one of the two. Companies with
+                -- this match key at OTHER ZIP codes are still dropped by the
+                -- next branch: the ZIP code rules them out either way.
 
                 when source_zip5 is not null and same_zip_count = 1 then 'drop_other_zip'
                 -- Same party, but this row is a namesake at ANOTHER ZIP code.
