@@ -3,6 +3,7 @@
 Kickoff line Andres types: `Read docs/prompts/florida_master.md. Run Phase A only.`
 Later: `Read docs/prompts/florida_master.md. Run Phase B.` then `Run Phase C.` Never start a phase you weren't told to run.
 Phase A finished Nov 12, 2026 (three legs, reports in `docs/legs/`).
+Phase B finished Nov 19, 2026 (four legs). Leg C0 followed the same day and added rulings R29 and R30.
 
 ## 1. What you're building and for whom
 
@@ -24,7 +25,7 @@ Datum checks a small trade contractor's commercial client before a job: is it a 
 - One concern per commit, with its test.
 
 **Code style**
-- Snowflake SQL goes in `snowflake/` as the next numbered script (Phase A used 13–15, so the next free number is 16). Run it with `snow sql -c datum -f snowflake/NN_name.sql`.
+- Snowflake SQL goes in `snowflake/` as the next numbered script (Phases A and B used 13–20, so the next free number is 21). Run it with `snow sql -c datum -f snowflake/NN_name.sql`.
 - Comment every line. End each SQL script with `-- Syntax`, `-- Concept` and `-- Design decision` sections, like scripts 01–12. dbt models get the same header-and-inline style as `stg_sunbiz__cor.sql`.
 - Raw = one `line` (or one column per field for delimited files) plus `source_file` and `loaded_at`. Staging names and types the fields. Never change or drop existing tables, models or seeds; only add.
 
