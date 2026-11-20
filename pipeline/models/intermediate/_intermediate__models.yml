@@ -407,10 +407,11 @@ unit_tests:
       code and exactly one company on its match key, so each case turns only
       on whether the second company counts as a near-namesake.
       E2 is a name made only of legal-form words, next to the same name
-      with a leading THE. It must be AMBIGUOUS, and it is the case that
-      breaks if the key ever removes the suffixes before the THE. Its
-      partner case, E1, is in the next test, on its own, so that neither
-      case can hide the other.
+      with a leading THE. It must be AMBIGUOUS. It is the case that breaks
+      under the simplest other way to write the key, which removes the
+      suffixes before the THE and never removes a name that is nothing
+      except suffixes. Its partner case, E1, is in the next test, on its
+      own, so that neither case can hide the other.
       E3 and E4 are near-namesakes that one small part of the key catches:
       the "one or more" on the suffix step, and the trim after AND is
       removed. Both must be AMBIGUOUS.
