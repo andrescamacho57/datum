@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS datum.raw.dbpr_licenses (       -- one row per line o
   expiration_date          VARCHAR,                        -- field 18: MM/DD/YYYY as text; blank on QB rows
   blank_field              VARCHAR,                        -- field 19: the layout calls it "Blank"; always empty
   renewal_period           VARCHAR,                        -- field 20: always empty in this file
-  alternate_license_number VARCHAR,                        -- field 21: the number as printed on a license, e.g. CGC1505679
+  alternate_license_number VARCHAR,                        -- field 21: the number as printed on a license, e.g. CGC9900001
   trailing_field           VARCHAR,                        -- field 22: not in the layout; an empty field at the end of every row
   source_file              VARCHAR,                        -- which staged file the row came from (provenance)
   loaded_at                TIMESTAMP_NTZ                   -- when COPY loaded it (provenance)
@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS datum.raw.dbpr_discipline (     -- one row per data l
   state                    VARCHAR,                        -- field 8
   zip_code                 VARCHAR,                        -- field 9
   county                   VARCHAR,                        -- field 10: county NAME here (the license file has a code)
-  complaint_nbr            VARCHAR,                        -- field 11: DBPR's case number, e.g. 2025063352
+  complaint_nbr            VARCHAR,                        -- field 11: DBPR's case number, e.g. 2025900001 (an invented number in the real shape)
   classification           VARCHAR,                        -- field 12: e.g. Licensed Activity
   entered_date             VARCHAR,                        -- field 13: MM/DD/YYYY, when the complaint was entered
   disposition              VARCHAR,                        -- field 14: how the case ended, e.g. Final Order

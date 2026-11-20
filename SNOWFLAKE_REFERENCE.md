@@ -10,7 +10,7 @@ worksheets. Scripts live in `snowflake/`, numbered in run order.
 ## Datum's Objects
 
 ```
-Account (dlkdutd-ci31254)
+Account (<org>-<account>)
 ├── Warehouse  DATUM_WH            X-Small, 60s auto-suspend, under DATUM_MONTHLY
 ├── Resource monitor DATUM_MONTHLY 10 credits/month, notify 80%, suspend 100%
 └── Database   DATUM

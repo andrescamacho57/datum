@@ -4,9 +4,9 @@
 --
 -- The path (ruling R12): discipline → license → company.
 --   1. A discipline row names a license by its kind in WORDS and an unpadded
---      number ("Certified General Contractor", 27000).
+--      number ("Certified General Contractor", 99990).
 --   2. The seed dbpr_license_type_map turns the words into the license
---      file's code (CGC); the number is padded to 7 digits (0027000).
+--      file's code (CGC); the number is padded to 7 digits (0099990).
 --   3. That finds the license, and int_dbpr_license_links already says which
 --      company the license's business name points at.
 --
@@ -23,7 +23,7 @@
 -- No names (ruling R4): the respondent's name never leaves staging.
 --
 -- Columns (the same in every link model):
---   source_record_id  DBPR's complaint number, e.g. 2025063352
+--   source_record_id  DBPR's complaint number, e.g. 2025900001 (an invented number in the real shape)
 --   party_seq         always 1
 --   document_number   the company's Sunbiz document number; NULL on NO_MATCH
 --   link_status       CONFIRMED / AMBIGUOUS / NO_MATCH
@@ -32,7 +32,7 @@
 --   source_date       the date DBPR entered the complaint
 -- One column more than the other link models:
 --   alternate_license_number   the printed number of the license the
---                     complaint is against, e.g. CGC1508861. DBPR's search
+--                     complaint is against, e.g. CGC9900001. DBPR's search
 --                     page looks a record up by license number, not by
 --                     complaint number, so the citation needs it (ruling R27).
 --
@@ -74,7 +74,7 @@ licensed as (
                 else c.license_number
             end
     -- lpad(x, 7, '0') pads x on the left with zeros up to 7 characters:
-    -- 27000 → 0027000. It would also CUT a longer number down to 7, so the
+    -- 99990 → 0099990. It would also CUT a longer number down to 7, so the
     -- case only pads numbers that are too short.
     where l.record_kind = 'contractor_license'
 ),

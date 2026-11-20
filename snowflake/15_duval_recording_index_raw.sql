@@ -67,7 +67,7 @@ CREATE STAGE IF NOT EXISTS datum.raw.duval_doc_types_stage -- holding area for t
 CREATE TABLE IF NOT EXISTS datum.raw.duval_documents (     -- one row per line of a d file
   record_type        VARCHAR,                              -- field 1: DDA on data rows; EOF on the trailer row
   county_code        VARCHAR,                              -- field 2: 16 = Duval; on the trailer row, the file's row count
-  instrument_number  VARCHAR,                              -- field 3: the Clerk's ID for the document, e.g. 2025000582
+  instrument_number  VARCHAR,                              -- field 3: the Clerk's ID for the document, e.g. 2025900001
   doc_type_code      VARCHAR,                              -- field 4: e.g. LN, N/C, JDG, RELEASE
   doc_type_name      VARCHAR,                              -- field 5: the code in words, e.g. NOTICE COMMENCEMENT
   legal_description  VARCHAR,                              -- field 6: free text: parcel, lot, case number ...
