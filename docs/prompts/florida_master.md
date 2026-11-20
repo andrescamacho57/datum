@@ -200,6 +200,121 @@ Done when: the report shows flags by type and by `is_shown`, open versus closed 
 
 Cost: record credits per leg as in Phase A. If Phase B as a whole passes 3 credits, stop after the current leg and say so in the report.
 
-## 6. Phase C: serving and app (only when told)
+## 6. Phase C: the app that reads the marts (only when told)
 
-Per the plan, Days 5–8: Postgres with `pg_trgm` for lookups, FastAPI + Jinja + Pico CSS (search → shortlist → report with cited flags), offline tests with a fake backend, GitHub Actions running ruff and pytest. Stop and ask before creating any hosted account or spending money; deployment waits for Andres.
+Phase B finished on Nov 19, 2026, and leg C0 then tightened the linking rule with rulings R29 and R30. Phase C builds what a contractor will use: a copy of the finished tables in Postgres, a search over them, a report made only of cited facts, and a small web app. At the end of the phase the app runs on Andres's Mac. Putting it on the internet is not part of this phase.
+
+Run unattended. Never stop to ask a question or wait for approval. When something is unclear, take the most cautious reading, which in this phase is the one that shows less to a contractor and claims less, write the assumption in the leg report, and keep going. The stop conditions in section 3 still apply.
+
+### Before the first leg
+
+Do these three things first, and stop if any of them fails.
+
+1. **Pull request 13 must be merged.** Run `git fetch origin` and check that `docs/phase_b_rulings.md` on `origin/main` holds ruling R30. If it does not, stop and say that Phase C waits for pull request 13, because the marts would otherwise be built on the old linking rule.
+2. **Read the newer material.** Read `docs/legs/c0-link-rules.md`, questions Q26 to Q28 in `docs/open_questions.md`, and sections 1, 3 and 4 and Days 5 to 7 of `docs/mvp_plan_nov8.md`. That plan was written on Oct 30, before Phases A and B existed. Where it disagrees with this section, this section wins. For example, the plan calls the flags table `mart_company_flags`, and the table that exists is `company_flags`.
+3. **Check the credit room.** The resource monitor caps `datum_wh` at 10 credits a month (`snowflake/01_cost_guardrails.sql`). Read the credits used so far this month from `warehouse_metering_history` and put the number in the first leg report. If fewer than 2 credits are left in the month, stop before building anything, because a warehouse that the monitor suspends in the middle of a build leaves half-built tables.
+
+### Working rules for Phase C
+
+Andres approves these rules by merging this brief, and he can overrule any of them with a ruling. Until he does, build exactly this. Each rule is the cautious choice for a question that the rulings R1 to R30 do not answer.
+
+| # | Rule | Why |
+|---|---|---|
+| W1 | Everything the app states about a company is a `Fact`, and a `Fact` cannot be built without a source address and a time-zone-aware UTC fetch time. This includes the company's own status, date on record and address, not only the flags. When the fetch time is an estimate (the manifest's `is_approximate`), the fact carries that mark and the page says "about". | CLAUDE.md rule 3 says the type itself must refuse a fact with no source. The bug hunt of Nov 19 found that the flags mart could not tell a measured fetch time from an estimated one. |
+| W2 | The summary line counts only flags that sit on a CONFIRMED link and have `is_shown` true. | Decision d19: a flag attaches only on a CONFIRMED link. |
+| W3 | Possible matches are built, and every one starts hidden. A possible match is a record on an AMBIGUOUS link that would be a shown flag if the link were CONFIRMED. Decision d19 says such a record shows as "possible match: verify" and is never counted. Since d19, the linking rule has gained reason codes (`zip_differs`, `before_company_filed`, `no_entity_word` and the rest), and nobody has decided which reasons are safe to show. So a seed lists every reason with `is_shown` false, and Andres turns a reason on with a ruling. | Showing a record that predates the company, or one filed under a name with no legal-entity word (which may be a person's name), could accuse the wrong company or surface a person's record. That is a matching and privacy call, and those are Andres's. |
+| W4 | A report never reassures. The words "clean", "safe", "risky", "trustworthy", "reliable", "credit", "score" and "recommend" never appear on a page. When there is no flag, the line is exactly "No flags found in the sources checked." Every report, with or without flags, also carries this sentence: "Datum shows a record only when it can confirm that the record belongs to this company. A record filed under a similar name or at a different address is not shown." | "No flags found" next to hidden possible matches would read as an all-clear. The sentence says what the report cannot see, in the same words on every report, so it never hints at anything about one company. |
+| W5 | A source counts as "checked" only when its flags may be shown. Today that is three sources: the Sunbiz company record, federal tax liens and DBPR (Department of Business and Professional Regulation) licenses. Each is listed with the date its data runs through. Everything else is listed as "not checked": Duval County recorded documents, DBPR discipline, court cases, UCC (Uniform Commercial Code) filings, other counties, fictitious names, and changes to a company's status after the snapshot date. | Listing a hidden source as checked would tell a contractor that Datum looked there and found nothing. |
+| W6 | The app asks for a business name, a street or a city, and it never asks for an owner's name. The note a contractor types is used for one extraction call and then dropped. It is never stored, never written to a log and never shown back. The report says how the company was identified by showing the extracted business fields (name, city, street), the match level and the evidence. | The search has no owner data, so an owner's name cannot help it, and asking for one brings a person's name into a tool that is about businesses only. The bug hunt found that `report.py` wrote the raw note, owner's name included, into the saved report. This narrows acceptance test A2, which says "name, street or owner". |
+| W7 | A tie is said out loud. When more than one company shares the top match level, the shortlist says so, and the report for whichever company is picked says how many other companies matched equally well. | The bug hunt found that `report.py` wrote "Strong" for a company that had tied with another one. CLAUDE.md rule 3 says never to collapse an unclear result into a confident one. |
+| W8 | The app is private and fails closed. Every page except `/healthz` needs the access code. The app refuses to start when `APP_ACCESS_CODE` is not set. Search engines are told not to index it in three places: a `noindex` meta tag, an `X-Robots-Tag` header and `/robots.txt`. During this phase the server listens on `127.0.0.1` only, which means only the Mac itself can reach it. | Acceptance test A9. Failing closed means a forgotten setting locks the app, where failing open would publish it. |
+| W9 | Hidden records never leave Snowflake. The export to Postgres carries only rows with `is_shown` true. | The app cannot show, leak or miscount a row it does not have. |
+| W10 | No test and no evaluation calls the Claude API. The extraction step sits behind an interface, tests use a fake, and the evaluation reads the `extracted_inputs` seed. The whole phase may make at most 10 live extraction calls, for the two live checks in leg C4. | CLAUDE.md rule 4, and cost: about $0.0004 a call 🟡 (the plan's figure), so at most about half a cent. |
+
+The app is built in this phase and shown to nobody. Whether it is ready for a contractor is Andres's call, and it depends on gates outside this phase: the 90% bar on the hand-checked test set, the link hand checks and a lawyer's review.
+
+### Rules for every Phase C leg
+
+- **Branches.** There are four legs, in order, and each depends on the one before it. Stack the branches as Phase B did: `leg/c1-serving-marts` from `main`, `leg/c2-postgres-search` from `leg/c1-serving-marts`, and so on. Open one pull request per leg, each targeting `main`. Andres merges them in order.
+- **Additions only, with three exceptions.** Section 3 says never to change an existing table, model or seed. Leg C1 may add one column to `company_flags`, add one row to the seed `search_page_sources`, and add the source `sunbiz_cor` wherever the fetch manifest lists its allowed sources. Nothing else about those may change. Leg C3 may rewrite `src/datum/report.py`.
+- **Snowflake scripts.** The next free number is 21. Leave scripts 01 to 20 as they are, and put new statements in a new numbered script.
+- **Packages.** The app needs FastAPI, Uvicorn (the program that serves a FastAPI app), Jinja2 (the template library), psycopg version 3 (the Postgres driver), python-multipart (reads a submitted form) and whatever FastAPI's test client needs. Install the current stable version of each, run `pytest`, and pin the exact versions in `requirements.txt` with a comment per package, as ruling R24 asks. Add no other package without giving the reason in the leg report. Write the Jaro-Winkler name comparison in plain Python, because Postgres has no such function and CLAUDE.md rule 1 puts scoring in plain code.
+- **Fixtures.** A fixture row may be cut from a real mart row about a company. Replace every license, filing, complaint and instrument number in it with an invented number of the same shape, because those numbers lead to a person's record and the repo is public (Andres's decision of Nov 19). Record each fixture's origin and capture date, and extend `tests/test_fixture_privacy.py` to cover the new files.
+- **dbt unit tests cost credits.** They run inside Snowflake, and leg C0 spent 0.64 credits mostly by running them about fifty times in a row. Run the whole unit-test selection once per change, not one test at a time.
+- **Review.** Set each leg's tier from `REVIEW.md`. Legs C1, C3 and C4 are High, because they touch the marts or decide the wording on a report. For a High leg in this phase, give the three reviewers these hunts in place of the ones in section 3: (1) a sentence on a page or report that the data does not support, that draws a conclusion, or that reassures; (2) a person's data, the raw note or a hidden record reaching a page, a log, Postgres or git, and any way to open a page without the access code; (3) a test that cannot fail. Leg C2 is Medium, and it gets `/security-review` because `src/` changes.
+
+### C1. The marts the app reads
+
+- **A fetch time for company filings.** The fetch manifest covers three sources and leaves out the Sunbiz corporate files (`SOURCES` in `src/datum/manifest.py`), so no company's status, date or address has a fetch time today. Add the source `sunbiz_cor`. Backfill the quarterly and daily corporate files that are still on disk under `data/raw/` from their modification time, with `is_approximate = true`, exactly as ruling R23 did for the other sources, and load the new rows with a new numbered script. If the files are no longer on disk, do not estimate the time from anything else. Leave this bullet undone, say so first in the leg report, and finish the rest of the leg.
+- **`company_search`** (mart, table). One row per company, holding what the search and the report header need: `document_number`, `entity_name`, `name_key`, `status_code`, `filing_type`, `file_date`, the four principal address columns, `published_on`, `source_url`, `fetched_at` and `fetched_at_is_approximate`. The source address follows ruling R9 (cite the search page and the number): it is Sunbiz's search-by-document-number page, `https://search.sunbiz.org/Inquiry/CorporationSearch/ByDocumentNumber` ✅ (`docs/access/sunbiz.md`). Add that page to `search_page_sources` as the source `sunbiz_cor`. Do not fetch the page to test it, because the site blocks automated access.
+- **`company_flags` gains one column,** `fetched_at_is_approximate`. Prove that nothing else moved: the row count and a checksum over every existing column must be the same before and after.
+- **`company_possible_matches`** (mart, table), for rule W3. It has the columns of `company_flags` plus `link_reason`. Only the sources whose flags are shown today can produce a row (federal tax liens and inactive DBPR licenses), and the flag rules are the same ones `company_flags` uses, including the liens that ruling R7 leaves out. Keep those rules in one place that both marts read. If that means moving them out of `company_flags.sql`, do the move in its own commit and prove with the same checksum that `company_flags` did not change. Add the seed `possible_match_reasons` (one row per reason code, `is_shown` false on every row) and the test `assert_possible_matches_stay_hidden`, which fails when any row has `is_shown` true. It compares to the literal `false`, as ruling R28 requires, so that showing a reason takes two reviewed edits. A near-namesake is counted and not listed (question Q27), and that stays as it is.
+- **`source_coverage`** (mart, table). One row per source: the source, a plain-English label, whether its flags are shown, the date its data runs through, its newest fetch time and whether that time is an estimate. The report's "checked" and "not checked" lists come from this table (rule W5).
+- **The app as a dbt exposure.** An exposure is dbt's way of recording that something outside the warehouse reads a model. Declare the web app as one that reads the four marts.
+- **Size question Q28, and change nothing.** Count the companies whose match key was shortened by reading spaced single letters as a longer suffix, and count the CONFIRMED links that point at one of them. Print counts only. Add both counts to Q28's row in `docs/open_questions.md`.
+- **New open questions.** Add a row to `docs/open_questions.md` asking which possible-match reasons may be shown (rule W3), and one for anything else this leg could not decide.
+
+Tests: `not_null` on `source_url` and `fetched_at` in every new mart, `unique` on `company_search.document_number`, `relationships` from the two flag marts to `company_search`, and `accepted_values` on `link_reason`.
+
+Done when the leg report holds:
+- the build output for the four marts and everything they depend on, with every test passing;
+- the before-and-after row count and checksum for `company_flags`;
+- a count of possible matches by source and reason, with 0 shown;
+- the rows of `source_coverage`;
+- how many companies have a measured fetch time, an estimated one, or none;
+- the two Q28 counts;
+- the credits this leg used.
+
+### C2. The Postgres copy and the search
+
+- **Postgres on the Mac.** Check `psql --version`. If Postgres is missing, install it with Homebrew (`brew install postgresql@17`, then `brew services start postgresql@17`), which is free and local. If the install is blocked or fails, stop this leg and give Andres the exact commands in the report. Create the database `datum_dev` and turn on `pg_trgm`, the extension that compares names by their three-letter pieces. The local database needs no password, so nothing about it is a secret.
+- **Export (the next numbered script, named `NN_export_marts.sql`).** Create one new internal stage in `datum.dev_marts`, and copy the four marts into it as compressed CSV files, keeping only rows with `is_shown` true in the two flag marts (rule W9). Download the files to `data/export/` with `snow stage copy`.
+- **Load.** Write a small loader in `src/datum/` that copies the files into Postgres. Load into new tables and swap them in with one transaction, so that a load that fails halfway never leaves the app reading half a table. Every table's row count in Postgres must equal its count in Snowflake.
+- **Index.** Build a trigram index on `company_search.name_key`. Record how long it took to build, and the size of each table and index with `pg_size_pretty`. Those sizes will pick the host later, and that choice is Andres's.
+- **`src/datum/search.py`.** One `SearchBackend` interface (a Python `Protocol`) with two implementations: `PostgresBackend` for the app and `FakeBackend` for tests. Postgres returns the nearest candidates by trigram, and then the same rules as search version 1 rank them: Jaro-Winkler similarity, then a city match, then the document number as a fixed tie-break. Test the plain-Python Jaro-Winkler against a fixture of name pairs with the scores Snowflake's `JAROWINKLER_SIMILARITY` gives them, captured with one query. Move the match level and the evidence out of `report.py` into this module, so that they exist in one place.
+- **`evals/run.py`.** `python -m evals.run --backend postgres` and `--backend snowflake` print top-1 accuracy, recall at 5 and `wrong_match` by case group for the cases in `pipeline/seeds/test_set.csv`, using the definitions in `snowflake/11_score_search_v1.sql`. Never commit or print a row of the two local files in `evals/` that `.gitignore` names.
+- **`docs/adr/0001-serving-layer.md`.** An ADR (architecture decision record) is a one-page note on a decision. Write the one for decision d18: why lookups read Postgres and builds run in Snowflake, with the cost line.
+
+Done when the leg report holds:
+- row counts in Snowflake and in Postgres, side by side, for every table;
+- the evaluation on both backends. Postgres must be at least as good as Snowflake on top-1 and on recall at 5, with no more `wrong_match`. List any case that differs by its case number;
+- p50 and p95 search time over the evaluation inputs plus 200 company names drawn at random. The target is a p95 under 1 second 🔴 (the plan's target, never measured). If two different approaches both miss it, record the numbers and stop the leg. Do not loosen the target;
+- table and index sizes, and the index build time;
+- `pytest` and `ruff check src tests` passing with Postgres stopped, which proves the offline suite does not need a database;
+- the credits this leg used.
+
+### C3. The Fact type and the report
+
+- **`src/datum/models.py`.** Pydantic models that cannot be changed after they are built: `Fact` (rule W1), `Flag`, `Candidate` and `Report`. Building a `Fact` with no source address, with a fetch time that has no time zone, or with one that is not UTC raises an error, and a test proves each of the three.
+- **`src/datum/report_builder.py`.** `ReportBuilder.build()` takes a document number and how the company was identified, reads through a `ReportBackend` interface (Postgres for the app, a fake for tests), and returns a `Report`. It holds no wording of its own for a linked record: a flag's fact, status note, caveat and citation come from the mart's columns as they are.
+- **The two flags from the company's own record.** "Inactive with the state" and "New company" use the rule, the wording and the caveat from the flags table in `docs/mvp_plan_nov8.md` section 4, word for word.
+- **The rest of the page.** A summary line (rule W2), the flags newest first, the "checked" and "not checked" lists (rule W5), the two sentences of rule W4, the identification line (rules W6 and W7), and the disclaimer that `report.py` prints today, word for word. Keep every piece of fixed wording in one module, so that a reviewer reads one file to see every sentence a contractor can be shown.
+- **`report.py` becomes a thin command-line wrapper** over the builder, so that the terminal and the web app cannot drift apart. It stops asking for an owner's name.
+- **Tests that fail on the old behavior.** One test proves that a typed note never reaches a report (rule W6). One proves that a tie is stated (rule W7). One renders reports from fixtures and fails on any word in rule W4's list, and on a no-flag report that lacks the exact line and the sentence. One proves the summary count ignores possible matches and hidden flags.
+
+Done when the leg report holds:
+- the test output, with the name of each new test and the input that makes it fail;
+- five reports built from the real Postgres data and saved under `data/reports/`, which git ignores: one company with a federal lien flag, one with an inactive license, one inactive company, one new company and one with no flags. Name them in the leg report by document number only;
+- every fixed sentence a contractor can be shown, in one table, for Andres to read.
+
+### C4. The web app
+
+- **`src/datum/web/`.** A FastAPI app with server-rendered Jinja templates and Pico CSS (decision d20). Keep one copy of the Pico CSS file in the repo, with its version and license noted, so that a contractor's phone never calls a third party. Use no JavaScript framework.
+- **Routes.** `GET /` shows the search box. `POST /search` takes the note, extracts the fields and shows the shortlist, or asks for a business name, a street or a city when the note names no business, and in that case shows no company at all (acceptance test A2). `GET /company/{document_number}` shows the report. `GET /healthz` answers "ok" and nothing else. The search uses POST so that the note never lands in an address, a browser history or an access log.
+- **Injection.** The extractor, the search backend and the report backend are passed in (dependency injection), so every test runs with fakes and no network.
+- **Access and privacy (rule W8).** HTTP Basic access code from `APP_ACCESS_CODE`, compared with `secrets.compare_digest`. A test proves the app will not start without the code, that every route but `/healthz` answers 401 without it, and that the three no-index signals are present. Another test captures the logs during a search and fails if the note appears in them.
+- **Safe rendering.** Template auto-escaping stays on, and a test renders a company name that contains markup. A document number that does not look like one, or that matches no company, gets a plain 404.
+- **When extraction fails,** the page says the search is unavailable and shows no company.
+- **Phone width.** Every page has a viewport tag and no fixed width wider than 390 pixels. If Google Chrome is installed, save a headless screenshot of each page at 390 pixels wide under `data/screens/`. If it is not, mark the check 🟡 and leave it to Andres.
+
+Done when the leg report holds:
+- `pytest` and `ruff check src tests` passing;
+- the app started with `uvicorn datum.web.app:app --host 127.0.0.1` and the two live checks, with timings: `ferguson ac boynton beach` puts FERGUSON AIR CONDITIONING & REFRIGERATION, INC. first (acceptance test A1), and `the pool guy off race track rd` shows no company (A2). These are the only live extraction calls in the phase (rule W10);
+- the screenshots, or the 🟡 mark;
+- a short list for Andres of what only he can do: add the `APP_ACCESS_CODE` line to the secrets file himself, open the app on his phone, and decide on hosting.
+
+### Cost
+
+- **Snowflake.** Leg C1 should use about 0.3 to 0.6 credits 🟡, going by leg C0's 0.64, and the export about 0.05 🟡 (the plan's estimate). A credit costs about $2 ✅ (leg C0's report). Record the credits per leg. If Phase C as a whole passes 3 credits, stop after the current leg and say so in the report.
+- **Claude API.** At most 10 extraction calls, which is about half a cent.
+- **Everything else is free.** Postgres runs on the Mac. Creating a hosted account, a hosted database or anything with a bill is a stop condition under section 3: stop and ask in the leg report.
