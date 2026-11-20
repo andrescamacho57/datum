@@ -86,13 +86,13 @@ cleaned as (
         -- DBPR's own county number (e.g. 26 = Duval), not a FIPS code.
 
         nullif(trim(license_number), '')                   as license_number,
-        -- Digits only, zero-padded, e.g. 0006231. NULL on every QB row: the
+        -- Digits only, zero-padded, e.g. 0099990. NULL on every QB row: the
         -- state's file gives business records no number. Not unique on its
         -- own: the same digits are reused under different occupation codes,
         -- so the key is occupation_code + license_number.
 
         nullif(trim(alternate_license_number), '')         as alternate_license_number,
-        -- The number as printed on a license, e.g. CBC006231. NULL on QB rows.
+        -- The number as printed on a license, e.g. CBC099990. NULL on QB rows.
 
         trim(primary_status)                               as primary_status,
         -- C = current, P = probation, S = suspended.

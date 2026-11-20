@@ -618,7 +618,7 @@ We want **only the index rows**, as a spreadsheet file. Think of a library: we w
 3. "Roughly how long do requests like this take, and is there a reference number?"
 
 **4. Close:**
-> "Thank you. Could I get your name in case I need to follow up? My callback number is **your cell number** and my email is **Andrescamacho57@gmail.com**."
+> "Thank you. Could I get your name in case I need to follow up? My callback number is **your cell number** and my email is **[email]**."
 
 **If they say…**
 
@@ -650,8 +650,8 @@ We want **only the index rows**, as a spreadsheet file. Think of a library: we w
 >
 > Thank you,
 > Andres Camacho
-> Andrescamacho57@gmail.com
-> 904-325-3674
+> [email]
+> [phone]
 
 ## Appendix B · Repository layout after the sprint
 

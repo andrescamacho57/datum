@@ -9,14 +9,14 @@
 -- cannot be typed into the search.
 --
 -- How it checks, on every DBPR flag, shown or hidden:
---   1. The citation holds a license number ("license CGC1508861"), and that
+--   1. The citation holds a license number ("license CGC9900001"), and that
 --      number is a contractor license in DBPR's own file.
 --   2. On a license flag, it is the flag's own record.
 --   3. On a discipline flag, it is the license the complaint is against:
 --      the same KIND of license and the same number, read again from
 --      STAGING so this test does not trust the link model. The kind
 --      matters because DBPR reuses the same digits under different kinds
---      (CGC0006231 and CBC0006231 are two licenses).
+--      (CGC0099990 and CBC0099990 are two licenses).
 --
 -- What it can't see: the discipline files name the kind in words, and the
 -- seed dbpr_license_type_map turns the words into a code. This test uses
@@ -40,7 +40,7 @@ with dbpr_flags as (
 
 licenses as (
     -- Every contractor license in DBPR's file: its printed number
-    -- (CGC1508861), its kind as a code (CGC) and its 7-digit number (1508861).
+    -- (CGC9900001), its kind as a code (CGC) and its 7-digit number (9900001).
     select distinct
         alternate_license_number,
         occupation_code,

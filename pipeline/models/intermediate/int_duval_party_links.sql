@@ -31,7 +31,7 @@
 -- not written to this table.
 --
 -- Columns (the same in every link model):
---   source_record_id  the Clerk's instrument number, e.g. 2025000582
+--   source_record_id  the Clerk's instrument number, e.g. 2025900001
 --   party_seq         the party's sequence number on the TO side
 --   document_number   the company's Sunbiz document number; NULL on NO_MATCH
 --   link_status       CONFIRMED / AMBIGUOUS / NO_MATCH

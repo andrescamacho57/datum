@@ -45,7 +45,7 @@ All four: pipe-delimited text, CRLF line endings, no header, no quoting, last li
 |---|---|---|
 | 1 | Record type | `DDA` |
 | 2 | County | `16` = Duval |
-| 3 | Instrument number | Year recorded + running number, e.g. `2025000582` |
+| 3 | Instrument number | Year recorded + running number, e.g. `2025900001` |
 | 4 | Document type code | 73 codes seen, e.g. `LN`, `N/C`, `JDG`, `RELEASE` |
 | 5 | Document type name | The code in words |
 | 6 | Legal description | Free text: parcel and lot, a case number, sometimes a phone number |
@@ -152,15 +152,15 @@ All 13 rejected files were repaired **in a copy** and loaded. The files as the C
 
 Links files have no record marker, so for them the only repair is dropping blank lines.
 
-**What a broken record looks like** (from `d2026011501id.16`; three lines in the file, one record):
+**What a broken record looks like** (the shape is from `d2026011501id.16`: three lines in the file, one record. The instrument number, the book, the page and the legal description are invented, the same values as in `tests/fixtures/duval/rejected/`, because a real one leads to a person through the Clerk's search):
 
 ```
-DDA|16|2004349401|MTG|MORTGAGE|L12 B4 TIMUQUANA ACRES
+DDA|16|2004900004|MTG|MORTGAGE|L4 B1 INVENTED ACRES
                                                           ← a blank line
-|OR|12125|334||6|11/03/2004|8210|35500.00|
+|OR|90010|119||6|11/03/2004|8210|35500.00|
 ```
 
-Repaired: `DDA|16|2004349401|MTG|MORTGAGE|L12 B4 TIMUQUANA ACRES |OR|12125|334||6|11/03/2004|8210|35500.00|`. The one extra space sits at the end of the legal description, and staging trims it.
+Repaired: `DDA|16|2004900004|MTG|MORTGAGE|L4 B1 INVENTED ACRES |OR|90010|119||6|11/03/2004|8210|35500.00|`. The one extra space sits at the end of the legal description, and staging trims it.
 
 **Result per file** (output of `python src/datum/duval.py repair`, then CHECK 1 of `snowflake/16_duval_repaired_load.sql`):
 

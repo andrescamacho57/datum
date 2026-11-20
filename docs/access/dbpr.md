@@ -71,7 +71,7 @@ Confirmed in the data as far as it can be: the only secondary statuses present a
 | 18 | Expiration Date | `expiration_date` | MM/DD/YYYY; blank on all `QB` rows |
 | 19 | Blank | `blank_field` | Always empty |
 | 20 | Renewal Period | `renewal_period` | Always empty |
-| 21 | Alternate Lic# | `alternate_license_number` | As printed on a license, e.g. `CBC006231`. Blank on `QB` rows |
+| 21 | Alternate Lic# | `alternate_license_number` | As printed on a license, e.g. `CBC099990`. Blank on `QB` rows |
 | 22 | (not documented) | `trailing_field` | Always empty |
 
 ### Which column tells business records from individual-held licenses: `occupation_code`
@@ -117,7 +117,7 @@ Header, verbatim: `License Type, License Nbr, Respondent Name, Address Line 1, A
 
 - **One row per discipline line per complaint.** A complaint ending in a fine, costs and education is three rows. No exact duplicate rows.
 - **Every respondent is an individual** (all 6,457 names are `LAST, FIRST`). There is no business name in these files.
-- `License Nbr` is **not zero-padded** (`27000`) and the license kind is in **words** (`Certified Building Contractor`), while the licensee file pads to 7 digits (`0027000`) and uses a code (`CBC`). Joining the two needs a words-to-code map and padding. Not built in this leg.
+- `License Nbr` is **not zero-padded** (`99990`, a number no license on file carries) and the license kind is in **words** (`Certified Building Contractor`), while the licensee file pads to 7 digits (`0099990`) and uses a code (`CBC`). Joining the two needs a words-to-code map and padding. Not built in this leg.
 - `Discipline Date - Description` is one field, `MM/DD/YYYY - text`. Staging splits it.
 - `Address Line 1` is the literal `Private Address` on 57 rows.
 - Dispositions seen: Final Order (most), Citation filed, Violation found - corrected, Dismissed, Mandate, Final Order of Local Discipline, a few others, and blank.

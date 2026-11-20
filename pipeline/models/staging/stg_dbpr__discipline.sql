@@ -15,8 +15,8 @@
 -- reach a business, Phase B has to go license number → the license row in
 -- stg_dbpr__licenses → that row's dba_name.
 --
--- Join caution: license_number here is NOT zero-padded (27000) while the
--- license file pads to 7 digits (0027000), and the kind of license is given
+-- Join caution: license_number here is NOT zero-padded (99990, a number no license on file carries) while the
+-- license file pads to 7 digits (0099990), and the kind of license is given
 -- in words here (license_type) but as a code there (occupation_code).
 --
 -- Becomes the view DATUM.DEV_STAGING.STG_DBPR__DISCIPLINE.
@@ -52,7 +52,7 @@ cleaned as (
         -- County NAME here (DUVAL); the license file has a number instead.
 
         nullif(trim(complaint_nbr), '')                    as complaint_number,
-        -- DBPR's case number, e.g. 2025063352. The citable record ID.
+        -- DBPR's case number, e.g. 2025900001 (an invented number in the real shape). The citable record ID.
 
         nullif(trim(classification), '')                   as classification,
         -- Almost always "Licensed Activity".

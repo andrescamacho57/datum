@@ -85,8 +85,8 @@ closing_links as (
             regexp_substr(l.linked_doc_type_code, '^-(OR |O )?([0-9]+)/([0-9]+)$', 1, 1, 'e', 3)
         )                                            as linked_page
         -- When a link has no instrument number, the Clerk's file writes the
-        -- book and page into the LAST field as text: "-OR 10659/1002",
-        -- "-O 10659/1002" or "-10659/1002". regexp_substr with 'e' returns
+        -- book and page into the LAST field as text: "-OR 90012/101",
+        -- "-O 90012/101" or "-90012/101". regexp_substr with 'e' returns
         -- one bracketed group of the pattern: group 2 is the book, group 3
         -- the page. Text in any other shape ("-NONE", "-NA") gives NULL.
         -- coalesce takes the first value that is not NULL: the real book and
