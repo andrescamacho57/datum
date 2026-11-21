@@ -59,3 +59,9 @@ seeds:
         ruling: varchar                 # the ruling that allows this source to cite a search page
         search_page_url: varchar        # the one approved address for that source
         looked_up_by: varchar           # the number a reader types into that page
+    possible_match_reasons:             # settings for seeds/possible_match_reasons.csv (Phase C working rule W3)
+      +schema: reference                # DEV_REFERENCE
+      +column_types:
+        link_reason: varchar            # the reason code a link model gives an AMBIGUOUS link, e.g. zip_differs
+        is_shown: boolean               # may a possible match with this reason be shown? false on every row until Andres rules on it
+        meaning: varchar                # the reason in plain English, for the person who decides

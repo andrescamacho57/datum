@@ -35,6 +35,12 @@
       some_name as ( federal_lien_flag_rows() ),
       another_name as ( dbpr_license_flag_rows() )
 
+  A note on the Jinja in the two flag macros: a tag written with a dash,
+  such as "if" opened by curly-brace-percent-dash, removes the line break
+  next to it. So the comma that joins the last column to link_reason is
+  attached to a line of SQL on purpose. Attached to a line that ends in a
+  "--" comment, it would become part of the comment and break the query.
+
   The SQL below was moved here from models/marts/company_flags.sql without a
   change, and the column fetched_at_is_approximate was added afterwards, in
   a commit of its own. The leg report of leg C1 shows the row count and
@@ -65,9 +71,14 @@
 {% endmacro %}
 
 
-{% macro federal_lien_flag_rows() %}
+{% macro federal_lien_flag_rows(possible_match=false) %}
     {#- One row per federal tax lien per company it is linked to (rulings R5
-        to R9). Reads the caller's CTEs `manifest` and `lien_files_through`. -#}
+        to R9). Reads the caller's CTEs `manifest` and `lien_files_through`.
+        possible_match: false (the default) reads CONFIRMED links, for
+        company_flags. true reads AMBIGUOUS links, for
+        company_possible_matches, and then two things change and nothing
+        else: is_shown comes from the seed possible_match_reasons, and the
+        link's reason code is added as the last column. -#}
     select distinct
         l.document_number,
         'federal_tax_lien'                           as flag_type,
@@ -107,15 +118,27 @@
             || '. A release filed after that date is not reflected. The state''s files carry no dollar amount.' as caveat,
         -- Two single quotes inside a text value make one apostrophe.
 
+        {% if possible_match -%}
+        coalesce(pr.is_shown, false)                 as is_shown,
+        -- A possible match is shown only when the seed possible_match_reasons
+        -- says its reason may be shown. coalesce makes a reason that is
+        -- missing from the seed hidden, not unknown.
+        {%- else -%}
         true                                         as is_shown,
+        {%- endif %}
 
         mf.is_approximate or coalesce(mr.is_approximate, false) as fetched_at_is_approximate
+        {%- if possible_match %},{% endif %}
         -- TRUE when the fetch time above rests on an estimate: the file the
         -- lien came from, or the file its release came from, has a fetch
         -- time taken from a modification time (ruling R23). Either one is
         -- enough, because the fact rests on both files. coalesce turns the
         -- NULL of "no release" into FALSE, so an open lien is judged on its
         -- own file alone.
+        {% if possible_match -%}
+        l.link_reason
+        -- WHY the link is AMBIGUOUS (zip_differs, before_company_filed ...).
+        {%- endif %}
     from {{ ref('int_federal_lien_links') }} as l
     inner join {{ ref('int_federal_liens_status') }} as s
         on s.filing_doc_number = l.source_record_id
@@ -124,18 +147,25 @@
         on mf.source = 'sunbiz_flr' and mf.source_file = s.filing_source_file
     left join manifest as mr
         on mr.source = 'sunbiz_flr' and mr.source_file = s.release_source_file
+    {% if possible_match -%}
+    left join {{ ref('possible_match_reasons') }} as pr
+        on pr.link_reason = l.link_reason
+    where l.link_status = 'AMBIGUOUS'
+    {%- else -%}
     where l.link_status = 'CONFIRMED'
+    {%- endif %}
       and not s.is_unexplained
       -- Ruling R7: a lien with a cancellation date, a status-C party row or
       -- an unexplained earlier release produces no flag.
-    -- select distinct: a lien with two debtors that are both CONFIRMED as
-    -- the same company is still ONE flag.
+    -- select distinct: a lien with two debtors that are both linked to the
+    -- same company in the same way is still ONE row.
 {% endmacro %}
 
 
-{% macro dbpr_license_flag_rows() %}
+{% macro dbpr_license_flag_rows(possible_match=false) %}
     {#- One row per INACTIVE contractor license per company it is linked to
-        (rulings R11 and R27). Reads the caller's CTE `manifest`. -#}
+        (rulings R11 and R27). Reads the caller's CTE `manifest`.
+        possible_match: the same switch as in federal_lien_flag_rows. -#}
     select distinct
         ll.document_number,
         'dbpr_license_inactive'                      as flag_type,
@@ -158,16 +188,31 @@
         lic.source_file,
         m.fetched_at_utc                             as fetched_at,
         'From DBPR''s construction licensee file, which leaves out delinquent, null-and-void and involuntarily inactive licenses. A license is held by a person who qualifies the business; this line is about the license, not the person.' as caveat,
+        {% if possible_match -%}
+        coalesce(pr.is_shown, false)                 as is_shown,
+        {%- else -%}
         true                                         as is_shown,
+        {%- endif %}
         m.is_approximate                             as fetched_at_is_approximate
+        {%- if possible_match %},{% endif %}
         -- TRUE when the license file's fetch time is an estimate (ruling R23).
+        {% if possible_match -%}
+        ll.link_reason
+        -- WHY the link is AMBIGUOUS.
+        {%- endif %}
     from {{ ref('int_dbpr_license_links') }} as ll
     inner join {{ ref('stg_dbpr__licenses') }} as lic
         on  lic.alternate_license_number = ll.source_record_id
         and lic.record_kind = 'contractor_license'
     left join manifest as m
         on m.source = 'dbpr' and m.source_file = lic.source_file
+    {% if possible_match -%}
+    left join {{ ref('possible_match_reasons') }} as pr
+        on pr.link_reason = ll.link_reason
+    where ll.link_status = 'AMBIGUOUS'
+    {%- else -%}
     where ll.link_status = 'CONFIRMED'
+    {%- endif %}
       and lic.secondary_status = 'I'
       -- I = inactive in DBPR's file. A = active is not a flag. QB business
       -- records never reach here: the state gives them no active/inactive

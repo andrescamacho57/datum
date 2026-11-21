@@ -72,6 +72,12 @@ models:
                 to: ref('entity_lookup')
                 field: document_number
           # Every flag is about a company that exists in the lookup.
+          - relationships:
+              arguments:
+                to: ref('company_search')
+                field: document_number
+          # ... and in the table the app searches. A flag on a company the
+          # app can't find would never be seen (added in leg C1).
 
       - name: flag_type
         data_tests:
@@ -182,3 +188,90 @@ models:
           - not_null
           # TRUE or FALSE, never unknown: the report must be able to say
           # "fetched" or "fetched about" (working rule W1).
+
+  - name: company_possible_matches
+    # The possible-matches mart: company_possible_matches.sql. One row per
+    # record on an AMBIGUOUS link that would be a shown flag if the link were
+    # CONFIRMED. Every row is hidden today (working rule W3).
+    description: One row per record that may belong to a company (an AMBIGUOUS link), with the same columns as company_flags plus the reason the link is not CONFIRMED. Every row is hidden until Andres rules on the reasons.
+
+    columns:
+
+      - name: document_number
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('company_search')
+                field: document_number
+          # Every possible match is about a company the app can find.
+
+      - name: flag_type
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['federal_tax_lien', 'dbpr_license_inactive']
+          # Only the two kinds of flag that are shown today. A Duval or
+          # discipline row here would be a hidden source leaking in.
+
+      - name: status
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['open', 'closed', 'inactive']
+
+      - name: source
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['sunbiz_flr', 'dbpr']
+
+      - name: source_record_id
+        data_tests:
+          - not_null
+
+      - name: source_url
+        data_tests:
+          - not_null
+          # CLAUDE.md rule 3: no fact without a source URL ...
+
+      - name: fetched_at
+        data_tests:
+          - not_null
+          # ... and none without the time we fetched it.
+
+      - name: citation
+        data_tests:
+          - not_null
+
+      - name: caveat
+        data_tests:
+          - not_null
+
+      - name: is_shown
+        data_tests:
+          - not_null
+          # TRUE or FALSE, never unknown. The test
+          # assert_possible_matches_stay_hidden then requires FALSE.
+
+      - name: fetched_at_is_approximate
+        data_tests:
+          - not_null
+
+      - name: link_reason
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['before_company_filed', 'date_unknown', 'no_entity_word', 'several_companies', 'several_companies_same_zip', 'several_similar_names', 'several_similar_names_same_zip', 'zip_differs', 'zip_unreadable']
+          # The nine reasons the linking macro gives an AMBIGUOUS link.
+          - relationships:
+              arguments:
+                to: ref('possible_match_reasons')
+                field: link_reason
+          # Every reason in the mart has a row in the seed, so every reason
+          # has a decision. Without this, a new reason would be hidden by the
+          # mart's coalesce and nobody would be asked about it.
