@@ -117,10 +117,13 @@ data_through as (
     union all
     select
         'sunbiz_flr',
-        max(published_on),
+        t.through_date,
         'The date of the newest daily federal lien file loaded. A lien or a release filed after that date is not covered.'
-        -- The same date the lien caveat in company_flags prints.
-    from {{ ref('stg_sunbiz__flr_events') }}
+        -- The same date the lien caveat in company_flags prints, from the
+        -- same macro (macros/flag_rules.sql), so the two cannot drift apart.
+    from (
+        {{ lien_files_through_rows() }}
+    ) as t
 
     union all
     select
