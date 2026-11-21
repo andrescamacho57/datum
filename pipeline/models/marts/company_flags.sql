@@ -58,16 +58,10 @@
 
 
 with manifest as (
-    -- When each source file was fetched (ruling R23). Joined below on the
-    -- file each fact came from.
-    select
-        source,
-        source_file,
-        fetched_at_utc,
-        is_approximate
-        -- TRUE when fetched_at_utc is a file's modification time and not a
-        -- measured fetch. It becomes fetched_at_is_approximate on each flag.
-    from {{ ref('stg_datum__fetch_manifest') }}
+    -- When each source file was fetched (ruling R23), and whether that time
+    -- is an estimate. Joined below on the file each fact came from. The
+    -- SELECT is the macro fetch_manifest_rows in macros/flag_rules.sql.
+    {{ fetch_manifest_rows() }}
 ),
 
 -- ===========================================================================
@@ -76,9 +70,9 @@ with manifest as (
 
 lien_files_through as (
     -- The date of the newest federal lien file loaded: "open" is only known
-    -- up to this day. One row, one column.
-    select max(published_on) as through_date
-    from {{ ref('stg_sunbiz__flr_events') }}
+    -- up to this day. One row, one column. The SELECT is the macro
+    -- lien_files_through_rows in macros/flag_rules.sql.
+    {{ lien_files_through_rows() }}
 ),
 
 federal_lien_flags as (

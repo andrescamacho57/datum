@@ -18,14 +18,22 @@
   Written twice, the two copies would drift, and a possible match could then
   show a lien that the flags mart leaves out.
 
-  What the calling model must provide: both macros produce the body of one
-  CTE, and that body reads two CTEs the caller defines before it.
+  How a model uses them: the two flag macros each produce the body of one
+  CTE, and that body reads two CTEs that the calling model defines first,
+  with the two small macros at the top of this file.
       manifest             source, source_file, fetched_at_utc and
-                           is_approximate: one row per fetched file (from
-                           stg_datum__fetch_manifest)
+                           is_approximate: one row per fetched file. Its
+                           body is the macro fetch_manifest_rows
       lien_files_through   one row, one column, through_date: the date of
-                           the newest federal lien file loaded
+                           the newest federal lien file loaded. Its body is
+                           the macro lien_files_through_rows
   (CTE = common table expression, a named step inside one query.)
+  So a calling model starts like this, with each call inside double curly
+  braces:
+      with manifest as ( fetch_manifest_rows() ),
+      lien_files_through as ( lien_files_through_rows() ),
+      some_name as ( federal_lien_flag_rows() ),
+      another_name as ( dbpr_license_flag_rows() )
 
   The SQL below was moved here from models/marts/company_flags.sql without a
   change, and the column fetched_at_is_approximate was added afterwards, in
@@ -33,6 +41,28 @@
   checksum of company_flags before and after each of the two steps.
   ---------------------------------------------------------------------------
 #}
+
+
+{% macro fetch_manifest_rows() %}
+    {#- When each source file was fetched, and whether that time is an
+        estimate (ruling R23). One row per fetched file. -#}
+    select
+        source,
+        source_file,
+        fetched_at_utc,
+        is_approximate
+        -- TRUE when fetched_at_utc is a file's modification time and not a
+        -- measured fetch. It becomes fetched_at_is_approximate on each flag.
+    from {{ ref('stg_datum__fetch_manifest') }}
+{% endmacro %}
+
+
+{% macro lien_files_through_rows() %}
+    {#- The date of the newest federal lien file loaded. The lien caveat says
+        "published through" this date, so both marts must read one value. -#}
+    select max(published_on) as through_date
+    from {{ ref('stg_sunbiz__flr_events') }}
+{% endmacro %}
 
 
 {% macro federal_lien_flag_rows() %}
