@@ -43,12 +43,15 @@ select
     p.source_record_id,
     p.link_reason,
     case
+        when p.flag_type not in ('federal_tax_lien', 'dbpr_license_inactive')
+                                              then 'a kind of record that is not a shown flag'
+        -- This branch comes first on purpose. A row of any other kind has no
+        -- partner among the AMBIGUOUS links either, so the next branch would
+        -- claim it and name the wrong problem.
         when a.document_number is null        then 'no AMBIGUOUS link with this reason behind this row'
         when coalesce(s.is_unexplained, false) then 'built from a lien ruling R7 excludes'
         when p.flag_type = 'dbpr_license_inactive' and i.alternate_license_number is null
                                               then 'built from a license that is not an inactive contractor license'
-        when p.flag_type not in ('federal_tax_lien', 'dbpr_license_inactive')
-                                              then 'a kind of record that is not a shown flag'
         else 'the same record is already a flag on this company'
     end as problem
 from {{ ref('company_possible_matches') }} as p
