@@ -9,6 +9,7 @@ Run from ~/datum:  pytest
 """
 
 import hashlib                              # the checksum the module is expected to arrive at
+import io                                   # an in-memory stream that stands in for unzip's output
 import os                                   # sets a file's modification time
 import zipfile                              # builds the small stand-in for cordata.zip
 from datetime import datetime, timezone     # timestamps and the UTC zone
@@ -64,6 +65,42 @@ def test_a_zip_that_cannot_be_read_whole_raises_and_names_the_member(tmp_path):
     archive.write_bytes(damaged[:2000] + b"XXXX" + damaged[2004:])        # four bytes of the member's data are overwritten
     with pytest.raises(ValueError, match="could not read cordata0.txt whole"):
         snapshot_records(archive)
+
+
+def test_a_member_that_comes_out_short_raises_even_when_unzip_reports_success(tmp_path, monkeypatch):
+    # The damaged zip above fails on unzip's exit code, and unzip still writes every byte. This test covers the other half of
+    # the check: unzip says it succeeded (exit code 0) and hands over fewer bytes than the zip's table of contents promises.
+    archive = make_snapshot(tmp_path, {"cordata0.txt": b"0123456789"})
+
+    class ShortUnzip:
+        """Stands in for the running unzip program: it gives 4 of the 10 bytes and then reports success."""
+
+        def __init__(self, command, **kwargs):
+            self.stdout = io.BytesIO(b"0123")
+            self.returncode = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr("datum.sunbiz_cor.subprocess.Popen", ShortUnzip)
+    with pytest.raises(ValueError, match="4 of 10 bytes"):
+        snapshot_records(archive)
+
+
+def test_a_second_backfill_does_not_read_the_zip_again(tmp_path, monkeypatch):
+    # Reading the real zip takes over a minute (18 GB). When every member already has a row, the zip's data must not be read.
+    make_snapshot(tmp_path, {"cordata0.txt": b"zero", "cordata1.txt": b"one"})
+    manifest = tmp_path / "fetch_manifest.csv"
+    assert backfill_manifest(tmp_path, manifest) == 2
+
+    def must_not_run(archive):
+        raise AssertionError("snapshot_records was called although every member already has a row")
+
+    monkeypatch.setattr("datum.sunbiz_cor.snapshot_records", must_not_run)
+    assert backfill_manifest(tmp_path, manifest) == 0
 
 
 def test_other_members_of_the_zip_get_no_row(tmp_path):
