@@ -15,7 +15,10 @@
 --
 -- How it checks: it builds the list of records that SHOULD be in the mart,
 -- straight from the link models and not through the macros the mart uses,
--- and returns every one that has no row there.
+-- and returns every one that has no row there. The one thing it shares with
+-- the mart is company_flags, which both read to leave out a record that is
+-- already a flag. company_flags has its own test for holding only CONFIRMED
+-- links (assert_every_flag_traces_to_a_confirmed_link).
 --   liens      an AMBIGUOUS link whose lien is not one that ruling R7 leaves out
 --   licenses   an AMBIGUOUS link whose license is an inactive contractor license
 --   neither    when the same record is already a flag on the same company

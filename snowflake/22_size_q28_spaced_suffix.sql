@@ -34,11 +34,11 @@ SELECT k.document_number,                                  -- the company
        END                                     AS letters_removed,
        CASE
          WHEN REGEXP_LIKE(UPPER(e.entity_name), '.*[^A-Z0-9.](P\\.?L\\.?L\\.?C|L\\.?L\\.?L\\.?P)\\.?[^A-Z0-9]*')
-           THEN 'one unit, apart from the name'            -- " PLLC" or ", P.L.L.C.": only optional periods between the four letters, and a space or comma in front of them
+           THEN 'one unit, apart from the name'            -- ", P.L.L.C." or " P.L.L.C.": only periods between the four letters, and in front of them a character that is not a letter, a digit or a period (a space or a comma, as a rule)
          WHEN REGEXP_LIKE(UPPER(e.entity_name), '.*[PL]\\.?,[ ]*(L\\.? ?L\\.? ?C|L\\.? ?L\\.? ?P)\\.?[^A-Z0-9]*')
            THEN 'comma after the first letter'             -- "... P., L.L.C.": the comma puts the first letter with the name
          WHEN REGEXP_LIKE(UPPER(e.entity_name), '.*(P\\.?L\\.?L\\.?C|L\\.?L\\.?L\\.?P)\\.?[^A-Z0-9]*')
-           THEN 'one unit, run together with the name'     -- "A.B.C.P.L.L.C.": no space or comma anywhere, so the name does not say where it ends
+           THEN 'one unit, run together with the name'     -- "A.B.C.P.L.L.C.": a period or nothing at all right in front of the four letters, so the name does not say where it ends
          ELSE 'spaces only'                                -- "... P L L C" or "... P. L. L. C.": readable either way
        END                                     AS how_the_name_writes_it,
        REGEXP_LIKE(k.match_key, '(.* )?[A-Z]')  AS rest_ends_in_one_letter   -- TRUE when the last word of what is left is a single letter: "A B C", and also "SMITH J"
@@ -50,7 +50,7 @@ WHERE k.name_key LIKE '% P L L C'                          -- the simplified nam
 
 -- ---------------------------------------------------------------------------
 -- CHECK 1: how many companies, by how the registered name writes the four letters.
--- "one unit, apart from the name" is the reading the name itself gives: the four letters stand together, with a space or comma before them.
+-- "one unit, apart from the name" is the reading the name itself gives: the four letters stand together, and the character before them is not a letter, a digit or a period.
 -- "comma after the first letter" is the group Q28 describes: the match key is very likely one letter short.
 -- "one unit, run together with the name" and "spaces only" could be either reading.
 -- ---------------------------------------------------------------------------
