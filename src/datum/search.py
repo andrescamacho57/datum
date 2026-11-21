@@ -28,7 +28,7 @@ No names of people are involved: every name here is a registered business name.
 
 import re                                   # regular expressions, for the simplified name and the legal suffixes
 from dataclasses import dataclass           # writes __init__ and friends for a class of plain fields
-from datetime import date, datetime         # the types of a company's dates and fetch time
+from datetime import date, datetime, timezone   # the types of a company's dates and fetch time, and the UTC zone
 from fractions import Fraction              # exact fractions, so a score never depends on rounding error
 from typing import Protocol                 # a Protocol describes an interface: "anything with these methods"
 
@@ -67,6 +67,13 @@ class Company:
     fetched_at: datetime                    # when Datum fetched that file, UTC (CLAUDE.md rule 3)
     fetched_at_is_approximate: bool         # True when that time is an estimate
 
+    def __post_init__(self) -> None:        # runs right after __init__: refuse a company that breaks rule 3
+        if "://" not in (self.source_url or ""):                   # must be a full address: scheme://host/path
+            raise ValueError(f"{self.document_number}: a company needs a full source address, got {self.source_url!r}")
+        offset = self.fetched_at.utcoffset() if isinstance(self.fetched_at, datetime) else None   # None when there is no time, or no time zone
+        if offset is None or offset.total_seconds() != 0:          # a time with no zone is ambiguous, and one in another zone breaks the field's promise
+            raise ValueError(f"{self.document_number}: fetched_at must be a time-zone-aware UTC datetime")
+
 
 @dataclass(frozen=True)
 class Candidate:
@@ -82,9 +89,9 @@ class Candidate:
 class Shortlist:
     """What the contractor is shown: the candidates in display order, each with its level, and whether the top is a tie."""
 
-    candidates: tuple[Candidate, ...]       # best level first, and within a level in rank order
-    levels: tuple[str, ...]                 # the level of each candidate, in the same order
-    tied_at_top: int                        # how many candidates share the best level. More than 1 is a tie (rule W7)
+    candidates: tuple[Candidate, ...]       # the ones shown: best level first, and within a level in rank order
+    levels: tuple[str, ...]                 # the level of each shown candidate, in the same order
+    tied_at_top: int                        # how many candidates in the WHOLE pool share the best level. More than 1 is a tie (rule W7)
     city_given: bool                        # whether the contractor's note named a city
 
 
@@ -168,8 +175,8 @@ def without_suffixes(key: str) -> str:
     return SUFFIX_PATTERN.sub("", key)
 
 
-def rank(companies: list[Company], business_name: str, city: str = "", limit: int = SHORTLIST_SIZE) -> list[Candidate]:
-    """Step 2: score a pool of companies against the typed name and keep the best `limit`.
+def rank(companies: list[Company], business_name: str, city: str = "", limit: int | None = SHORTLIST_SIZE) -> list[Candidate]:
+    """Step 2: score a pool of companies against the typed name and keep the best `limit` (all of them when limit is None).
 
     The order is search version 1's: the highest similarity first, then a company in the
     given city, then the document number, which is a fixed order so a rerun can't flip two
@@ -187,15 +194,20 @@ def rank(companies: list[Company], business_name: str, city: str = "", limit: in
         for company in companies
     ]
     candidates.sort(key=lambda c: (-c.similarity, not c.city_match, c.company.document_number))   # False sorts before True, so "not city_match" puts a city match first
-    return candidates[:limit]
+    return candidates[:limit]                                      # a slice up to None is the whole list
 
 
-def search(backend: SearchBackend, business_name: str, city: str = "", limit: int = SHORTLIST_SIZE, pool: int = CANDIDATE_POOL) -> list[Candidate]:
-    """Both steps: retrieve a pool from the backend, then rerank it. Returns the best `limit` candidates."""
+def search_pool(backend: SearchBackend, business_name: str, city: str = "", pool: int = CANDIDATE_POOL) -> list[Candidate]:
+    """Both steps, keeping the WHOLE reranked pool. The shortlist is built from this, so that it can see every tie."""
     search_key = name_key(business_name)
     if not search_key:                                             # nothing to search for: no candidates, and no guess
         return []
-    return rank(backend.nearest(search_key, pool), business_name, city, limit)
+    return rank(backend.nearest(search_key, pool), business_name, city, limit=None)
+
+
+def search(backend: SearchBackend, business_name: str, city: str = "", limit: int = SHORTLIST_SIZE, pool: int = CANDIDATE_POOL) -> list[Candidate]:
+    """Both steps, keeping the best `limit` candidates in rank order. This is what the evaluation scores (search version 1's top five)."""
+    return search_pool(backend, business_name, city, pool)[:limit]
 
 
 def match_level(candidate: Candidate, city_given: bool) -> str:
@@ -215,27 +227,46 @@ def match_level(candidate: Candidate, city_given: bool) -> str:
 
 
 def evidence(candidate: Candidate, city_given: bool) -> list[str]:
-    """The reasons behind the level, in words the contractor can check."""
+    """The reasons behind the level, in words the contractor can check: the name, the city when one was given, and the status.
+
+    These are the three reasons report.py has given since October. Two gaps in the data are
+    said plainly and never filled in (CLAUDE.md rule 3): a company with no city on record is
+    not "registered in None", and a company with no status on record is not called inactive.
+    """
     reasons = ["name matches exactly (ignoring LLC/INC)" if candidate.exact_name
                else f"name is similar ({candidate.similarity}/100)"]
     if city_given:
-        reasons.append("city matches" if candidate.city_match
-                       else f"registered in {candidate.company.principal_city}, not the city you gave")
+        if candidate.city_match:
+            reasons.append("city matches")
+        elif candidate.company.principal_city:
+            reasons.append(f"registered in {candidate.company.principal_city}, not the city you gave")
+        else:
+            reasons.append("no city on record for this company")
+    status = candidate.company.status_code
+    reasons.append("ACTIVE" if status == "A" else "INACTIVE with the state" if status == "I" else "status not on record")
     return reasons
 
 
-def shortlist(candidates: list[Candidate], city_given: bool) -> Shortlist:
-    """Put ranked candidates in display order and count the tie at the top (working rule W7).
+def shortlist(pool: list[Candidate], city_given: bool, limit: int = SHORTLIST_SIZE) -> Shortlist:
+    """Put a ranked pool in display order, keep the first `limit`, and count the tie at the top (working rule W7).
+
+    `pool` is the WHOLE reranked pool from search_pool(), not only the best five. The level
+    of every candidate in it is worked out first, for two reasons. A company with the exact
+    name can rank sixth by similarity, behind five near-misses, and it must not be cut
+    before anyone sees that it is the best level. And the tie count has to cover every
+    candidate at the top level, including the ones that do not fit on the shortlist. The
+    review of leg C2 found both gaps in the first version, which levelled only the best five.
 
     Display order is by level, best first. Python's sort is stable, which means candidates
     with the same level keep the rank order they arrived in.
     """
-    paired = sorted(((match_level(c, city_given), c) for c in candidates), key=lambda pair: LEVELS.index(pair[0]))
-    levels = tuple(level for level, _ in paired)
+    paired = sorted(((match_level(c, city_given), c) for c in pool), key=lambda pair: LEVELS.index(pair[0]))
+    best_level = paired[0][0] if paired else None
+    shown = paired[:limit]
     return Shortlist(
-        candidates=tuple(c for _, c in paired),
-        levels=levels,
-        tied_at_top=levels.count(levels[0]) if levels else 0,     # how many share the best level present
+        candidates=tuple(c for _, c in shown),
+        levels=tuple(level for level, _ in shown),
+        tied_at_top=sum(1 for level, _ in paired if level == best_level),   # over the whole pool, not only the ones shown
         city_given=city_given,
     )
 
@@ -291,13 +322,30 @@ class PostgresBackend:
         self.conn = conn                    # an open psycopg connection
         conn.execute("select set_config('pg_trgm.word_similarity_threshold', %s, false)", (str(self.WORD_SIMILARITY_THRESHOLD),))
         conn.execute("select set_config('work_mem', %s, false)", (self.WORK_MEMORY,))
+        conn.execute("select set_config('TimeZone', %s, false)", ("UTC",))
         # set_config(name, value, false) sets a setting for this connection only, and it takes the
         # value as a parameter. Nothing on the server is changed for anybody else.
+        # TimeZone: Postgres stores fetched_at as a moment in time and hands it back in the
+        # connection's zone, which by default is the Mac's own. Asking for UTC here, and
+        # converting again in nearest(), means a Company never carries a local time.
 
     def nearest(self, search_key: str, limit: int) -> list[Company]:
         key = without_suffixes(search_key) or search_key           # "LLC" alone would leave nothing: then send it as typed
         rows = self.conn.execute(self.NEAREST_SQL, {"key": key, "limit": limit}).fetchall()
-        return [Company(*row) for row in rows]
+        return [company_from_row(row) for row in rows]
+
+
+def company_from_row(row) -> Company:
+    """One database row, in COMPANY_COLUMNS order, as a Company whose fetch time is in UTC.
+
+    A fetch time that arrives with another zone is the same moment written differently, so
+    it is converted. One that arrives with NO zone is ambiguous, and Company refuses it.
+    """
+    values = list(row)
+    at = COMPANY_COLUMNS.index("fetched_at")                       # found by name, so a reordered column list can't shift it
+    if isinstance(values[at], datetime) and values[at].tzinfo is not None:
+        values[at] = values[at].astimezone(timezone.utc)
+    return Company(*values)
 
 
 class FakeBackend:

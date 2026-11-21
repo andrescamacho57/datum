@@ -9,13 +9,15 @@ Every company below is invented. Run from ~/datum:  pytest
 """
 
 import csv                                  # reads the fixture of name pairs
-from datetime import date, datetime, timezone   # a company's dates and its UTC fetch time
+from dataclasses import replace             # a copy of a frozen dataclass with one field changed
+from datetime import date, datetime, timedelta, timezone   # a company's dates and its UTC fetch time
 from pathlib import Path                    # file paths
 
 import pytest                               # the test runner; parametrize runs one test body over several cases
 
 from datum.search import (
-    CANDIDATE_POOL, Company, FakeBackend, PostgresBackend, evidence, jaro_winkler_similarity, match_level, name_key, rank, search, shortlist,
+    CANDIDATE_POOL, Company, FakeBackend, PostgresBackend, company_from_row, evidence, jaro_winkler_similarity, match_level, name_key, rank,
+    search, search_pool, shortlist,
 )
 
 PAIRS = Path(__file__).parent / "fixtures" / "search" / "jarowinkler_pairs.csv"
@@ -147,9 +149,24 @@ def test_evidence_says_what_the_level_rests_on():
         company("T00000000001", "ACME ROOFING LLC", city="JACKSONVILLE"),
         company("T00000000002", "ACME ROOFING AND SIDING INC", city="TAMPA"),
     ], "acme roofing", city="jacksonville")
-    assert evidence(exact, city_given=True) == ["name matches exactly (ignoring LLC/INC)", "city matches"]
-    assert evidence(similar, city_given=True) == ["name is similar (88/100)", "registered in TAMPA, not the city you gave"]
-    assert evidence(similar, city_given=False) == ["name is similar (88/100)"]   # no city given: the city is not mentioned
+    assert evidence(exact, city_given=True) == ["name matches exactly (ignoring LLC/INC)", "city matches", "ACTIVE"]
+    assert evidence(similar, city_given=True) == ["name is similar (88/100)", "registered in TAMPA, not the city you gave", "ACTIVE"]
+    assert evidence(similar, city_given=False) == ["name is similar (88/100)", "ACTIVE"]   # no city given: the city is not mentioned
+
+
+def test_evidence_ends_with_the_status_and_never_guesses_one():
+    # The status is what tells an active company from an inactive namesake on a shortlist, so it is always the last reason.
+    active, inactive, unknown = (
+        rank([company("T00000000001", "ACME ROOFING LLC", status=status)], "acme roofing")[0] for status in ("A", "I", None)
+    )
+    assert evidence(active, city_given=False)[-1] == "ACTIVE"
+    assert evidence(inactive, city_given=False)[-1] == "INACTIVE with the state"
+    assert evidence(unknown, city_given=False)[-1] == "status not on record"   # a missing status is not "inactive" (CLAUDE.md rule 3)
+
+
+def test_evidence_does_not_print_a_missing_city():
+    (no_city,) = rank([company("T00000000001", "ACME ROOFING LLC", city=None)], "acme roofing", city="tampa")
+    assert evidence(no_city, city_given=True)[1] == "no city on record for this company"
 
 
 def test_a_tie_at_the_top_level_is_counted():
@@ -162,6 +179,31 @@ def test_a_tie_at_the_top_level_is_counted():
     listed = shortlist(ranked, city_given=False)
     assert listed.levels == ("Strong", "Strong", "Possible")
     assert listed.tied_at_top == 2                                        # two companies are equally good answers
+
+
+def test_a_tie_is_counted_over_the_whole_pool_and_the_tied_company_is_shown():
+    # The review of leg C2 found this case. Five near-misses outrank a second exact-name company by similarity,
+    # so a shortlist made from the best five alone would cut it and report no tie.
+    backend = FakeBackend([
+        company("T00000000001", "ACME ROOFING LLC", city="JACKSONVILLE"),           # exact name, similarity 95
+        company("T00000000002", "ACME ROOFING CORPORATION", city="JACKSONVILLE"),   # exact name, similarity 90: sixth by similarity
+        company("T00000000003", "ACME ROOFINGS", city="TAMPA"),                     # 98
+        company("T00000000004", "ACME ROOFING 1", city="TAMPA"),                    # 97
+        company("T00000000005", "ACME ROOFING 2", city="TAMPA"),                    # 97
+        company("T00000000006", "ACME ROOFING FL", city="TAMPA"),                   # 96
+    ])
+    assert [c.company.document_number for c in search(backend, "Acme Roofing", city="Jacksonville")][-1] != "T00000000002"   # by rank alone it is cut
+    listed = shortlist(search_pool(backend, "Acme Roofing", city="Jacksonville"), city_given=True)
+    assert listed.tied_at_top == 2                                        # both exact-name companies in the given city
+    assert [c.company.document_number for c in listed.candidates[:2]] == ["T00000000001", "T00000000002"]   # and both are shown, first
+    assert listed.levels == ("Strong", "Strong", "Possible", "Possible", "Possible")
+    assert len(listed.candidates) == 5
+
+
+def test_a_tie_wider_than_the_shortlist_is_counted_in_full():
+    pool = rank([company(f"T0000000000{n}", "ACME ROOFING LLC") for n in range(8)], "acme roofing", limit=None)
+    listed = shortlist(pool, city_given=False)
+    assert len(listed.candidates) == 5 and listed.tied_at_top == 8        # five are shown, and all eight are counted
 
 
 def test_one_candidate_at_the_top_level_is_not_a_tie():
@@ -236,8 +278,36 @@ def test_the_postgres_backend_leaves_the_legal_suffix_out_of_the_index_lookup():
     assert conn.asked[-1][1]["key"] == "LLC"                              # a name that is only a suffix is sent as typed, never as an empty key
 
 
-def test_the_postgres_backend_sets_its_two_settings_for_its_own_connection_only():
+def test_the_postgres_backend_sets_its_three_settings_for_its_own_connection_only():
     conn = RecordingConnection()
     PostgresBackend(conn)
-    assert [params for _, params in conn.asked] == [("0.75",), ("64MB",)]
+    assert [params for _, params in conn.asked] == [("0.75",), ("64MB",), ("UTC",)]
     assert all("set_config" in sql and "false" in sql for sql, _ in conn.asked)   # false = this session, not the whole server
+
+
+def test_a_company_cannot_be_built_without_a_source_address_and_a_utc_fetch_time():
+    # CLAUDE.md rule 3: a fact type that can be built without both is a bug in the type. One test per way to break it.
+    good = company("T00000000001", "ACME ROOFING LLC")
+    with pytest.raises(ValueError, match="full source address"):
+        replace(good, source_url="")
+    with pytest.raises(ValueError, match="full source address"):
+        replace(good, source_url=None)
+    with pytest.raises(ValueError, match="time-zone-aware UTC"):
+        replace(good, fetched_at=datetime(2026, 10, 22, 19, 31, 31))                       # no time zone
+    with pytest.raises(ValueError, match="time-zone-aware UTC"):
+        replace(good, fetched_at=datetime(2026, 10, 22, 14, 31, 31, tzinfo=timezone(timedelta(hours=-5))))   # a zone that is not UTC
+    with pytest.raises(ValueError, match="time-zone-aware UTC"):
+        replace(good, fetched_at=None)
+
+
+def test_a_fetch_time_that_arrives_in_local_time_is_converted_to_utc():
+    # Postgres hands a moment back in the connection's zone. On the Mac that is Eastern time unless the connection asks for UTC.
+    c = company("T00000000001", "ACME ROOFING LLC")
+    eastern = FETCHED.astimezone(timezone(timedelta(hours=-5)))            # the same moment, written as 14:31 -05:00
+    row = (c.document_number, c.entity_name, c.name_key, c.status_code, c.filing_type, c.file_date, c.principal_address_1,
+           c.principal_city, c.principal_state, c.principal_zip, c.published_on, c.source_url, eastern, c.fetched_at_is_approximate)
+    built = company_from_row(row)
+    assert built.fetched_at == FETCHED and built.fetched_at.utcoffset() == timedelta(0)
+    naive = row[:12] + (datetime(2026, 10, 22, 19, 31, 31),) + row[13:]
+    with pytest.raises(ValueError, match="time-zone-aware UTC"):
+        company_from_row(naive)                                           # a time with no zone is never guessed to be UTC
