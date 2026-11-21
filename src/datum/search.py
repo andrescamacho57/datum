@@ -89,9 +89,11 @@ class Candidate:
 class Shortlist:
     """What the contractor is shown: the candidates in display order, each with its level, and whether the top is a tie."""
 
-    candidates: tuple[Candidate, ...]       # the ones shown: best level first, and within a level in rank order
+    candidates: tuple[Candidate, ...]       # the ones shown: the best five by rank, put in order of level, best first
     levels: tuple[str, ...]                 # the level of each shown candidate, in the same order
-    tied_at_top: int                        # how many candidates in the WHOLE pool share the best level. More than 1 is a tie (rule W7)
+    top_level: str | None                   # the best level found. None when there is no candidate at all
+    tied_at_top: int                        # how many candidates share top_level. More than 1 is a tie (rule W7)
+    tied_not_shown: int                     # how many of those are NOT among the candidates shown. Only an exact-name match can be counted and not shown
     city_given: bool                        # whether the contractor's note named a city
 
 
@@ -230,8 +232,8 @@ def evidence(candidate: Candidate, city_given: bool) -> list[str]:
     """The reasons behind the level, in words the contractor can check: the name, the city when one was given, and the status.
 
     These are the three reasons report.py has given since October. Two gaps in the data are
-    said plainly and never filled in (CLAUDE.md rule 3): a company with no city on record is
-    not "registered in None", and a company with no status on record is not called inactive.
+    said plainly and never filled in (CLAUDE.md rule 3): a company with no principal city on
+    record is not "registered in None", and a company with no status on record is not called inactive.
     """
     reasons = ["name matches exactly (ignoring LLC/INC)" if candidate.exact_name
                else f"name is similar ({candidate.similarity}/100)"]
@@ -241,33 +243,45 @@ def evidence(candidate: Candidate, city_given: bool) -> list[str]:
         elif candidate.company.principal_city:
             reasons.append(f"registered in {candidate.company.principal_city}, not the city you gave")
         else:
-            reasons.append("no city on record for this company")
+            reasons.append("no principal city on record for this company")   # the principal address is the only one this table holds
     status = candidate.company.status_code
     reasons.append("ACTIVE" if status == "A" else "INACTIVE with the state" if status == "I" else "status not on record")
     return reasons
 
 
 def shortlist(pool: list[Candidate], city_given: bool, limit: int = SHORTLIST_SIZE) -> Shortlist:
-    """Put a ranked pool in display order, keep the first `limit`, and count the tie at the top (working rule W7).
+    """Pick the candidates to show from a ranked pool, put them in display order, and count the tie at the top (working rule W7).
 
-    `pool` is the WHOLE reranked pool from search_pool(), not only the best five. The level
-    of every candidate in it is worked out first, for two reasons. A company with the exact
-    name can rank sixth by similarity, behind five near-misses, and it must not be cut
-    before anyone sees that it is the best level. And the tie count has to cover every
-    candidate at the top level, including the ones that do not fit on the shortlist. The
-    review of leg C2 found both gaps in the first version, which levelled only the best five.
+    `pool` is the whole reranked pool from search_pool(), in rank order.
 
-    Display order is by level, best first. Python's sort is stable, which means candidates
-    with the same level keep the rank order they arrived in.
+    WHO IS SHOWN: the best `limit` by rank, which are exactly the candidates the evaluation
+    scores, re-ordered by level with the best level first. Python's sort is stable, which
+    means candidates with the same level keep their rank order. Nobody is brought in from
+    further down the pool. Doing that by level would let a weak name in the right city push
+    out the best-ranked company, and city is a tie-break, never a filter.
+
+    HOW THE TIE IS COUNTED:
+      - Strong means the SAME NAME (and the city agrees, or none was given). Those are
+        counted over the WHOLE pool, because a company with the exact name can rank sixth
+        by similarity, behind five near-misses, and a count over the five shown would miss
+        it. tied_not_shown says how many of them did not fit on the list.
+      - Likely and Possible are counted among the candidates shown only. Over the whole
+        pool those counts would mostly measure how wide the retrieve step cast its net,
+        and that says nothing about the companies.
+    The two review rounds of leg C2 found one gap each in earlier versions of this function.
     """
-    paired = sorted(((match_level(c, city_given), c) for c in pool), key=lambda pair: LEVELS.index(pair[0]))
-    best_level = paired[0][0] if paired else None
-    shown = paired[:limit]
+    shown = sorted(((match_level(c, city_given), c) for c in pool[:limit]), key=lambda pair: LEVELS.index(pair[0]))
+    levels = tuple(level for level, _ in shown)
+    strong_in_pool = sum(1 for c in pool if match_level(c, city_given) == "Strong")
+    if strong_in_pool:
+        top_level, tied = "Strong", strong_in_pool
+        not_shown = strong_in_pool - levels.count("Strong")
+    else:
+        top_level = levels[0] if levels else None
+        tied, not_shown = (levels.count(top_level), 0) if levels else (0, 0)
     return Shortlist(
-        candidates=tuple(c for _, c in shown),
-        levels=tuple(level for level, _ in shown),
-        tied_at_top=sum(1 for level, _ in paired if level == best_level),   # over the whole pool, not only the ones shown
-        city_given=city_given,
+        candidates=tuple(c for _, c in shown), levels=levels,
+        top_level=top_level, tied_at_top=tied, tied_not_shown=not_shown, city_given=city_given,
     )
 
 

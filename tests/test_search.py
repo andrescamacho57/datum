@@ -166,7 +166,7 @@ def test_evidence_ends_with_the_status_and_never_guesses_one():
 
 def test_evidence_does_not_print_a_missing_city():
     (no_city,) = rank([company("T00000000001", "ACME ROOFING LLC", city=None)], "acme roofing", city="tampa")
-    assert evidence(no_city, city_given=True)[1] == "no city on record for this company"
+    assert evidence(no_city, city_given=True)[1] == "no principal city on record for this company"
 
 
 def test_a_tie_at_the_top_level_is_counted():
@@ -181,29 +181,59 @@ def test_a_tie_at_the_top_level_is_counted():
     assert listed.tied_at_top == 2                                        # two companies are equally good answers
 
 
-def test_a_tie_is_counted_over_the_whole_pool_and_the_tied_company_is_shown():
-    # The review of leg C2 found this case. Five near-misses outrank a second exact-name company by similarity,
-    # so a shortlist made from the best five alone would cut it and report no tie.
+def test_an_exact_name_company_that_misses_the_list_is_still_counted_in_the_tie():
+    # The first review round of leg C2 found this case. Five near-misses outrank a second exact-name company by
+    # similarity, so it is not among the five shown, and a count over those five alone would report no tie.
     backend = FakeBackend([
-        company("T00000000001", "ACME ROOFING LLC", city="JACKSONVILLE"),           # exact name, similarity 95
-        company("T00000000002", "ACME ROOFING CORPORATION", city="JACKSONVILLE"),   # exact name, similarity 90: sixth by similarity
+        company("T00000000001", "ACME ROOFING LLC", city="JACKSONVILLE"),           # exact name, similarity 95: fifth by rank
+        company("T00000000002", "ACME ROOFING CORPORATION", city="JACKSONVILLE"),   # exact name, similarity 90: sixth by rank
         company("T00000000003", "ACME ROOFINGS", city="TAMPA"),                     # 98
         company("T00000000004", "ACME ROOFING 1", city="TAMPA"),                    # 97
         company("T00000000005", "ACME ROOFING 2", city="TAMPA"),                    # 97
         company("T00000000006", "ACME ROOFING FL", city="TAMPA"),                   # 96
     ])
-    assert [c.company.document_number for c in search(backend, "Acme Roofing", city="Jacksonville")][-1] != "T00000000002"   # by rank alone it is cut
     listed = shortlist(search_pool(backend, "Acme Roofing", city="Jacksonville"), city_given=True)
-    assert listed.tied_at_top == 2                                        # both exact-name companies in the given city
-    assert [c.company.document_number for c in listed.candidates[:2]] == ["T00000000001", "T00000000002"]   # and both are shown, first
-    assert listed.levels == ("Strong", "Strong", "Possible", "Possible", "Possible")
-    assert len(listed.candidates) == 5
+    assert (listed.top_level, listed.tied_at_top, listed.tied_not_shown) == ("Strong", 2, 1)   # two share the name and city, and one is not listed
+    assert listed.levels == ("Strong", "Possible", "Possible", "Possible", "Possible")
+
+
+def test_the_shortlist_shows_exactly_the_five_the_evaluation_scores():
+    # The second review round found that levelling the whole pool let weak names in the right city push out the
+    # best-ranked company. City is a tie-break and never a filter, so nobody is brought in from further down the pool.
+    backend = FakeBackend(
+        [company("T00000000001", "ACME ROOFINGS", city="TAMPA")]                                    # 98: the best by rank, in another city
+        + [company(f"T0000000001{n}", f"ACME ROOFING {n}", city="TAMPA") for n in range(4)]        # 97 each
+        + [company(f"T0000000002{n}", f"ACME ROOFERS OF JAX {n}", city="JACKSONVILLE") for n in range(6)]   # weaker names, right city: Likely
+    )
+    scored = search(backend, "Acme Roofing", city="Jacksonville")
+    listed = shortlist(search_pool(backend, "Acme Roofing", city="Jacksonville"), city_given=True)
+    assert {c.company.document_number for c in listed.candidates} == {c.company.document_number for c in scored}
+    assert "T00000000001" in {c.company.document_number for c in listed.candidates}   # the best-ranked company is on the list
+    assert listed.top_level == "Possible" and listed.tied_not_shown == 0
+
+
+def test_a_tie_below_strong_is_counted_among_the_candidates_shown_only():
+    # With no exact-name match, a count over the whole pool would be the size of the pool, which says nothing about the companies.
+    pool = rank([company(f"T00000000{n:03d}", f"ACME ROOFERS {n}") for n in range(40)], "acme roofing", limit=None)
+    listed = shortlist(pool, city_given=False)
+    assert (listed.top_level, listed.tied_at_top, listed.tied_not_shown) == ("Possible", 5, 0)
 
 
 def test_a_tie_wider_than_the_shortlist_is_counted_in_full():
     pool = rank([company(f"T0000000000{n}", "ACME ROOFING LLC") for n in range(8)], "acme roofing", limit=None)
     listed = shortlist(pool, city_given=False)
-    assert len(listed.candidates) == 5 and listed.tied_at_top == 8        # five are shown, and all eight are counted
+    assert len(listed.candidates) == 5
+    assert (listed.tied_at_top, listed.tied_not_shown) == (8, 3)          # five are shown, all eight are counted, three are not listed
+
+
+def test_an_exact_name_company_outside_the_list_makes_the_top_level_strong_even_when_none_is_shown():
+    backend = FakeBackend(
+        [company(f"T0000000001{n}", f"ACME ROOFING {n}", city="TAMPA") for n in range(5)]          # 97 each: the five shown
+        + [company("T00000000001", "ACME ROOFING CORPORATION", city="TAMPA")]                      # exact name, 90: sixth
+    )
+    listed = shortlist(search_pool(backend, "Acme Roofing"), city_given=False)
+    assert listed.levels == ("Possible",) * 5
+    assert (listed.top_level, listed.tied_at_top, listed.tied_not_shown) == ("Strong", 1, 1)   # the page must be able to say a same-name company is not listed
 
 
 def test_one_candidate_at_the_top_level_is_not_a_tie():
@@ -234,7 +264,8 @@ def test_the_shortlist_shows_the_best_level_first_and_keeps_rank_order_inside_a_
 
 
 def test_an_empty_shortlist_has_no_tie():
-    assert shortlist([], city_given=False).tied_at_top == 0
+    empty = shortlist([], city_given=False)
+    assert (empty.candidates, empty.top_level, empty.tied_at_top, empty.tied_not_shown) == ((), None, 0, 0)
 
 
 def test_the_postgres_query_sends_what_was_typed_as_a_value_never_as_sql():
