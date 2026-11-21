@@ -1,6 +1,6 @@
 # Leg C2: the Postgres copy and the search
 
-Branch `leg/c2-postgres-search` (stacked on `leg/c1-serving-marts`) · pull request PR_LINK · run on Nov 20 and 21, 2026 · risk tier **Medium** · status: **stopped at one check. Everything was built and every other check passes, and the search misses its speed target under both approaches tried. The brief says to record the numbers and stop the leg in that case, and so legs C3 and C4 were not started.**
+Branch `leg/c2-postgres-search` (stacked on `leg/c1-serving-marts`) · pull request [#16](https://github.com/andrescamacho57/datum/pull/16) · run on Nov 20 and 21, 2026 · risk tier **Medium** · status: **stopped at one check. Everything was built and every other check passes, and the search misses its speed target under both approaches tried. The brief says to record the numbers and stop the leg in that case, and so legs C3 and C4 were not started.**
 
 **The short version**
 
