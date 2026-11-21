@@ -46,7 +46,7 @@ from pathlib import Path                    # file paths that work on any operat
 REPO_ROOT = Path(__file__).resolve().parents[1]            # this file is evals/run.py → go up 1 folder to the repo root
 sys.path.insert(0, str(REPO_ROOT / "src"))                 # so `import datum.search` works when this is run as python -m evals.run
 
-from datum.search import COMPANY_COLUMNS, CANDIDATE_POOL, Company, PostgresBackend, SearchBackend, search   # noqa: E402  (the path line above has to come first)
+from datum.search import COMPANY_COLUMNS, CANDIDATE_POOL, Company, PostgresBackend, SearchBackend, company_from_row, search   # noqa: E402  (the path line above has to come first)
 
 TEST_SET = REPO_ROOT / "pipeline" / "seeds" / "test_set.csv"
 EXTRACTED = REPO_ROOT / "pipeline" / "seeds" / "extracted_inputs.csv"
@@ -133,21 +133,31 @@ def percentile(values: list[float], share: float) -> float:
 
 
 class SnowflakeBackend:
-    """The retrieve step done by Snowflake: the best `limit` of ALL companies by Jaro-Winkler, as search version 1 did.
+    """The retrieve step done by Snowflake: it scores ALL companies by Jaro-Winkler, as search version 1 did.
 
     It scans every company, which is what makes it slow and billable, and also what makes it
-    the reference: nothing is left out of the pool by an index. The order of the pool is
-    search version 1's, and datum.search.rank() then applies the same order again in Python.
+    the reference: nothing is left out of the pool by an index.
+
+    The pool is every company whose score is one of the FIVE HIGHEST DISTINCT scores. The
+    best five companies of snowflake/11_score_search_v1.sql can only come from those score
+    levels, whatever the city tie-break does inside a level, so the pool always holds them.
+    datum.search.rank() then applies version 1's full order in Python. A fixed count would
+    not be safe: the score is a whole number, so hundreds of companies can share one score,
+    and a cut at 200 could drop a company in the right city (the review of leg C2 found this).
     """
+
+    MOST_ROWS = 5000                        # a ceiling on the pool, far above any tie seen, so one odd name can't pull back a million rows
 
     NEAREST_SQL = f"""
         SELECT {', '.join(COMPANY_COLUMNS)}
         FROM datum.dev_marts.company_search
+        QUALIFY DENSE_RANK() OVER (ORDER BY JAROWINKLER_SIMILARITY(%(key)s, name_key) DESC) <= 5
         ORDER BY JAROWINKLER_SIMILARITY(%(key)s, name_key) DESC, document_number
         LIMIT %(limit)s
     """
-    # %(key)s and %(limit)s are placeholders the driver fills in safely. The city tie-break is
-    # left to rank(): within one similarity score a pool of 200 is far wider than the 5 that are kept.
+    # %(key)s and %(limit)s are placeholders the driver fills in safely. DENSE_RANK numbers the
+    # distinct scores 1, 2, 3 ... from the highest down, with no gaps, and gives equal scores the
+    # same number. QUALIFY filters on that number, the way WHERE filters on a column.
 
     def __init__(self, conn):
         self.conn = conn                    # an open Snowflake connection
@@ -155,12 +165,13 @@ class SnowflakeBackend:
     def nearest(self, search_key: str, limit: int) -> list[Company]:
         from datetime import timezone       # imported here: only this backend needs it
         cursor = self.conn.cursor()
-        cursor.execute(self.NEAREST_SQL, {"key": search_key, "limit": limit})
+        cursor.execute(self.NEAREST_SQL, {"key": search_key, "limit": max(limit, self.MOST_ROWS)})
+        at = COMPANY_COLUMNS.index("fetched_at")                   # found by name, so a reordered column list can't shift it
         companies = []
         for row in cursor.fetchall():
             values = list(row)
-            values[12] = values[12].replace(tzinfo=timezone.utc)   # the mart's fetched_at has no zone and holds UTC (its staging model says so)
-            companies.append(Company(*values))
+            values[at] = values[at].replace(tzinfo=timezone.utc)   # the mart's fetched_at has no zone and holds UTC (its staging model says so)
+            companies.append(company_from_row(values))
         return companies
 
 
@@ -182,7 +193,7 @@ class PlainSimilarityBackend(PostgresBackend):
 
     def nearest(self, search_key: str, limit: int) -> list[Company]:
         rows = self.conn.execute(self.NEAREST_SQL, {"key": search_key, "limit": limit}).fetchall()   # the whole key, suffix included, as first written
-        return [Company(*row) for row in rows]
+        return [company_from_row(row) for row in rows]
 
 
 def print_results(results: list[CaseResult], backend_name: str) -> None:

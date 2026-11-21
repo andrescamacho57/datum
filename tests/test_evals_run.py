@@ -10,8 +10,8 @@ Run from ~/datum:  pytest
 
 from datetime import date, datetime, timezone   # an invented company's dates and its UTC fetch time
 
-from datum.search import Company, FakeBackend, name_key
-from evals.run import ASK, Case, percentile, read_cases, run_cases, score_case, summarize
+from datum.search import COMPANY_COLUMNS, Company, FakeBackend, name_key
+from evals.run import ASK, Case, SnowflakeBackend, percentile, read_cases, run_cases, score_case, summarize
 
 
 def company(document_number, entity_name):
@@ -93,3 +93,31 @@ def test_percentile_is_the_value_that_share_of_the_values_are_at_or_below():
     assert percentile(values, 0.95) == 95.0
     assert percentile([3.0, 1.0, 2.0], 0.95) == 3.0                       # a small list: the largest value
     assert percentile([7.0], 0.50) == 7.0
+
+
+def test_the_snowflake_backend_marks_the_marts_fetch_time_as_utc_and_changes_nothing_else():
+    # Snowflake's column has no time zone and holds UTC. The backend has to add the zone, and to the right column.
+    expected = company("T1", "ACME ROOFING LLC")
+    row = [getattr(expected, column) for column in COMPANY_COLUMNS]
+    row[COMPANY_COLUMNS.index("fetched_at")] = expected.fetched_at.replace(tzinfo=None)   # as Snowflake hands it over: no zone
+
+    class OneRowCursor:
+        """Stands in for a Snowflake cursor: it keeps what it was asked and answers with one row."""
+
+        def execute(self, sql, params):
+            self.sql, self.params = sql, params
+
+        def fetchall(self):
+            return [tuple(row)]
+
+    class OneRowConnection:
+        def __init__(self):
+            self.the_cursor = OneRowCursor()
+
+        def cursor(self):
+            return self.the_cursor
+
+    conn = OneRowConnection()
+    assert SnowflakeBackend(conn).nearest("ACME ROOFING", 200) == [expected]
+    assert conn.the_cursor.params == {"key": "ACME ROOFING", "limit": 5000}   # the typed name travels as a value, and the ceiling is the pool
+    assert "DENSE_RANK()" in conn.the_cursor.sql and "<= 5" in conn.the_cursor.sql   # the pool is the five highest score levels, not a fixed count
