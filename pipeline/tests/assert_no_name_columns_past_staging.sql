@@ -48,6 +48,7 @@
 -- depends_on: {{ ref('company_flags') }}
 -- depends_on: {{ ref('company_search') }}
 -- depends_on: {{ ref('company_possible_matches') }}
+-- depends_on: {{ ref('source_coverage') }}
 
 {% set an_intermediate_model = ref('int_company_match_keys') %}
 {% set a_mart_model = ref('company_flags') %}

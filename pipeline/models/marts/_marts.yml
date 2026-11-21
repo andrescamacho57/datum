@@ -275,3 +275,62 @@ models:
           # Every reason in the mart has a row in the seed, so every reason
           # has a decision. Without this, a new reason would be hidden by the
           # mart's coalesce and nobody would be asked about it.
+
+  - name: source_coverage
+    # The coverage mart: source_coverage.sql. One row per loaded source. The
+    # report's "checked" and "not checked" lists read it (working rule W5).
+    description: One row per loaded source, with its plain-English label, whether its flags may be shown (which is what "checked" means), the date its data runs through, the official page to check a record on, and its newest fetch time.
+
+    columns:
+
+      - name: source
+        data_tests:
+          - not_null
+          - unique
+          # One row per source: a source listed twice would be printed twice.
+          - accepted_values:
+              arguments:
+                values: ['sunbiz_cor', 'sunbiz_flr', 'dbpr_license', 'dbpr_discipline', 'duval']
+          # A new source must be added here on purpose, with its label reviewed.
+
+      - name: label
+        data_tests:
+          - not_null
+          - unique
+          # The report prints the label. Two sources with one label could
+          # not be told apart by a reader.
+
+      - name: is_shown
+        data_tests:
+          - not_null
+          # TRUE = checked, FALSE = not checked. Never unknown.
+
+      - name: data_through
+        data_tests:
+          - not_null
+          # The report says "data through <date>" for every checked source.
+
+      - name: data_through_note
+        data_tests:
+          - not_null
+
+      - name: source_url
+        data_tests:
+          - not_null
+          # CLAUDE.md rule 3: no fact without a source URL ...
+
+      - name: fetched_at
+        data_tests:
+          - not_null
+          # ... and none without a fetch time.
+
+      - name: fetched_at_is_approximate
+        data_tests:
+          - not_null
+
+      - name: list_order
+        data_tests:
+          - not_null
+          - unique
+          # Two sources with the same position would print in an order that
+          # could change from one build to the next.
