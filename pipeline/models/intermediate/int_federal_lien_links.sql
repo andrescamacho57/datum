@@ -4,13 +4,18 @@
 --
 -- What this model does: takes every corporate debtor on a federal tax lien
 -- (stg_sunbiz__flr_debtors) and looks for the company with the same match
--- key, following rulings R1 and R2:
+-- key, following rulings R1, R2, R29 and R30:
 --   CONFIRMED  the match key and the 5-digit ZIP code both agree with exactly
 --              one company (name_zip); or the debtor row has no ZIP code,
 --              exactly one company of any status has the match key, and the
---              debtor's name carries a legal-entity word (unique_name)
+--              debtor's name carries a legal-entity word (unique_name). In
+--              both cases no other company may be a near-namesake (R30)
 --   AMBIGUOUS  the name matches but the ZIP code doesn't, or several
---              companies fit, or the lien is older than the company (R2)
+--              companies fit, or the lien is older than the company (R2),
+--              or the debtor row has a ZIP code that is not 5 digits and so
+--              can't be read (R29), or another company's name differs only
+--              by a leading THE, by AND versus &, or by trailing legal
+--              suffixes (R30)
 --   NO_MATCH   no company has that match key
 -- The rule itself is the macro link_to_companies (macros/company_matching.sql),
 -- shared by all four link models.
@@ -58,7 +63,10 @@ debtors as (
         filing_doc_number,
         debtor_seq,
         debtor_name,
-        zip5
+        zip5,
+        zip
+        -- The whole 9-character ZIP field, trimmed. It is only used in STEP 3,
+        -- to tell "no ZIP code" apart from "a ZIP code we can't read".
     from {{ ref('stg_sunbiz__flr_debtors') }}
     qualify row_number() over (
         partition by filing_doc_number, debtor_seq
@@ -74,7 +82,14 @@ source_names as (
         {{ name_key('d.debtor_name') }}              as source_name_key,
         -- The debtor's name simplified the same way company names are. It
         -- lives only inside this query: the macro below does not output it.
-        d.zip5                                       as source_zip5,
+        coalesce(d.zip5, d.zip)                      as source_zip5,
+        -- coalesce returns its first value that is not NULL. zip5 is the first
+        -- five characters of the state's ZIP field, and it is NULL when those
+        -- five are blank. If something still follows the blanks, the field is
+        -- not empty, and so the leftover (four characters at most, never a
+        -- 5-digit ZIP code) is passed on. The macro then sees a ZIP code it
+        -- can't read, and ruling R29 keeps the link from being CONFIRMED on
+        -- the name alone. No row in the files loaded so far is like that.
         f.filing_date                                as source_date
     from debtors as d
     left join filings as f

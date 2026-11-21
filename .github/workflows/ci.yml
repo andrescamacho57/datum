@@ -17,10 +17,11 @@ jobs:
     timeout-minutes: 10                        # stop a stuck run instead of letting it sit
     steps:
       - uses: actions/checkout@v4              # copy the repo onto the machine
+        with:
+          persist-credentials: false           # do not leave this run's access token in .git/config, where a later step could read it
       - uses: actions/setup-python@v5          # install Python
         with:
-          python-version: "3.12"               # the same version as the .venv on the Mac
-          cache: pip                           # reuse downloaded packages between runs
+          python-version: "3.12"               # the same version as the .venv on the Mac. No package cache is kept between runs (see the end of this file)
       - name: Install the pinned packages
         run: pip install -r requirements.txt   # exact versions, so CI and the Mac run the same code
       - name: Lint
@@ -29,9 +30,25 @@ jobs:
         run: pytest -q                         # fixtures only: no network, no credentials (CLAUDE.md rule 4)
       - name: Secrets hook still blocks
         run: bash tests/hooks/test_block_secrets.sh   # proves the hook that keeps agents out of secrets files
+      - name: Install dbt, the same version as on the Mac
+        run: curl -fsSL https://public.cdn.getdbt.com/fs/install/install.sh | sh -s -- --version 2.0.12   # dbt's own installer; it puts dbt in ~/.local/bin, where the Stop hook looks
+      - name: Stop hook still blocks on a lint error and on a dbt parse error
+        run: bash tests/hooks/test_offline_checks.sh   # proves the hook that sends lint and dbt parse errors back to an agent before it may finish
 
 # Syntax: YAML uses indentation for nesting; a dash starts a list item. `uses:` runs a published action,
-# `run:` runs a shell command. Each step runs in order and the job stops at the first failure.
-# Concept: CI is the "blocking automated checks" layer of code review: a pull request with a red check does not merge.
-# Design decision: dbt is not run here. `dbt parse` needs the Fusion engine installed, and the Stop hook already
-# runs it on the Mac before an agent may finish. Add it here if a parse error ever reaches a pull request.
+# `run:` runs a shell command, and `run: |` runs several, one per line. Each step runs in order and the job
+# stops at the first failure.
+# Concept: CI is the "automated checks" layer of code review. A red check is the signal not to merge. Nothing
+# stops the merge button yet: that takes branch protection on main, which is a GitHub setting and not a file
+# (docs/review_process.md, "Not yet").
+# Design decision: dbt is installed last, and only because the Stop hook's test needs it. The models are not built:
+# that needs Snowflake, and this job holds no secret. --version pins the dbt release to the one the Mac runs
+# (requirements.txt's header, 2.0.12). The installer script itself is NOT pinned: it is whatever dbt Labs serves
+# that day, and it runs as a program on this machine. That is why it comes after every other check, why the
+# checkout keeps no access token, why the job may only read the repo, and why no package cache is saved at the end
+# of the run: a cache is a way for one run to leave files for the next. What the installer could still do is make
+# the last step pass when it should not. Without the cache, installing the packages takes a little longer each run.
+# Not here: a secret scan. One was built on this branch with gitleaks and taken out again after review, because a
+# commit made on purpose to hide a secret could still get past it. The pull request that added this note explains.
+# Design decision: the Stop hook's test finds ruff on PATH here, because this machine has no .venv, and it counts
+# "no ruff found" as a failure when CI=true, so its cases cannot quietly skip.

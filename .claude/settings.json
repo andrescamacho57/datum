@@ -2,23 +2,21 @@
   "permissions": {
     "deny": [
       "Read(**/.env)",
+      "Read(**/.env.*)",
       "Read(~/.dbt/profiles.yml)",
       "Read(~/.snowflake/**)",
       "Read(**/*.p8)",
       "Edit(**/.env)",
+      "Edit(**/.env.*)",
       "Edit(~/.dbt/profiles.yml)",
       "Edit(~/.snowflake/**)",
-      "Edit(**/*.p8)",
-      "Write(**/.env)",
-      "Write(~/.dbt/profiles.yml)",
-      "Write(~/.snowflake/**)",
-      "Write(**/*.p8)"
+      "Edit(**/*.p8)"
     ]
   },
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "[Bb][Aa][Ss][Hh]|Monitor|PowerShell",
         "hooks": [
           {
             "type": "command",

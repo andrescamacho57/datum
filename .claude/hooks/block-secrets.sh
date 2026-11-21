@@ -1,11 +1,26 @@
 #!/usr/bin/env bash
-# PreToolUse hook for the Bash tool: refuse any command that mentions a secrets file.
+# PreToolUse hook for shell tools: refuse any command that mentions a secrets file.
 # Claude Code feeds the pending tool call to this script as JSON on stdin.
 # Exit 0 lets the command run; exit 2 blocks it and shows stderr to Claude.
 # This is a guardrail, not a boundary: obfuscated paths (e.g. `cat .e*`) get through.
 # settings.json is strict JSON and cannot hold comments, so its wiring is explained here:
-#   permissions.deny lists Read/Edit/Write rules for the same files (blocks the file tools);
-#   hooks.PreToolUse (matcher "Bash") runs this script (blocks shell access to them).
+#   permissions.deny lists Read and Edit rules for the same files (blocks the file tools). There are no Write
+#     rules: Claude Code never matches a path rule written for Write, and the Edit rules cover the Write tool.
+#     Source: https://code.claude.com/docs/en/permissions, "Write(path), Glob(path), and Grep(path) rules don't match".
+#     `**/.env` is the dotenv file and `**/.env.*` is every variant of it (.env.local and so on).
+#     On Nov 19, 2026, on this Mac, Claude Code refused to write a file ending .P8 under the lower-case
+#     rule, so the path rules ignored letter case that day. That is one observation, not a promise.
+#   hooks.PreToolUse (matcher "[Bb][Aa][Ss][Hh]|Monitor|PowerShell") runs this script (blocks shell access to them).
+#     The matcher is a regular expression, tested anywhere in the tool's name, so it fires for the
+#     built-in Bash tool and for any other tool with "bash" in its name, in any letter case.
+#     Monitor and PowerShell are named as well, because they run shell commands under other names.
+#     The plain word "Bash" would be read as one exact name and would miss a tool called "bash".
+#     Keep the matcher to letters, [..] sets and |. Claude Code runs it as JavaScript, where a shortcut
+#     such as (?i) is an error that would switch this hook off. tests/test_claude_settings.py checks that.
+#     A shell tool under a name not listed here is not covered: a matcher can only name what is known.
+#     Source: https://code.claude.com/docs/en/hooks, "Matcher patterns".
+# What it reads: every piece of text in the tool's input, whatever the field is called.
+#   The cost is one known over-match: a description that merely names a secrets file is blocked too.
 
 # Fail closed on unset variables and pipe errors, so a broken script cannot silently allow.
 set -uo pipefail
@@ -21,24 +36,30 @@ fi  # end of the jq-missing check
 # Read the whole hook payload from stdin into a variable.
 payload="$(cat)"
 
-# Pull out the shell command Claude wants to run; '// empty' yields "" when absent.
+# Pull out every piece of text in the tool's input, one per line. The Bash tool keeps its command in
+# .tool_input.command, but another shell tool may name the field differently or nest it, so no field is trusted
+# to be the only one. In jq, `..` walks every value at every depth, `strings` keeps the ones that are text, and
+# `objects | keys[]` adds the field names themselves, so a name hidden in a field's name is read as well.
+# A payload with no tool input gives "", which is allowed below: there is nothing to inspect.
 # If the payload is not valid JSON, jq fails and the || branch blocks the call.
-command_text="$(printf '%s' "$payload" | jq -r '.tool_input.command // empty')" || {
+command_text="$(printf '%s' "$payload" | jq -r '[.tool_input | .. | (strings, (objects | keys[]))] | join("\n")')" || {
   # Explain the parse failure.
   echo "block-secrets: could not parse hook input as JSON. Blocking." >&2
   # Block, because an uninspectable command is treated as unsafe.
   exit 2
 }  # end of the parse-failure handler
 
-# Case-sensitive extended-regex of the four protected names; dots are escaped to be literal.
+# Extended regular expression of the four protected names; dots are escaped to be literal.
+# It is written in lower case, and grep's -i flag below makes it match any letter case.
 # .env covers .env and .env.local; profiles.yml is dbt's credentials file;
 # .snowflake is the ~/.snowflake config directory; .p8 is a private-key file.
 pattern='\.env|profiles\.yml|\.snowflake|\.p8'
 
-# If the command text mentions any protected name, refuse it.
-if printf '%s' "$command_text" | grep -Eq -- "$pattern"; then
+# If any of that text mentions a protected name, in any letter case, refuse the call.
+# -i is here because the Mac's disk does not tell upper case from lower: `cat .ENV` opens the dotenv file.
+if printf '%s' "$command_text" | grep -Eqi -- "$pattern"; then
   # Say what matched and why, so Claude does not retry with a variation.
-  echo "block-secrets: command mentions a secrets file (.env, profiles.yml, .snowflake, .p8). Secrets must never be read. Blocked." >&2
+  echo "block-secrets: command mentions a secrets file (.env, profiles.yml, .snowflake, .p8, in any letter case). Secrets must never be read. Blocked." >&2
   # Exit 2 blocks the tool call.
   exit 2
 fi  # end of the secrets-match check
