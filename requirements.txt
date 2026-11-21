@@ -1,5 +1,6 @@
 # requirements.txt: every Python package in the project's virtual environment, at the exact
 # version that was installed and working on 2026-11-18 (Python 3.12.3). Ruling R24.
+# psycopg was added on 2026-11-20 (leg C2), with pytest run after the install.
 #
 # Why exact versions ("pins"): `pip install paramiko` today gives a newer paramiko that can no
 # longer talk to the Duval Clerk's server. A pin means a rebuilt environment behaves like the
@@ -24,6 +25,7 @@ truststore==0.10.5              # verifies HTTPS certificates against the operat
 anthropic==2.3.0                # Claude API client (extract.py, report.py)
 snowflake-connector-python==5.1.0   # runs SQL from Python (report.py)
 pydantic==2.14.1                # data models that validate themselves (used by anthropic; planned for the Fact model)
+psycopg==3.3.9                  # the Postgres driver, version 3 (load_postgres.py, search.py's PostgresBackend, evals/run.py). Added in leg C2
 
 # --- Tools run from the terminal --------------------------------------------------------
 pytest==9.2.0                   # the test runner: `pytest`
@@ -46,6 +48,7 @@ jiter==0.18.0
 opentelemetry-api==1.45.1
 packaging==26.3
 pluggy==1.7.0
+psycopg-binary==3.3.9           # psycopg's ready-built C library, installed by `pip install "psycopg[binary]"`, so no compiler or Postgres headers are needed
 protobuf==6.33.6
 pycparser==3.12
 pydantic_core==2.50.1
