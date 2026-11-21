@@ -146,7 +146,7 @@ class SnowflakeBackend:
     and a cut at 200 could drop a company in the right city (the review of leg C2 found this).
     """
 
-    MOST_ROWS = 5000                        # a ceiling on the pool, far above any tie seen, so one odd name can't pull back a million rows
+    MOST_ROWS = 5000                        # a ceiling on the pool, far above any tie seen, so one odd name can't pull back a million rows. Reaching it is an error, not a quiet cut
 
     NEAREST_SQL = f"""
         SELECT {', '.join(COMPANY_COLUMNS)}
@@ -167,8 +167,14 @@ class SnowflakeBackend:
         cursor = self.conn.cursor()
         cursor.execute(self.NEAREST_SQL, {"key": search_key, "limit": max(limit, self.MOST_ROWS)})
         at = COMPANY_COLUMNS.index("fetched_at")                   # found by name, so a reordered column list can't shift it
+        rows = cursor.fetchall()
+        if len(rows) >= self.MOST_ROWS:                            # the ceiling cut the pool, by document number and not by city
+            raise RuntimeError(
+                f"the Snowflake pool for {search_key!r} hit its ceiling of {self.MOST_ROWS} rows, so it may be missing a company "
+                "that search version 1 would rank in its best five. Raise MOST_ROWS and run again."
+            )
         companies = []
-        for row in cursor.fetchall():
+        for row in rows:
             values = list(row)
             values[at] = values[at].replace(tzinfo=timezone.utc)   # the mart's fetched_at has no zone and holds UTC (its staging model says so)
             companies.append(company_from_row(values))

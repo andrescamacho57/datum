@@ -10,6 +10,8 @@ Run from ~/datum:  pytest
 
 from datetime import date, datetime, timezone   # an invented company's dates and its UTC fetch time
 
+import pytest                               # the test runner; pytest.raises checks that an error IS raised
+
 from datum.search import COMPANY_COLUMNS, Company, FakeBackend, name_key
 from evals.run import ASK, Case, SnowflakeBackend, percentile, read_cases, run_cases, score_case, summarize
 
@@ -121,3 +123,32 @@ def test_the_snowflake_backend_marks_the_marts_fetch_time_as_utc_and_changes_not
     assert SnowflakeBackend(conn).nearest("ACME ROOFING", 200) == [expected]
     assert conn.the_cursor.params == {"key": "ACME ROOFING", "limit": 5000}   # the typed name travels as a value, and the ceiling is the pool
     assert "DENSE_RANK()" in conn.the_cursor.sql and "<= 5" in conn.the_cursor.sql   # the pool is the five highest score levels, not a fixed count
+
+
+def test_the_snowflake_backend_refuses_a_pool_that_hit_its_ceiling(monkeypatch):
+    # A pool cut at the ceiling is cut by document number, so it could be missing a company in the right city. That must be loud.
+    monkeypatch.setattr(SnowflakeBackend, "MOST_ROWS", 3)
+    expected = company("T1", "ACME ROOFING LLC")
+    row = [getattr(expected, column) for column in COMPANY_COLUMNS]
+    row[COMPANY_COLUMNS.index("fetched_at")] = expected.fetched_at.replace(tzinfo=None)
+
+    class Cursor:
+        def __init__(self, count):
+            self.count = count
+
+        def execute(self, sql, params):
+            pass
+
+        def fetchall(self):
+            return [tuple(row)] * self.count
+
+    class Connection:
+        def __init__(self, count):
+            self.count = count
+
+        def cursor(self):
+            return Cursor(self.count)
+
+    assert len(SnowflakeBackend(Connection(2)).nearest("ACME ROOFING", 200)) == 2   # under the ceiling: fine
+    with pytest.raises(RuntimeError, match="hit its ceiling of 3 rows"):
+        SnowflakeBackend(Connection(3)).nearest("ACME ROOFING", 200)
