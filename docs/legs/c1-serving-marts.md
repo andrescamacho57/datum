@@ -1,6 +1,6 @@
 # Leg C1: the marts the app reads
 
-Branch `leg/c1-serving-marts` (from `origin/main`) · run on Nov 20, 2026, Pacific time · risk tier **High** · status: **done. Every check passes, and the Deep review ended after two rounds with no Important finding left open.**
+Branch `leg/c1-serving-marts` (from `origin/main`) · pull request [#15](https://github.com/andrescamacho57/datum/pull/15) · run on Nov 20, 2026, Pacific time · risk tier **High** · status: **done. Every check passes, and the Deep review ended after two rounds with no Important finding left open.**
 
 This is the first of the four legs of Phase C. It builds the tables that the web app will read, and it builds nothing of the app itself. A mart is a finished table shaped for one use, and these four are shaped for the app.
 
