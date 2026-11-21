@@ -125,6 +125,13 @@ models:
           - not_null
           # TRUE or FALSE, never unknown: "may this be displayed?" needs an answer.
 
+      - name: fetched_at_is_approximate
+        data_tests:
+          - not_null
+          # TRUE or FALSE, never unknown: the report must be able to say
+          # "fetched" or "fetched about" (working rule W1). The test
+          # assert_flags_mark_an_estimated_fetch_time checks the value itself.
+
   - name: company_search
     # The search mart: company_search.sql. One row per company, with the
     # source address and fetch time that make each company fact citable.

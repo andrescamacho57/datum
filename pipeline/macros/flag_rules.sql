@@ -20,15 +20,17 @@
 
   What the calling model must provide: both macros produce the body of one
   CTE, and that body reads two CTEs the caller defines before it.
-      manifest             source, source_file, fetched_at_utc: one row per
-                           fetched file (from stg_datum__fetch_manifest)
+      manifest             source, source_file, fetched_at_utc and
+                           is_approximate: one row per fetched file (from
+                           stg_datum__fetch_manifest)
       lien_files_through   one row, one column, through_date: the date of
                            the newest federal lien file loaded
   (CTE = common table expression, a named step inside one query.)
 
   The SQL below was moved here from models/marts/company_flags.sql without a
-  change. The leg report of leg C1 shows the row count and checksum of
-  company_flags before and after the move.
+  change, and the column fetched_at_is_approximate was added afterwards, in
+  a commit of its own. The leg report of leg C1 shows the row count and
+  checksum of company_flags before and after each of the two steps.
   ---------------------------------------------------------------------------
 #}
 
@@ -75,7 +77,15 @@
             || '. A release filed after that date is not reflected. The state''s files carry no dollar amount.' as caveat,
         -- Two single quotes inside a text value make one apostrophe.
 
-        true                                         as is_shown
+        true                                         as is_shown,
+
+        mf.is_approximate or coalesce(mr.is_approximate, false) as fetched_at_is_approximate
+        -- TRUE when the fetch time above rests on an estimate: the file the
+        -- lien came from, or the file its release came from, has a fetch
+        -- time taken from a modification time (ruling R23). Either one is
+        -- enough, because the fact rests on both files. coalesce turns the
+        -- NULL of "no release" into FALSE, so an open lien is judged on its
+        -- own file alone.
     from {{ ref('int_federal_lien_links') }} as l
     inner join {{ ref('int_federal_liens_status') }} as s
         on s.filing_doc_number = l.source_record_id
@@ -118,7 +128,9 @@
         lic.source_file,
         m.fetched_at_utc                             as fetched_at,
         'From DBPR''s construction licensee file, which leaves out delinquent, null-and-void and involuntarily inactive licenses. A license is held by a person who qualifies the business; this line is about the license, not the person.' as caveat,
-        true                                         as is_shown
+        true                                         as is_shown,
+        m.is_approximate                             as fetched_at_is_approximate
+        -- TRUE when the license file's fetch time is an estimate (ruling R23).
     from {{ ref('int_dbpr_license_links') }} as ll
     inner join {{ ref('stg_dbpr__licenses') }} as lic
         on  lic.alternate_license_number = ll.source_record_id

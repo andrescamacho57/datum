@@ -31,6 +31,10 @@
 -- Every row carries where the fact came from and when we fetched it
 -- (CLAUDE.md rule 3): source, source_record_id, source_url, citation,
 -- source_file and fetched_at. Tests fail the build if any is missing.
+-- The last column, fetched_at_is_approximate, says whether that fetch time
+-- was measured or estimated from a file's modification time (ruling R23).
+-- The report says "fetched about" when it is TRUE (working rule W1). It was
+-- added in leg C1, after every existing column, so that no column moved.
 --
 -- No names: nothing here names a debtor, a license holder or a party.
 --
@@ -59,7 +63,10 @@ with manifest as (
     select
         source,
         source_file,
-        fetched_at_utc
+        fetched_at_utc,
+        is_approximate
+        -- TRUE when fetched_at_utc is a file's modification time and not a
+        -- measured fetch. It becomes fetched_at_is_approximate on each flag.
     from {{ ref('stg_datum__fetch_manifest') }}
 ),
 
@@ -140,8 +147,11 @@ discipline_flags as (
         'A discipline record is against the individual license holder, not the business. DBPR''s published discipline files run through '
             || to_char(t.through_date, 'YYYY-MM-DD') || '.' as caveat,
 
-        {{ var("show_dbpr_discipline") }}            as is_shown
+        {{ var("show_dbpr_discipline") }}            as is_shown,
         -- FALSE unless the project variable is switched on (ruling R12).
+
+        m.is_approximate                             as fetched_at_is_approximate
+        -- TRUE when the discipline file's fetch time is an estimate.
     from {{ ref('int_dbpr_discipline_links') }} as dl
     inner join complaints as c
         on c.complaint_number = dl.source_record_id
@@ -193,8 +203,12 @@ duval_flags as (
                     else '' end
             || ' Search the Clerk''s Official Records for a later release or satisfaction.' as caveat,
 
-        {{ var("show_duval") }}                      as is_shown
+        {{ var("show_duval") }}                      as is_shown,
         -- FALSE unless the project variable is switched on (ruling R20).
+
+        m.is_approximate or coalesce(mc.is_approximate, false) as fetched_at_is_approximate
+        -- TRUE when either fetch time behind this row is an estimate: the
+        -- file the document came from, or the file its release came from.
     from {{ ref('int_duval_party_links') }} as pl
     inner join {{ ref('int_duval_document_status') }} as s
         on s.instrument_number = pl.source_record_id
