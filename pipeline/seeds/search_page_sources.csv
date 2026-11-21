@@ -2,3 +2,4 @@ source,ruling,search_page_url,looked_up_by
 sunbiz_flr,R9,https://dos.fl.gov/sunbiz/search/,filing number
 dbpr,R27,https://www.myfloridalicense.com/portalsearches/VerifyLicensee,license number
 duval,R21,https://or.duvalclerk.com/,instrument number or book and page
+sunbiz_cor,R9,https://search.sunbiz.org/Inquiry/CorporationSearch/ByDocumentNumber,document number

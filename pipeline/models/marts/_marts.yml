@@ -124,3 +124,54 @@ models:
         data_tests:
           - not_null
           # TRUE or FALSE, never unknown: "may this be displayed?" needs an answer.
+
+  - name: company_search
+    # The search mart: company_search.sql. One row per company, with the
+    # source address and fetch time that make each company fact citable.
+    description: One row per company, as the app searches and shows it, with the official search page to check it on, the UTC time its file was fetched and whether that time is an estimate.
+
+    columns:
+
+      - name: document_number
+        data_tests:
+          - not_null
+          - unique
+          # One row per company: a lookup must never return two answers for
+          # one document number.
+
+      - name: name_key
+        data_tests:
+          - not_null
+          # The search compares against this column. A company without one
+          # could never be found.
+
+      - name: status_code
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['A', 'I']
+          # The report turns this code into "Active" or "Inactive". Any
+          # other value would print as a status nobody defined.
+
+      - name: published_on
+        data_tests:
+          - not_null
+          # The report says "data published <date>" for every company.
+
+      - name: source_url
+        data_tests:
+          - not_null
+          # CLAUDE.md rule 3, enforced in the data: no company fact without
+          # a source URL ...
+
+      - name: fetched_at
+        data_tests:
+          - not_null
+          # ... and none without the time its file was fetched. A company
+          # whose file is missing from the fetch manifest fails here.
+
+      - name: fetched_at_is_approximate
+        data_tests:
+          - not_null
+          # TRUE or FALSE, never unknown: the report must be able to say
+          # "fetched" or "fetched about" (working rule W1).

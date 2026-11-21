@@ -17,11 +17,15 @@
 -- company_flags is one step from a report, so a name column there matters
 -- most of all.
 --
--- The two exceptions, each named below, each a table of REGISTERED BUSINESS
+-- The three exceptions, each named below, each a table of REGISTERED BUSINESS
 -- names from the state's corporate register, never a person's name:
 --   INT_COMPANY_MATCH_KEYS   (intermediate)  name_key
 --   ENTITY_LOOKUP            (marts)         entity_name, name_key: the
 --                            company's own name, which a report has to show
+--   COMPANY_SEARCH           (marts)         entity_name and name_key, and
+--                            ONLY those two columns. It is the copy of the
+--                            company register that the app searches (leg C1).
+--                            Any other name-like column there still fails.
 -- A new exception needs a reason written here, not just a line in the query.
 --
 -- What it can't see: a name hidden inside a column called something else.
@@ -42,6 +46,7 @@
 -- depends_on: {{ ref('int_duval_document_status') }}
 -- depends_on: {{ ref('entity_lookup') }}
 -- depends_on: {{ ref('company_flags') }}
+-- depends_on: {{ ref('company_search') }}
 
 {% set an_intermediate_model = ref('int_company_match_keys') %}
 {% set a_mart_model = ref('company_flags') %}
@@ -60,7 +65,11 @@ where (
         (    upper(table_schema) = upper('{{ an_intermediate_model.schema }}')
          and table_name <> 'INT_COMPANY_MATCH_KEYS' )   -- the one allowed exception in intermediate
      or (    upper(table_schema) = upper('{{ a_mart_model.schema }}')
-         and table_name <> 'ENTITY_LOOKUP' )            -- the one allowed exception in marts
+         and table_name <> 'ENTITY_LOOKUP'              -- an allowed exception in marts: the whole table
+         and not (table_name = 'COMPANY_SEARCH' and column_name in ('ENTITY_NAME', 'NAME_KEY')) )
+         -- The other allowed exception in marts, and a narrower one: only
+         -- the company's own two name columns. `not (a and b)` is true for
+         -- every other column of COMPANY_SEARCH, so those are still scanned.
       )
 -- upper() on both sides because Snowflake stores names in capitals.
   and (   column_name ilike '%NAME%'             -- ilike = like, ignoring upper/lower case; % = any text
