@@ -22,7 +22,7 @@
 --        rm -rf data/export && mkdir -p data/export
 --        snow stage copy @datum.dev_marts.export_stage data/export --recursive -c datum
 --   3. Load them into Postgres:
---        python -m datum.load_postgres
+--        python src/datum/load_postgres.py
 -- Safe to rerun: each run first removes the files of the run before it from the stage.
 
 USE ROLE SYSADMIN;                                         -- the role that owns DATUM
