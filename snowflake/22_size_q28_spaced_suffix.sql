@@ -33,13 +33,15 @@ SELECT k.document_number,                                  -- the company
             ELSE 'L L L P'                                 -- the only other four-letter spaced form in the suffix list
        END                                     AS letters_removed,
        CASE
-         WHEN REGEXP_LIKE(UPPER(e.entity_name), '.*(P\\.?L\\.?L\\.?C|L\\.?L\\.?L\\.?P)\\.?[^A-Z0-9]*')
-           THEN 'written as one unit'                      -- PLLC or P.L.L.C.: nothing but optional periods between the four letters
+         WHEN REGEXP_LIKE(UPPER(e.entity_name), '.*[^A-Z0-9.](P\\.?L\\.?L\\.?C|L\\.?L\\.?L\\.?P)\\.?[^A-Z0-9]*')
+           THEN 'one unit, apart from the name'            -- " PLLC" or ", P.L.L.C.": only optional periods between the four letters, and a space or comma in front of them
          WHEN REGEXP_LIKE(UPPER(e.entity_name), '.*[PL]\\.?,[ ]*(L\\.? ?L\\.? ?C|L\\.? ?L\\.? ?P)\\.?[^A-Z0-9]*')
            THEN 'comma after the first letter'             -- "... P., L.L.C.": the comma puts the first letter with the name
+         WHEN REGEXP_LIKE(UPPER(e.entity_name), '.*(P\\.?L\\.?L\\.?C|L\\.?L\\.?L\\.?P)\\.?[^A-Z0-9]*')
+           THEN 'one unit, run together with the name'     -- "A.B.C.P.L.L.C.": no space or comma anywhere, so the name does not say where it ends
          ELSE 'spaces only'                                -- "... P L L C" or "... P. L. L. C.": readable either way
        END                                     AS how_the_name_writes_it,
-       REGEXP_LIKE(k.match_key, '(.* )?[A-Z]')  AS rest_ends_in_one_letter   -- TRUE when what is left of the name ends in a single letter, like "A B C"
+       REGEXP_LIKE(k.match_key, '(.* )?[A-Z]')  AS rest_ends_in_one_letter   -- TRUE when the last word of what is left is a single letter: "A B C", and also "SMITH J"
 FROM datum.dev_intermediate.int_company_match_keys AS k    -- one row per company, with its name_key and match_key
 INNER JOIN datum.dev_marts.entity_lookup AS e              -- the registered name, read for the count only
   ON e.document_number = k.document_number
@@ -48,13 +50,14 @@ WHERE k.name_key LIKE '% P L L C'                          -- the simplified nam
 
 -- ---------------------------------------------------------------------------
 -- CHECK 1: how many companies, by how the registered name writes the four letters.
+-- "one unit, apart from the name" is the reading the name itself gives: the four letters stand together, with a space or comma before them.
 -- "comma after the first letter" is the group Q28 describes: the match key is very likely one letter short.
--- "spaces only" could be either reading. "written as one unit" is the reading the name itself gives.
+-- "one unit, run together with the name" and "spaces only" could be either reading.
 -- ---------------------------------------------------------------------------
 SELECT letters_removed,
        how_the_name_writes_it,
        COUNT(*)                          AS companies,             -- companies in this group
-       COUNT_IF(rest_ends_in_one_letter) AS rest_ends_in_one_letter    -- of those, names made of initials, the shape of Q28's example
+       COUNT_IF(rest_ends_in_one_letter) AS rest_ends_in_one_letter    -- of those, the ones whose remaining name ends in a single letter. Q28's example has this shape, and so does "SMITH J"
 FROM q28_companies
 GROUP BY ROLLUP (letters_removed, how_the_name_writes_it)  -- ROLLUP adds a subtotal row per first column and a grand total row, with NULL in the rolled-up columns
 ORDER BY letters_removed NULLS LAST, how_the_name_writes_it NULLS LAST;
@@ -118,4 +121,4 @@ SELECT (SELECT COUNT(*) FROM three_letter_companies)  AS companies_with_a_comma_
 
 -- Concept: sizing before deciding. A rule that might be wrong is first counted, at its widest and at its narrowest, and only then does anyone decide whether to change it. The wide count says how many records the change could touch. The narrow count says how many are probably wrong today. A fix with a narrow count of zero can wait, and a fix with a wide count in the thousands needs its own review.
 
--- Design decision: counts only, and nothing is changed. The match key is the heart of the linking rule, and ruling R1 owns it, so changing it is a ruling and a High-tier leg of its own, not a side effect of the leg that builds the app's tables. The script reads the registered name to tell "P.L.L.C." from "P., L.L.C.", and it never prints one: a company's name is public, but the leg reports are written to hold counts. The three groups are kept apart because they call for different answers. "Written as one unit" needs no fix, "comma after the first letter" is the real misreading, and "spaces only" cannot be settled from the name at all.
+-- Design decision: counts only, and nothing is changed. The match key is the heart of the linking rule, and ruling R1 owns it, so changing it is a ruling and a High-tier leg of its own, not a side effect of the leg that builds the app's tables. The script reads the registered name to tell "P.L.L.C." from "P., L.L.C.", and it never prints one: a company's name is public, but the leg reports are written to hold counts. The four groups are kept apart because they call for different answers. "One unit, apart from the name" needs no fix, "comma after the first letter" is the real misreading, and the other two cannot be settled from the name at all.
