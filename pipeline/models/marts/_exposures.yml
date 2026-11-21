@@ -1,0 +1,57 @@
+# ---------------------------------------------------------------------------
+# _exposures.yml: what reads the marts from OUTSIDE the warehouse.
+#
+# What an exposure is: dbt's way of recording that something dbt did not
+# build depends on a model. It runs nothing and creates nothing in Snowflake.
+# It does two jobs:
+#   1. it puts the app on the lineage graph (`dbt docs generate`), so anyone
+#      can see which tables a change would reach
+#   2. it gives the app a name dbt can select by:
+#        dbt build --select +exposure:datum_web_app
+#      builds and tests everything the app depends on, and nothing else
+#
+# The app does not query Snowflake. Snowflake script NN_export_marts.sql
+# copies these four tables to Postgres on the machine that runs the app
+# (decision d18), keeping only rows that may be shown, and the app reads the
+# copy. So a column renamed or dropped in one of these four models breaks
+# the app at the next export.
+# ---------------------------------------------------------------------------
+
+version: 2
+# dbt's property-file format version. Always 2.
+
+exposures:
+
+  - name: datum_web_app
+    # The name used in `--select exposure:datum_web_app`.
+
+    label: Datum web app
+    # The name shown in the docs site.
+
+    type: application
+    # One of dbt's fixed kinds: application, dashboard, notebook, analysis, ml.
+
+    maturity: low
+    # low = still being built. The app runs on one Mac and has been shown to
+    # nobody (Phase C). Raise it when a contractor uses it.
+
+    description: >
+      The private web app a contractor uses: a search box, a shortlist of
+      companies, and a one-page report made only of cited facts. It reads a
+      Postgres copy of the four marts below. Built in Phase C
+      (src/datum/web/, src/datum/search.py, src/datum/report_builder.py).
+
+    depends_on:
+      - ref('company_search')
+      # The companies the app searches, and the header of every report.
+      - ref('company_flags')
+      # The flags on a report. Only rows with is_shown true are exported.
+      - ref('company_possible_matches')
+      # Possible matches. Every row is hidden today, so none is exported.
+      - ref('source_coverage')
+      # The report's "checked" and "not checked" lists.
+
+    owner:
+      name: Andres Camacho
+      # Who to ask before changing a model the app reads. dbt wants a name
+      # or an email here. The repo is public, so no email is written.

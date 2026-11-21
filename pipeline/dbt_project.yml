@@ -14,8 +14,9 @@ vars:                                   # project-wide settings a model reads wi
   sunbiz_lien_search_url: "https://dos.fl.gov/sunbiz/search/"                # ruling R9: where a reader looks up a federal lien by its filing number
   dbpr_license_search_url: "https://www.myfloridalicense.com/portalsearches/VerifyLicensee"   # ruling R27: DBPR's own "verify a license" search, by license number. The address DBPR gives in its ReadMe (docs/access/dbpr.md)
   duval_official_records_url: "https://or.duvalclerk.com/"                   # ruling R21: the Clerk's Official Records search, by instrument number or book and page
-  # The three addresses above are also rows of seeds/search_page_sources.csv, the list a test checks shown flags against.
-  # Changing one means changing it in both places.
+  sunbiz_company_search_url: "https://search.sunbiz.org/Inquiry/CorporationSearch/ByDocumentNumber"   # ruling R9, applied to the company record: Sunbiz's search by document number (docs/access/sunbiz.md). Read by company_search
+  # The four addresses above are also rows of seeds/search_page_sources.csv, the list that tests check shown flags and
+  # company records against. Changing one means changing it in both places.
 
 models:
   datum:                                # settings for models in this project
@@ -54,7 +55,13 @@ seeds:
     search_page_sources:                # settings for seeds/search_page_sources.csv (rulings R9, R21, R27)
       +schema: reference                # DEV_REFERENCE
       +column_types:
-        source: varchar                 # the source as company_flags names it: sunbiz_flr, dbpr or duval
+        source: varchar                 # the source as the marts name it: sunbiz_flr, dbpr, duval or sunbiz_cor
         ruling: varchar                 # the ruling that allows this source to cite a search page
         search_page_url: varchar        # the one approved address for that source
         looked_up_by: varchar           # the number a reader types into that page
+    possible_match_reasons:             # settings for seeds/possible_match_reasons.csv (Phase C working rule W3)
+      +schema: reference                # DEV_REFERENCE
+      +column_types:
+        link_reason: varchar            # the reason code a link model gives an AMBIGUOUS link, e.g. zip_differs
+        is_shown: boolean               # may a possible match with this reason be shown? false on every row until Andres rules on it
+        meaning: varchar                # the reason in plain English, for the person who decides

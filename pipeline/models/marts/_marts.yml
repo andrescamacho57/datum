@@ -72,6 +72,12 @@ models:
                 to: ref('entity_lookup')
                 field: document_number
           # Every flag is about a company that exists in the lookup.
+          - relationships:
+              arguments:
+                to: ref('company_search')
+                field: document_number
+          # ... and in the table the app searches. A flag on a company the
+          # app can't find would never be seen (added in leg C1).
 
       - name: flag_type
         data_tests:
@@ -124,3 +130,207 @@ models:
         data_tests:
           - not_null
           # TRUE or FALSE, never unknown: "may this be displayed?" needs an answer.
+
+      - name: fetched_at_is_approximate
+        data_tests:
+          - not_null
+          # TRUE or FALSE, never unknown: the report must be able to say
+          # "fetched" or "fetched about" (working rule W1). The test
+          # assert_flags_mark_an_estimated_fetch_time checks the value itself.
+
+  - name: company_search
+    # The search mart: company_search.sql. One row per company, with the
+    # source address and fetch time that make each company fact citable.
+    description: One row per company, as the app searches and shows it, with the official search page to check it on, the UTC time its file was fetched and whether that time is an estimate.
+
+    columns:
+
+      - name: document_number
+        data_tests:
+          - not_null
+          - unique
+          # One row per company: a lookup must never return two answers for
+          # one document number.
+
+      - name: name_key
+        data_tests:
+          - not_null
+          # The search compares against this column. A company without one
+          # could never be found.
+
+      - name: status_code
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['A', 'I']
+          # The report turns this code into "Active" or "Inactive". Any
+          # other value would print as a status nobody defined.
+
+      - name: published_on
+        data_tests:
+          - not_null
+          # The report says "data published <date>" for every company.
+
+      - name: source_url
+        data_tests:
+          - not_null
+          # CLAUDE.md rule 3, enforced in the data: no company fact without
+          # a source URL ...
+
+      - name: fetched_at
+        data_tests:
+          - not_null
+          # ... and none without the time its file was fetched. A company
+          # whose file is missing from the fetch manifest fails here.
+
+      - name: fetched_at_is_approximate
+        data_tests:
+          - not_null
+          # TRUE or FALSE, never unknown: the report must be able to say
+          # "fetched" or "fetched about" (working rule W1).
+
+  - name: company_possible_matches
+    # The possible-matches mart: company_possible_matches.sql. One row per
+    # record on an AMBIGUOUS link that would be a shown flag if the link were
+    # CONFIRMED. Every row is hidden today (working rule W3).
+    description: One row per record that may belong to a company (an AMBIGUOUS link), with the same columns as company_flags plus the reason the link is not CONFIRMED. Every row is hidden until Andres rules on the reasons.
+
+    columns:
+
+      - name: document_number
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('company_search')
+                field: document_number
+          # Every possible match is about a company the app can find.
+
+      - name: flag_type
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['federal_tax_lien', 'dbpr_license_inactive']
+          # Only the two kinds of flag that are shown today. A Duval or
+          # discipline row here would be a hidden source leaking in.
+
+      - name: status
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['open', 'closed', 'inactive']
+
+      - name: source
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['sunbiz_flr', 'dbpr']
+
+      - name: source_record_id
+        data_tests:
+          - not_null
+
+      - name: source_url
+        data_tests:
+          - not_null
+          # CLAUDE.md rule 3: no fact without a source URL ...
+
+      - name: fetched_at
+        data_tests:
+          - not_null
+          # ... and none without the time we fetched it.
+
+      - name: citation
+        data_tests:
+          - not_null
+
+      - name: caveat
+        data_tests:
+          - not_null
+
+      - name: is_shown
+        data_tests:
+          - not_null
+          # TRUE or FALSE, never unknown. The test
+          # assert_possible_matches_stay_hidden then requires FALSE.
+
+      - name: fetched_at_is_approximate
+        data_tests:
+          - not_null
+
+      - name: link_reason
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['before_company_filed', 'date_unknown', 'no_entity_word', 'several_companies', 'several_companies_same_zip', 'several_similar_names', 'several_similar_names_same_zip', 'zip_differs', 'zip_unreadable']
+          # The nine reasons the linking macro gives an AMBIGUOUS link.
+          - relationships:
+              arguments:
+                to: ref('possible_match_reasons')
+                field: link_reason
+          # Every reason in the mart has a row in the seed, so every reason
+          # has a decision. Without this, a new reason would be hidden by the
+          # mart's coalesce and nobody would be asked about it.
+
+  - name: source_coverage
+    # The coverage mart: source_coverage.sql. One row per loaded source. The
+    # report's "checked" and "not checked" lists read it (working rule W5).
+    description: One row per loaded source, with its plain-English label, whether its flags may be shown (which is what "checked" means), the date its data runs through, the official page to check a record on, and its newest fetch time.
+
+    columns:
+
+      - name: source
+        data_tests:
+          - not_null
+          - unique
+          # One row per source: a source listed twice would be printed twice.
+          - accepted_values:
+              arguments:
+                values: ['sunbiz_cor', 'sunbiz_flr', 'dbpr_license', 'dbpr_discipline', 'duval']
+          # A new source must be added here on purpose, with its label reviewed.
+
+      - name: label
+        data_tests:
+          - not_null
+          - unique
+          # The report prints the label. Two sources with one label could
+          # not be told apart by a reader.
+
+      - name: is_shown
+        data_tests:
+          - not_null
+          # TRUE = checked, FALSE = not checked. Never unknown.
+
+      - name: data_through
+        data_tests:
+          - not_null
+          # The report says "data through <date>" for every checked source.
+
+      - name: data_through_note
+        data_tests:
+          - not_null
+
+      - name: source_url
+        data_tests:
+          - not_null
+          # CLAUDE.md rule 3: no fact without a source URL ...
+
+      - name: fetched_at
+        data_tests:
+          - not_null
+          # ... and none without a fetch time.
+
+      - name: fetched_at_is_approximate
+        data_tests:
+          - not_null
+
+      - name: list_order
+        data_tests:
+          - not_null
+          - unique
+          # Two sources with the same position would print in an order that
+          # could change from one build to the next.

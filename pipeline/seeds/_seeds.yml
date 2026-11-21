@@ -63,6 +63,9 @@ seeds:
       types into it. One row per approved exception. The test
       assert_shown_flags_cite_an_approved_search_page fails when a flag that
       may be shown cites anything else. A new row here needs a ruling.
+      The row sunbiz_cor (added in leg C1) is the company's own record: ruling
+      R9 applied to a company, which is the working rule of open question Q9.
+      The test assert_company_search_cites_the_approved_search_page checks it.
     columns:
       - name: source
         data_tests:
@@ -71,7 +74,7 @@ seeds:
           # One approved address per source.
           - accepted_values:
               arguments:
-                values: ['sunbiz_flr', 'dbpr', 'duval']
+                values: ['sunbiz_flr', 'dbpr', 'duval', 'sunbiz_cor']
       - name: ruling
         data_tests:
           - not_null
@@ -80,5 +83,37 @@ seeds:
         data_tests:
           - not_null
       - name: looked_up_by
+        data_tests:
+          - not_null
+
+  - name: possible_match_reasons
+    description: >
+      Phase C working rule W3. A possible match is a record on an AMBIGUOUS
+      link that would be a shown flag if the link were CONFIRMED. Decision d19
+      says such a record shows as "possible match: verify", and nobody has yet
+      decided WHICH reasons for being AMBIGUOUS are safe to show: a record
+      that predates the company could accuse the wrong company, and a name
+      with no legal-entity word may be a person's. So this seed lists every
+      reason code with is_shown false, and Andres turns a reason on with a
+      ruling. The test assert_possible_matches_stay_hidden compares the mart
+      to the literal false, so showing a reason takes two reviewed edits:
+      this file and that test (the reasoning of ruling R28).
+    columns:
+      - name: link_reason
+        data_tests:
+          - not_null
+          - unique
+          # One decision per reason: a reason listed twice would double every
+          # possible match that carries it.
+          - accepted_values:
+              arguments:
+                values: ['before_company_filed', 'date_unknown', 'no_entity_word', 'several_companies', 'several_companies_same_zip', 'several_similar_names', 'several_similar_names_same_zip', 'zip_differs', 'zip_unreadable']
+          # The nine reasons the linking macro can give an AMBIGUOUS link
+          # (macros/company_matching.sql). A tenth must be added here on purpose.
+      - name: is_shown
+        data_tests:
+          - not_null
+          # TRUE or FALSE, never unknown.
+      - name: meaning
         data_tests:
           - not_null
