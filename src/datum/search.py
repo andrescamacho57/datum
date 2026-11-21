@@ -93,8 +93,18 @@ class Shortlist:
     levels: tuple[str, ...]                 # the level of each shown candidate, in the same order
     top_level: str | None                   # the best level found. None when there is no candidate at all
     tied_at_top: int                        # how many candidates share top_level. More than 1 is a tie (rule W7)
-    tied_not_shown: int                     # how many of those are NOT among the candidates shown. Only an exact-name match can be counted and not shown
+    not_shown: tuple[Candidate, ...]        # the candidates counted in tied_at_top that are NOT among the ones shown, in rank order
     city_given: bool                        # whether the contractor's note named a city
+
+    # not_shown holds the companies themselves, not only how many there are. A count of
+    # companies that the object does not carry would be a statement with no source behind
+    # it (CLAUDE.md rule 3): a page could say "one more company has this exact name" and
+    # could not name it or cite it. Only a Strong (exact-name) candidate can be here.
+
+    @property
+    def tied_not_shown(self) -> int:
+        """How many of the tied candidates are not on the list shown."""
+        return len(self.not_shown)
 
 
 class SearchBackend(Protocol):
@@ -264,7 +274,8 @@ def shortlist(pool: list[Candidate], city_given: bool, limit: int = SHORTLIST_SI
       - Strong means the SAME NAME (and the city agrees, or none was given). Those are
         counted over the WHOLE pool, because a company with the exact name can rank sixth
         by similarity, behind five near-misses, and a count over the five shown would miss
-        it. tied_not_shown says how many of them did not fit on the list.
+        it. not_shown holds the ones that did not fit on the list, each with its own
+        source address and fetch time, so a page can name them and cite them.
       - Likely and Possible are counted among the candidates shown only. Over the whole
         pool those counts would mostly measure how wide the retrieve step cast its net,
         and that says nothing about the companies.
@@ -272,16 +283,16 @@ def shortlist(pool: list[Candidate], city_given: bool, limit: int = SHORTLIST_SI
     """
     shown = sorted(((match_level(c, city_given), c) for c in pool[:limit]), key=lambda pair: LEVELS.index(pair[0]))
     levels = tuple(level for level, _ in shown)
-    strong_in_pool = sum(1 for c in pool if match_level(c, city_given) == "Strong")
-    if strong_in_pool:
-        top_level, tied = "Strong", strong_in_pool
-        not_shown = strong_in_pool - levels.count("Strong")
+    strong_further_down = tuple(c for c in pool[limit:] if match_level(c, city_given) == "Strong")   # same-name companies that did not fit on the list
+    strong_shown = levels.count("Strong")
+    if strong_shown or strong_further_down:
+        top_level, tied = "Strong", strong_shown + len(strong_further_down)
     else:
         top_level = levels[0] if levels else None
-        tied, not_shown = (levels.count(top_level), 0) if levels else (0, 0)
+        tied = levels.count(top_level) if levels else 0
     return Shortlist(
         candidates=tuple(c for _, c in shown), levels=levels,
-        top_level=top_level, tied_at_top=tied, tied_not_shown=not_shown, city_given=city_given,
+        top_level=top_level, tied_at_top=tied, not_shown=strong_further_down, city_given=city_given,
     )
 
 

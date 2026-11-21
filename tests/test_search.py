@@ -233,7 +233,20 @@ def test_an_exact_name_company_outside_the_list_makes_the_top_level_strong_even_
     )
     listed = shortlist(search_pool(backend, "Acme Roofing"), city_given=False)
     assert listed.levels == ("Possible",) * 5
-    assert (listed.top_level, listed.tied_at_top, listed.tied_not_shown) == ("Strong", 1, 1)   # the page must be able to say a same-name company is not listed
+    assert (listed.top_level, listed.tied_at_top, listed.tied_not_shown) == ("Strong", 1, 1)
+    (unlisted,) = listed.not_shown                                        # the company itself is carried, not only a count of it
+    assert unlisted.company.document_number == "T00000000001"
+    assert unlisted.company.source_url.startswith("https://") and unlisted.company.fetched_at == FETCHED   # so a page can name it AND cite it
+
+
+def test_every_company_counted_in_a_tie_can_be_reached_from_the_shortlist():
+    # The third review round found that the count covered companies the shortlist did not hold: a number with no source behind it.
+    pool = rank([company(f"T0000000000{n}", "ACME ROOFING LLC") for n in range(8)], "acme roofing", limit=None)
+    listed = shortlist(pool, city_given=False)
+    strong_shown = [c for c, level in zip(listed.candidates, listed.levels) if level == listed.top_level]
+    reachable = {c.company.document_number for c in strong_shown} | {c.company.document_number for c in listed.not_shown}
+    assert len(reachable) == listed.tied_at_top == 8
+    assert [c.company.document_number for c in listed.not_shown] == ["T00000000005", "T00000000006", "T00000000007"]   # in rank order
 
 
 def test_one_candidate_at_the_top_level_is_not_a_tie():
@@ -265,7 +278,7 @@ def test_the_shortlist_shows_the_best_level_first_and_keeps_rank_order_inside_a_
 
 def test_an_empty_shortlist_has_no_tie():
     empty = shortlist([], city_given=False)
-    assert (empty.candidates, empty.top_level, empty.tied_at_top, empty.tied_not_shown) == ((), None, 0, 0)
+    assert (empty.candidates, empty.top_level, empty.tied_at_top, empty.not_shown) == ((), None, 0, ())
 
 
 def test_the_postgres_query_sends_what_was_typed_as_a_value_never_as_sql():
