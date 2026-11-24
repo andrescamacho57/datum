@@ -12,11 +12,22 @@ What it does, in order:
                  copy the files into it. The tables the app is reading are not touched.
     3. verify    count the rows of each new table. Every count must equal Snowflake's. One
                  mismatch stops the run here, before anything the app reads has changed.
-    4. index     build the indexes on the new tables, including the trigram index the search uses.
-    5. swap      in ONE transaction: drop each old table and give the new one its name. A
+    4. narrow    build company_search_names, the narrow search table, from the company rows
+                 just loaded: the document number and the simplified name of every company and
+                 nothing else, written in name order. Then check that it holds exactly the
+                 companies company_search holds. One difference stops the run here.
+    5. index     build the indexes on the new tables, including the trigram index the search uses.
+    6. swap      in ONE transaction: drop each old table and give the new one its name. A
                  transaction is all-or-nothing, so the app sees the old tables until the
                  moment it sees all the new ones. A load that fails halfway never leaves the
                  app reading half a table.
+
+Why there is a narrow table (leg C2, the third approach to the search speed): the search's
+first step has to open every row the trigram index points at, to check it. In company_search
+a row is about 240 bytes, the table is 3 GB, and those rows are scattered through it. In the
+narrow table a row is about 70 bytes and rows with names that start alike sit next to each
+other, so the same check reads far fewer pages. The search then fetches the full row of the
+200 companies it keeps from company_search, by document number.
 
 Hidden records never get here (working rule W9): the export keeps only rows whose is_shown
 is true, and the two flag tables below also carry CHECK (is_shown), so Postgres itself
@@ -47,6 +58,7 @@ COUNTS_TABLE = "export_counts"                             # the small file of r
 NEW = "_new"                                               # the temporary ending a table carries until the swap
 BLOCK_BYTES = 1024 * 1024                                  # send 1 MB of a file to Postgres at a time
 INDEX_MEMORY = "1GB"                                       # memory Postgres may use while building an index, for this session only
+SORT_MEMORY = "256MB"                                      # memory this session may use to sort the names and to compare the two tables
 
 
 @dataclass(frozen=True)                     # frozen = fields can't change after creation
@@ -132,6 +144,52 @@ TABLES = (
 )
 
 
+NAMES = Table(
+    name="company_search_names",
+    columns=(
+        ("document_number", "text not null"),
+        ("name_key", "text not null"),
+    ),
+    indexes=(("name_key_trgm", "using gin (name_key gin_trgm_ops)"),),   # the trigram index the search's first step reads
+)
+# The narrow search table. It is NOT in TABLES, because no file is exported for it: step 4
+# builds it inside Postgres from the company rows just loaded, so it cannot hold a company the
+# export did not send.
+# It has no source_url and no fetched_at, and that is on purpose. CLAUDE.md rule 3 is about
+# facts, and this table states no fact to anybody. It is a lookup aid, like an index: the
+# search reads it only to learn WHICH document numbers to fetch, and every company it then
+# shows is read from company_search, with its source address and fetch time.
+# It has no primary key either. Nothing looks a row up here by document number, and a second
+# 600 MB index would only make the database bigger. NAMES_CHECK_SQL does the job a key would do.
+
+NAMES_FILL_SQL = (
+    f"insert into {NAMES.name}{NEW} (document_number, name_key) "
+    f"select document_number, name_key from company_search{NEW} "
+    'order by name_key collate "C", document_number'
+)
+# order by: the rows are WRITTEN in name order, so companies whose names start alike share a
+# page on disk. Postgres keeps rows in the order they arrive and never reorders them later.
+# collate "C" sorts by plain byte value, which is faster than language rules and gives the
+# same order on every machine.
+
+NAMES_CHECK_SQL = (
+    "select"
+    f" (select count(*) from {NAMES.name}{NEW}),"
+    f" (select count(*) from company_search{NEW}),"
+    f" (select count(*) from {NAMES.name}{NEW} n where not exists"
+    f" (select 1 from company_search{NEW} c where c.document_number = n.document_number and c.name_key = n.name_key)),"
+    f" (select count(*) from company_search{NEW} c where not exists"
+    f" (select 1 from {NAMES.name}{NEW} n where n.document_number = c.document_number and n.name_key = c.name_key))"
+)
+# Four numbers: the rows in the narrow table, the rows in company_search, the narrow rows with
+# no company of that document number and name, and the companies with no narrow row. The two
+# tables hold the same document numbers exactly when the first two are equal and the last two
+# are 0. The row counts matter because company_search has one row per document number (its
+# primary key), so equal counts with nothing unmatched means the narrow table has no number
+# twice. tests/test_load_postgres.py runs this very text against small tables that differ in
+# each of those ways.
+
+
 class ExportError(ValueError):
     """The export on disk is not what this module expects. Nothing has been swapped in when it is raised."""
 
@@ -211,8 +269,8 @@ def load(conn, export_dir: Path = EXPORT_DIR) -> dict:
     """Load every table from the export and swap them in. Returns the counts and timings.
 
     conn is an open psycopg connection in autocommit mode. Autocommit means each statement
-    is saved as soon as it finishes, which is right for steps 2 to 4: they only touch the
-    temporary tables. Step 5 opens an explicit transaction for the swap.
+    is saved as soon as it finishes, which is right for steps 2 to 5: they only touch the
+    temporary tables. Step 6 opens an explicit transaction for the swap.
     """
     expected = read_expected_counts(export_dir)                    # step 1: inspect before loading
     files = {table.name: export_files(table.name, export_dir) for table in TABLES}
@@ -225,6 +283,7 @@ def load(conn, export_dir: Path = EXPORT_DIR) -> dict:
     loaded = {}
     conn.execute("set time zone 'UTC'")                            # times are shown in UTC for this session; the files already say Z
     conn.execute(f"set maintenance_work_mem = '{INDEX_MEMORY}'")   # this session only: a faster index build
+    conn.execute(f"set work_mem = '{SORT_MEMORY}'")                # this session only: room to sort 13 million names in step 4
     for table in TABLES:                                           # step 2: load into temporary tables
         conn.execute(f"drop table if exists {table.name}{NEW}")    # left over from a run that stopped early
         conn.execute(create_statement(table))
@@ -239,24 +298,38 @@ def load(conn, export_dir: Path = EXPORT_DIR) -> dict:
         details = "; ".join(f"{name}: loaded {got}, Snowflake exported {want}" for name, (got, want) in wrong.items())
         raise ExportError(f"row counts differ, nothing was swapped in. {details}")
 
+    conn.execute(f"drop table if exists {NAMES.name}{NEW}")        # step 4: the narrow search table, built from the rows just loaded
+    conn.execute(create_statement(NAMES))
+    conn.execute(NAMES_FILL_SQL)
+    names_rows, company_rows, only_in_names, only_in_companies = conn.execute(NAMES_CHECK_SQL).fetchone()
+    if names_rows != company_rows or only_in_names or only_in_companies:   # the search would miss a company, or find one the app cannot show
+        for table in TABLES + (NAMES,):
+            conn.execute(f"drop table if exists {table.name}{NEW}")
+        raise ExportError(
+            f"{NAMES.name} and company_search do not hold the same companies, nothing was swapped in. "
+            f"{NAMES.name} has {names_rows} rows and company_search has {company_rows}; "
+            f"{only_in_names} are only in {NAMES.name} and {only_in_companies} are only in company_search"
+        )
+
     index_seconds = {}
-    for table in TABLES:                                           # step 4: indexes, on the temporary tables
+    for table in TABLES + (NAMES,):                                # step 5: indexes, on the temporary tables
         for statement in index_statements(table):
             started = time.perf_counter()                          # a clock for measuring durations
             conn.execute(statement)
             index_seconds[statement.split()[2].replace(NEW, "")] = time.perf_counter() - started   # word 3 of the statement is the index name
         conn.execute(f"analyze {table.name}{NEW}")                 # refresh the statistics the query planner uses
 
-    with conn.transaction():                                       # step 5: the swap, all or nothing
-        for table in TABLES:
+    with conn.transaction():                                       # step 6: the swap, all or nothing, the narrow table included
+        for table in TABLES + (NAMES,):
             for statement in swap_statements(table):
                 conn.execute(statement)
-    return {"expected": expected, "loaded": loaded, "index_seconds": index_seconds}
+    names = {"rows": names_rows, "company_rows": company_rows, "only_in_names": only_in_names, "only_in_companies": only_in_companies}
+    return {"expected": expected, "loaded": loaded, "index_seconds": index_seconds, "names": names}
 
 
 def sizes(conn) -> list[tuple[str, str, str]]:
     """(relation, kind, size) for every table and index this module made, biggest first."""
-    names = [table.name for table in TABLES]
+    names = [table.name for table in TABLES + (NAMES,)]
     rows = conn.execute(
         """
         select c.relname,
@@ -289,6 +362,9 @@ def main() -> int:
         print(f"{'table':<26}{'Snowflake exported':>20}{'Postgres loaded':>18}")
         for table in TABLES:
             print(f"{table.name:<26}{result['expected'][table.name]:>20,}{result['loaded'][table.name]:>18,}")
+        narrow = result["names"]
+        print(f"{NAMES.name}: {narrow['rows']:,} rows built from company_search's {narrow['company_rows']:,}; "
+              f"{narrow['only_in_names']} only in {NAMES.name}, {narrow['only_in_companies']} only in company_search")
         for index, seconds in result["index_seconds"].items():
             print(f"index {index}: built in {seconds:.1f} seconds")
         for name, kind, pretty in sizes(conn):

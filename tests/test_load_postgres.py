@@ -8,17 +8,23 @@ before anything is swapped, and a wrong count stops the run before the swap.
 What these tests cannot prove is that Postgres accepts the statements. That is proven by
 the real load, whose counts are in the leg report (docs/legs/c2-postgres-search.md).
 
+One statement IS run for real: the check that the narrow search table and company_search
+hold the same companies. It is plain SQL that SQLite also understands, and SQLite is a small
+database that ships inside Python and lives in memory, so the test needs no server.
+
 Every file is made in pytest's temporary folder from invented rows. Run from ~/datum:  pytest
 """
 
 import csv                                  # writes the small export files and reads back what the loader sent
 import gzip                                 # the export is gzip-compressed
 import io                                   # turns bytes into a text stream for the csv module
+import sqlite3                              # an in-memory database, to run the same-companies check for real
 
 import pytest                               # the test runner; pytest.raises checks that an error IS raised
 
 from datum.load_postgres import (
-    TABLES, ExportError, check_header, create_statement, export_files, load, read_expected_counts, swap_statements,
+    NAMES, NAMES_CHECK_SQL, NAMES_FILL_SQL, TABLES, ExportError, check_header, create_statement, export_files, index_statements, load,
+    read_expected_counts, swap_statements,
 )
 
 BY_NAME = {table.name: table for table in TABLES}
@@ -58,15 +64,20 @@ def a_full_export(export_dir, counts=None):
 class FakeConnection:
     """Stands in for a psycopg connection: it records every statement and counts the rows copied into each table."""
 
-    def __init__(self):
+    def __init__(self, names_check=None):
         self.log = []                       # every statement, in the order it arrived, plus BEGIN and COMMIT markers
         self.rows = {}                      # table name → rows copied into it
+        self.names_check = names_check      # what the same-companies check answers. None = the two tables agree
 
     def execute(self, statement, params=None):
         self.log.append(" ".join(statement.split()))                      # one line per statement, extra spaces removed
         words = statement.split()
         if words[:2] == ["create", "table"]:
             self.rows[words[2]] = 0                                       # a new, empty table
+        if statement == NAMES_FILL_SQL:
+            self.rows["company_search_names_new"] = self.rows["company_search_new"]   # one narrow row per company loaded
+        if statement == NAMES_CHECK_SQL:
+            return FakeResult(self.names_check or (self.rows["company_search_names_new"], self.rows["company_search_new"], 0, 0))
         if statement.startswith("select count(*) from "):
             return FakeResult(self.rows[words[-1]])
         return FakeResult(None)
@@ -83,7 +94,7 @@ class FakeResult:
         self.value = value
 
     def fetchone(self):
-        return (self.value,)
+        return self.value if isinstance(self.value, tuple) else (self.value,)
 
 
 class FakeCursor:
@@ -219,3 +230,60 @@ def test_every_fact_column_is_required():
         assert definitions["source_url"] == "text not null"
         assert definitions["fetched_at"] == "timestamptz not null"
         assert definitions["fetched_at_is_approximate"] == "boolean not null"
+
+
+def test_the_narrow_table_is_built_from_the_loaded_companies_checked_and_swapped_with_the_rest(tmp_path):
+    a_full_export(tmp_path)
+    conn = FakeConnection()
+    result = load(conn, tmp_path)
+    assert result["names"] == {"rows": 3, "company_rows": 3, "only_in_names": 0, "only_in_companies": 0}
+    begin, commit = conn.log.index("BEGIN"), conn.log.index("COMMIT")
+    before, inside = conn.log[:begin], conn.log[begin + 1:commit]
+    fill, check = before.index(NAMES_FILL_SQL), before.index(NAMES_CHECK_SQL)
+    assert before.index("select count(*) from company_search_new") < fill < check   # filled after the companies are loaded and counted, then checked
+    assert check < before.index(index_statements(NAMES)[0])               # the slow index is only built on a table that passed the check
+    assert all(statement in inside for statement in swap_statements(NAMES))   # and it goes live in the same transaction as the four tables
+    assert "from company_search_new " in NAMES_FILL_SQL                    # it is filled from the copy being loaded, never from the live table
+
+
+def test_a_narrow_table_that_differs_from_company_search_stops_the_run_before_the_swap(tmp_path):
+    # Each answer is (narrow rows, company rows, only in the narrow table, only in company_search).
+    for answer, message in (
+        ((2, 3, 0, 1), "0 are only in company_search_names and 1 are only in company_search"),   # a company the search could never find
+        ((3, 3, 1, 1), "1 are only in company_search_names and 1 are only in company_search"),   # a number the app could not show
+        ((4, 3, 0, 0), "company_search_names has 4 rows and company_search has 3"),              # the same numbers, one of them twice
+    ):
+        a_full_export(tmp_path)
+        conn = FakeConnection(names_check=answer)
+        with pytest.raises(ExportError, match=message):
+            load(conn, tmp_path)
+        assert "BEGIN" not in conn.log                                    # no transaction was opened
+        assert not [s for s in conn.log if " rename " in s]               # and no table was given a live name
+        assert conn.log[-5:] == [f"drop table if exists {table.name}_new" for table in TABLES + (NAMES,)]
+        assert not [s for s in conn.log if s.startswith("create index")]  # no index was built on tables that are about to be dropped
+
+
+def run_names_check(names, companies):
+    """Run NAMES_CHECK_SQL, the loader's own text, in SQLite against two small invented tables of (document number, name)."""
+    db = sqlite3.connect(":memory:")                                      # a database that exists only while this function runs
+    db.execute("create table company_search_names_new (document_number text, name_key text)")
+    db.execute("create table company_search_new (document_number text primary key, name_key text)")
+    db.executemany("insert into company_search_names_new values (?, ?)", names)
+    db.executemany("insert into company_search_new values (?, ?)", companies)
+    return db.execute(NAMES_CHECK_SQL).fetchone()
+
+
+def test_the_check_sees_every_way_the_narrow_table_can_differ_from_company_search():
+    companies = [("T1", "ACME ROOFING"), ("T2", "BEST POOLS"), ("T3", "CORAL ELECTRIC")]
+    assert run_names_check(companies, companies) == (3, 3, 0, 0)          # the same companies: equal counts and nothing unmatched
+    assert run_names_check(companies[:2], companies) == (2, 3, 0, 1)      # T3 is missing from the narrow table
+    assert run_names_check(companies + [("T9", "DUNE GLASS")], companies) == (4, 3, 1, 0)   # T9 is in the narrow table only
+    assert run_names_check(companies[:2] + [("T9", "CORAL ELECTRIC")], companies) == (3, 3, 1, 1)   # equal counts, different numbers
+    assert run_names_check(companies + [companies[0]], companies) == (4, 3, 0, 0)   # T1 twice: only the row counts can show it
+    assert run_names_check(companies[:2] + [("T3", "CORAL ELECTRICAL")], companies) == (3, 3, 1, 1)   # the right number under another name
+
+
+def test_the_narrow_table_is_never_read_from_a_file_and_holds_only_a_number_and_a_name():
+    assert NAMES not in TABLES                                            # so no export file and no exported count is expected for it
+    assert [name for name, _ in NAMES.columns] == ["document_number", "name_key"]   # nothing a report states is in it
+    assert index_statements(NAMES) == ["create index company_search_names_new_name_key_trgm on company_search_names_new using gin (name_key gin_trgm_ops)"]
