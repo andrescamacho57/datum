@@ -9,6 +9,7 @@ Run from ~/datum:  pytest
 """
 
 import inspect                              # reads the source of the module under test
+import re                                   # the search for the words rule W4 bans
 from pathlib import Path                    # the path of extract.py, which one test reads as text
 from dataclasses import replace             # a copy of a frozen dataclass with one field changed
 
@@ -95,7 +96,7 @@ def test_two_companies_with_the_same_name_are_called_a_tie_on_the_shortlist_and_
                    entity_name="INVENTED AIR CONDITIONING INC", name_key="INVENTED AIR CONDITIONING INC", principal_city="BOYNTON BEACH")
     talk = Talk(["2"])
     path = run(talk, tmp_path, companies=[first, twin])
-    assert wording.SHORTLIST_TIE in talk.everything
+    assert "These look about equally likely. Is it one of these? A street or a city would help tell them apart." in talk.everything
     assert path.name.startswith(fx.NO_FLAG_COMPANY) and "match level Strong" in path.read_text()
     assert "1 other company matched equally well." in path.read_text()
     alone = Talk(["1"])
@@ -201,3 +202,46 @@ def test_the_note_is_read_at_a_prompt_and_never_from_the_command_line():
     assert report.read_note([], quiet.ask, quiet.say) == "a note" and quiet.said == []
     code_lines = [line.split("#")[0] for line in inspect.getsource(report.main).splitlines()]
     assert not [line for line in code_lines if "argv" in line and "read_note" not in line]   # main() hands the arguments to read_note and reads them nowhere else
+
+
+def test_a_vague_note_shows_no_company_until_a_second_extraction_names_one(tmp_path):
+    # Acceptance test A2. Without the jump back to the top of the loop, the first, vague extraction would be searched and a shortlist shown.
+    vague = {"business_name": "Invented Air Conditioning", "city": "", "street": "", "is_specific": False}   # a name the search WOULD find
+    seen_before_second_call = []
+    calls = []
+
+    def extract(text):
+        calls.append(text)
+        if len(calls) == 1:
+            return dict(vague)
+        seen_before_second_call.extend(talk.said)                         # everything printed up to the second extraction
+        return dict(FIELDS)
+
+    talk = Talk(["invented air conditioning in boynton beach", "1"])
+    path = run(talk, tmp_path, note="the ac guy", extract=extract)
+    assert calls == ["the ac guy", "the ac guy invented air conditioning in boynton beach"]   # the answer is added to the note and extracted again
+    assert seen_before_second_call == []                                  # nothing at all was printed about any company before that
+    assert path is not None and "INVENTED AIR CONDITIONING, LLC" in talk.everything
+
+
+def test_pressing_enter_at_the_possible_match_question_means_no(tmp_path):
+    # The prompt ends in (y/N). A report for a Possible match that nobody confirmed would point at a company on a guess.
+    fields = {"business_name": "Invented Air Cooling", "city": "", "street": "", "is_specific": True}
+    for answer in ("", " ", "yes please", "N", "no"):                    # only the single letter y, in either case, is a yes
+        talk = Talk(["1", answer, ""])
+        assert run(talk, tmp_path, fields=fields) is None and list(tmp_path.iterdir()) == [], answer
+    assert run(Talk(["1", " Y "]), tmp_path, fields=fields) is not None
+
+
+def test_a_pick_one_past_the_end_of_the_list_is_asked_again(tmp_path):
+    talk = Talk(["6", "1"])                                              # five companies are listed: 6 is not one of them
+    path = run(talk, tmp_path)
+    assert talk.said.count("Please type a number from 0 to 5.") == 1 and path is not None
+
+
+def test_nothing_the_terminal_prints_in_a_whole_conversation_holds_a_banned_word(tmp_path):
+    w4_words = ("clean", "safe", "risky", "trustworthy", "reliable", "credit", "score", "recommend")   # typed out, not read from wording.py
+    banned = re.compile(r"\b(" + "|".join(w4_words) + ")", re.IGNORECASE)
+    talk = Talk(["0", "more", "1"])                                      # a shortlist, "add more details", a second shortlist, a pick, the report
+    assert run(talk, tmp_path) is not None
+    assert len(talk.said) > 20 and banned.findall(talk.everything) == []

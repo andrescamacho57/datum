@@ -17,6 +17,8 @@ from datetime import date, datetime, timedelta, timezone   # dates for the "New 
 import pytest                               # the test runner; pytest.raises checks that an error IS raised
 
 import report_fixtures as fx                # tests/report_fixtures.py: the fixture rows as objects
+from datum import report as terminal        # src/datum/report.py, the terminal command
+from datum import report_builder as builder_module
 from datum import wording
 from datum.models import Identification
 from datum.report_builder import (
@@ -25,7 +27,10 @@ from datum.report_builder import (
 )
 from datum.search import Candidate as SearchCandidate
 
-BANNED = re.compile(r"\b(" + "|".join(wording.BANNED_WORDS) + ")", re.IGNORECASE)   # each banned word at the START of a word, so "scores" is caught too
+W4_WORDS = ("clean", "safe", "risky", "trustworthy", "reliable", "credit", "score", "recommend")   # typed out, NOT read from wording.py: the test must not take its list from the module it checks
+BANNED = re.compile(r"\b(" + "|".join(W4_WORDS) + ")", re.IGNORECASE)   # each banned word at the START of a word, so "scores" is caught too
+W4_SENTENCE = ("Datum shows a record only when it can confirm that the record belongs to this company. "
+               "A record filed under a similar name or at a different address is not shown.")
 ALL_COMPANIES = (fx.LIEN_COMPANY, fx.LICENSE_COMPANY, fx.INACTIVE_COMPANY, fx.NEW_COMPANY, fx.NO_FLAG_COMPANY, fx.GAPS_COMPANY)
 PICKED = Identification(business_name="Invented Air Conditioning", city="Boynton Beach", level="Strong",
                         evidence=("name matches exactly (ignoring LLC/INC)", "city matches", "ACTIVE"))
@@ -48,7 +53,11 @@ def test_a_company_with_two_liens_shows_both_newest_first_in_the_marts_own_words
     assert report.summary == "2 flags found in 3 sources checked."
     text = render_markdown(report)
     assert "Status: closed. Certificate of release filed 2026-11-16." in text and "Status: open" in text
-    assert "(https://dos.fl.gov/sunbiz/search/) · fetched 2026-11-18" in text   # a measured fetch time: no "about"
+    # Each flag's OWN source line, found by a filing number that appears nowhere else on the page. A measured fetch time: no "about".
+    assert "- Source: [Florida Department of State federal lien filing 26FLR9900001](https://dos.fl.gov/sunbiz/search/) · fetched 2026-11-18" in text
+    assert "- Source: [Florida Department of State federal lien filing 19FLR9900002](https://dos.fl.gov/sunbiz/search/) · fetched about 2026-11-18" in text   # this row's fetch time is an estimate
+    assert "- Date on the record: 2026-11-16" in text and "- Date on the record: 2016-11-29" in text
+    assert text.count("- Open or closed is read from the state's federal lien files published through 2026-11-16.") == 2   # the caveat, once per lien
 
 
 def test_an_inactive_company_with_no_linked_record_counts_one_flag_and_never_says_no_flags_found():
@@ -61,6 +70,8 @@ def test_an_inactive_company_with_no_linked_record_counts_one_flag_and_never_say
     assert report.summary == "1 flag found in 3 sources checked."
     text = render_markdown(report)
     assert wording.NO_FLAGS not in text and "| Status with the state | Inactive |" in text
+    assert "### Inactive with the state\n\n- Inactive with the Florida Division of Corporations\n- Data as of the snapshot date;" in text   # the card: title, fact, caveat
+    assert "- Source: [Florida Division of Corporations (Sunbiz) record, document number T26000000003](https://search.sunbiz.org/Inquiry/CorporationSearch/ByDocumentNumber) · fetched about 2026-10-22" in text
     assert "fetched about 2026-10-22" in text                             # the company record's fetch time is an estimate, and the page says so (rule W1)
 
 
@@ -69,6 +80,7 @@ def test_a_company_on_record_within_twelve_months_is_flagged_as_new_and_one_outs
     assert [(flag.title, flag.fact.text, flag.caveat, flag.fact_date) for flag in report.flags] == [
         ("New company", "On record since 2026-06-15", "May be an effective date", date(2026, 6, 15)),   # the plan's flags table, word for word
     ]
+    assert "### New company\n\n- On record since 2026-06-15\n- May be an effective date\n- Source: [" in render_markdown(report)   # the card as a contractor reads it
     company = next(c for c in fx.load_companies() if c.document_number == fx.NEW_COMPANY)
     for on_record, flagged in (
         (date(2025, 11, 24), True),                                       # exactly twelve months before the report: still within them
@@ -114,6 +126,9 @@ def test_company_record_flags_come_first_and_linked_records_follow_newest_first(
     report = build(fx.INACTIVE_COMPANY, extra_flags=extra)
     assert [(flag.kind, flag.fact_date) for flag in report.flags] == [("company_record", None), ("linked_record", date(2026, 11, 16)), ("linked_record", None)]
     assert report.summary == "3 flags found in 3 sources checked."        # the summary counts both kinds (rule W2)
+    same_day = [replace(lien, document_number=fx.NO_FLAG_COMPANY, source_record_id=number, citation=f"filing {number}") for number in ("26FLR9900097", "26FLR9900096")]
+    titles = [flag.title for flag in build(fx.NO_FLAG_COMPANY, extra_flags=same_day).flags]
+    assert titles == ["filing 26FLR9900096", "filing 26FLR9900097"]       # two records of one date come in a fixed order, by record number
 
 
 def test_the_license_company_shows_the_license_line_and_the_lien_with_its_discharge_note():
@@ -151,12 +166,15 @@ def test_no_report_holds_a_word_that_reassures_or_judges(document_number):
         report = build(document_number, identification)
         text = render_markdown(report)
         assert BANNED.findall(text) == []
-        assert wording.CONFIRMED_ONLY in text and f"*{wording.DISCLAIMER}*" in text   # on every report, with or without flags
+        assert text.count(W4_SENTENCE) == 1                               # on every report, with or without flags, in these exact words
+        assert "*Sourced public-record facts, not advice. Verify on the official record before relying on them.*" in text
         assert (wording.NO_FLAGS in text) == (len(report.flags) == 0)     # the line is there exactly when no flag is shown
 
 
 def test_the_check_for_banned_words_can_fail_and_the_fixed_wording_passes_it():
     assert BANNED.findall("No flags found, so this company looks clean. Credit scores are recommended.") == ["clean", "Credit", "score", "recommend"]
+    assert BANNED.findall("A safe, reliable and trustworthy choice, not a risky one.") == ["safe", "reliable", "trustworthy", "risky"]   # the other four
+    assert wording.BANNED_WORDS == W4_WORDS
     constants = [value for name, value in vars(wording).items() if name.isupper() and name != "BANNED_WORDS"]   # a constant's name is in capitals
     fixed = [value for value in constants if isinstance(value, str)]
     fixed += [item for value in constants if isinstance(value, (tuple, dict)) for item in (value.values() if isinstance(value, dict) else value)]
@@ -178,6 +196,15 @@ def test_the_sources_lists_say_what_was_checked_through_which_date_and_what_was_
     assert "Court cases" in report.sources_not_checked and "UCC (Uniform Commercial Code) filings" in report.sources_not_checked
     text = render_markdown(report)
     assert text.index("## Sources checked") < text.index("## Not checked") < text.index("How this company was identified")
+    for fact in report.sources_checked:                                   # every checked source is ON the page, with its date, its address and its fetch date
+        assert f"- {fact.text} Source: [{fact.citation}]({fact.source_url}) · {fact.fetched_text}" in text
+    assert "- Federal tax liens filed with the Florida Department of State: data through 2026-11-16." in text
+    for item in report.sources_not_checked:                               # and so is everything that was NOT checked
+        assert f"\n- {item}\n" in text
+    assert "\n- Court cases\n" in text and "\n- Duval County recorded liens, tax warrants and judgments\n" in text
+    # R: the order is the table's list_order whatever order a backend returns the rows in.
+    backwards = FakeReportBackend(fx.load_companies(), [], list(reversed(fx.load_sources())))
+    assert ReportBuilder(backwards, today=lambda: fx.BUILT_ON).build(fx.NO_FLAG_COMPANY, None).sources_checked == report.sources_checked
 
 
 def test_a_report_is_refused_when_no_source_may_be_shown():
@@ -252,7 +279,7 @@ def test_a_number_that_names_no_company_or_is_not_a_number_at_all_is_not_found()
         build("T26000000099")                                             # the right shape, and no such company
 
 
-def test_the_two_layout_functions_hold_no_sentence_of_their_own():
+def test_the_functions_that_lay_out_a_report_or_talk_in_the_terminal_hold_no_sentence_of_their_own():
     # Every sentence must come from wording.py or from a mart column. A text of two or more words written inside these
     # functions would be wording nobody reviewed. Codes such as "company_record" and marks such as "|---|---|" are fine.
     def texts(code):
@@ -262,10 +289,17 @@ def test_the_two_layout_functions_hold_no_sentence_of_their_own():
             elif hasattr(constant, "co_consts"):                          # a function or a comprehension nested inside
                 yield from texts(constant)
 
-    functions = (render_markdown, ReportBuilder.build, ReportBuilder.company_record_flags, ReportBuilder.linked_flags, candidate_for_page)
+    a_sentence = re.compile(r"[A-Za-z]{2,}\s+[A-Za-z]{2,}")                # two words with a space between
+    functions = (render_markdown, ReportBuilder.build, ReportBuilder.company_record_flags, ReportBuilder.linked_flags, candidate_for_page,
+                 terminal.run, terminal.show_shortlist, terminal.source_line, terminal.pick, terminal.read_note, terminal.others_at_the_same_level)
     for function in functions:
-        written = [text for text in texts(function.__code__) if text != function.__doc__ and re.search(r"[A-Za-z]{2,}\s+[A-Za-z]{2,}", text)]   # two words with a space between
+        written = [text for text in texts(function.__code__) if text != function.__doc__ and a_sentence.search(text)]
         assert written == [], (function.__name__, written)
+    # A sentence kept in a module-level name and printed from there would slip past the check above, so those are read too.
+    for module in (builder_module, terminal):
+        kept = [name for name, value in vars(module).items() if isinstance(value, str) and not name.startswith("__") and a_sentence.search(value)]
+        assert kept == [], (module.__name__, kept)
+    # main() is not in the list: it holds the connection text "dbname=datum_dev" and prints nothing itself.
 
 
 def test_a_search_result_becomes_a_page_candidate_whose_name_and_place_are_facts():

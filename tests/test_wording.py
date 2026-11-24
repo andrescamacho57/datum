@@ -61,6 +61,16 @@ def test_the_not_checked_list_names_what_the_brief_says_datum_never_looked_at():
         assert subject in listed                                          # rule W5. The two hidden sources come from the table source_coverage
 
 
+def test_the_sentence_every_report_carries_and_the_banned_words_are_held_here_as_literal_text():
+    # A test that compares a sentence with the constant it came from passes when the constant is emptied. These are typed out.
+    assert wording.CONFIRMED_ONLY == ("Datum shows a record only when it can confirm that the record belongs to this company. "
+                                      "A record filed under a similar name or at a different address is not shown.")   # rule W4, word for word
+    assert wording.BANNED_WORDS == ("clean", "safe", "risky", "trustworthy", "reliable", "credit", "score", "recommend")   # rule W4's eight words
+    assert wording.SHORTLIST_TIE == "These look about equally likely. Is it one of these? A street or a city would help tell them apart."
+    assert wording.SEARCH_UNAVAILABLE == "The search is unavailable right now, so no company is shown. Try again in a few minutes."
+    assert wording.IDENTIFIED_BY_NUMBER == "opened by its document number, so no match level applies."
+
+
 def test_the_two_company_record_flags_use_the_plans_wording_word_for_word():
     # docs/mvp_plan_nov8.md, section 4, the first two rows of the flags table.
     assert wording.FLAG_INACTIVE_TEXT == "Inactive with the Florida Division of Corporations"

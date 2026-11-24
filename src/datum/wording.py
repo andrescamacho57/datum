@@ -2,8 +2,8 @@
 
 Why one module: a reviewer who wants to know what Datum can say to a contractor reads this
 file and nothing else. The report builder, the terminal command and the web app all take
-their words from here, and a test fails when a page holds a sentence that is not built
-from this module or copied from a mart column.
+their words from here. A test reads the code of the functions that lay out a report or
+talk in the terminal, and it fails when one of them holds a sentence of its own.
 
 What is NOT here, on purpose: the wording of a linked record. A federal lien or a license
 is described by the mart's own columns (citation, status, status_note, caveat), exactly as
