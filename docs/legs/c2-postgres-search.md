@@ -1,22 +1,37 @@
 # Leg C2: the Postgres copy and the search
 
-Branch `leg/c2-postgres-search` (stacked on `leg/c1-serving-marts`) · pull request [#16](https://github.com/andrescamacho57/datum/pull/16) · run on Nov 20 and 21, 2026 · risk tier **Medium** · status: **stopped at one check. Everything was built and every other check passes, and the search misses its speed target under both approaches tried. The brief says to record the numbers and stop the leg in that case, and so legs C3 and C4 were not started.**
+Branch `leg/c2-postgres-search` · pull request [#16](https://github.com/andrescamacho57/datum/pull/16) · run on Nov 20 and 21, 2026, and again on Nov 24 for a third approach to the search speed · risk tier **Medium** · status: **every check now passes. The search missed its speed target under the first two approaches, and so the leg stopped on Nov 21. On Nov 24 Andres ruled that one more approach should be tried, the narrow search table. It meets the target, and it returns the same companies as the approach before it on all 208 searches.**
+
+The branch was stacked on `leg/c1-serving-marts`. Pull request 15 was merged on Nov 24, and so this pull request now shows only this leg's commits.
 
 **The short version**
 
-- **The speed target is not met, and that is why the leg stops.** The target is a p95 under 1 second. The p95 is the time that 95 of every 100 searches beat. The first approach has a p95 of **11,212 milliseconds**, which is over 11 seconds. The second approach, which is the one in the code, has a p50 of **181 milliseconds** and a p95 of **1,229 milliseconds**. That is 0.23 seconds over, and I did not loosen the target.
+- **The speed target is met by the third approach.** The target is a p95 under 1 second. The p95 is the time that 95 of every 100 searches beat, and the p50 is the time that half of them beat. With the narrow search table, the 208 searches have a p50 of **129 milliseconds**, a p95 of **574 milliseconds** and a slowest search of **2,335 milliseconds**. That is the run measured the way the first two approaches were. I timed the narrow table six times in all, three of them with the Mac's memory emptied of the database first, and the p95 was under 1 second every time: between 430 and 869 milliseconds.
+- **The answers did not change.** The second approach and the narrow table were run on the same 208 searches, and all **208** returned the same companies in the same order. **0** differ.
+- **One number does not add up, and you should know it.** The second approach missed the target on Nov 21 with a p95 of 1,229 milliseconds. Timed again on Nov 24, on the same 208 searches, it came in under 1 second in all four runs, between 545 and 916 milliseconds. I could not reproduce its miss and I cannot say why (check 3 has what I know). So the measured gain of the narrow table is smaller than the Nov 21 number suggests. Timed from a cold start, the narrow table had a p95 of 560, 520 and 869 milliseconds, against 847 and 863 for the second approach, which makes it faster in two cold runs of three and level in the third. Its slowest search was about half as slow in every run.
+- **A few searches are still slow.** Between 2 and 7 of the 208 searches took longer than 1 second, depending on the run. They are names built from one long, common word and one or two very short ones. Check 3 explains them.
 - Everything else the leg asks for is done and checked.
   - The four marts are in Postgres, and every table's row count equals Snowflake's: **12,988,435** companies, **9,950** shown flags, **0** possible matches and **5** source rows.
   - No hidden record left Snowflake. **14,263** hidden flags and all **9,651** possible matches stayed behind.
   - The search scores at least as well as Snowflake on the test set: top-1 **7** of 10 against 6, recall at 5 **9** against 9, and wrong_match **2** against 3.
-  - The offline tests pass with Postgres stopped: 255 passed.
-- One thing happened that you should know about. At 00:32 Eastern time on Nov 21, something outside this run switched the working folder to the branch `main`, and my next four commits landed on local `main`. Nothing was pushed. I moved the commits to this branch and set local `main` back to `origin/main`. Section 4 has the details.
+  - The offline tests pass with Postgres stopped: 264 passed.
+- On Nov 21 something outside the run switched the working folder to the branch `main`, and four commits landed on local `main`. Nothing was pushed, and the commits were moved to this branch. It did not happen on Nov 24, when every commit was preceded by a check of the branch name. Section 4 has the details.
 
 **What is left for Andres**
 
-1. **Decide what to do about the speed target.** This is the one decision that holds up the rest of Phase C. Section 4 lays out three options. I recommend the first one, a narrower search table, measured the same way as the two approaches in this report.
-2. Read section 3, which holds the calls I made where the brief did not say.
-3. Tell me to go on with legs C3 and C4 once the speed question is settled. They read this leg's search module and its Postgres tables, and both are ready.
+1. **Decide whether to drop the old trigram index.** The index on `company_search.name_key` takes 588 MB, and only the second approach reads it now. I kept it so that the second approach could be timed again. Dropping it is one line in the loader.
+2. **Know the new size before you pick a host.** The database grew from 4,213 MB to **5,503 MB**, because the narrow table and its index were added (check 4).
+3. Read section 3, which holds the calls I made where the brief did not say. Decisions 13 to 18 are the new ones.
+
+The condition you set for going on to legs C3 and C4 is met: the p95 is under 1 second, and all 208 searches return the same companies.
+
+**The history, in order**
+
+| When | What happened |
+|---|---|
+| Nov 20 and 21 | The leg was built. Two approaches to the search were timed, with a p95 of 11,212 and of 1,229 milliseconds. Both missed the target, and so the leg stopped, as the brief requires |
+| Nov 21 | Three review rounds. The fix for the third round's finding, commit `d2e51f1`, was not reviewed, because no fourth round is allowed |
+| Nov 24 | Andres ruled that a third approach should be tried: option A, the narrow search table. It was built, timed and compared, and the new commits were reviewed from round 1, together with `d2e51f1` |
 
 ---
 
@@ -29,10 +44,12 @@ Branch `leg/c2-postgres-search` (stacked on `leg/c1-serving-marts`) · pull requ
    company_search ─────────┐
    company_flags (shown) ──┤  script 23           load_postgres.py
    possible matches (0) ───┼──────────▶ data/export/*.csv.gz ──────────▶ four tables, swapped in one transaction
-   source_coverage ────────┘  + a counts file                            + a trigram index on company_search.name_key
+   source_coverage ────────┘  + a counts file                            + company_search_names, the narrow table (Nov 24):
+                                                                           document number and name only, with the trigram index
                                                                               │
-                                                             search.py:  RETRIEVE a pool by trigram (Postgres)
-                                                                         RERANK it by Jaro-Winkler (plain Python)
+                                                             search.py:  RETRIEVE a pool by trigram from the narrow table,
+                                                                           then read those 200 companies from company_search
+                                                                         RERANK the pool by Jaro-Winkler (plain Python)
                                                                               │
                                                              evals/run.py scores it against the test set,
                                                              on Postgres and on Snowflake
@@ -44,7 +61,8 @@ Branch `leg/c2-postgres-search` (stacked on `leg/c1-serving-marts`) · pull requ
 |---|---|---|
 | Postgres 17 | A database server, installed with Homebrew and running on the Mac only. The database is `datum_dev`, with the `pg_trgm` extension turned on | Decision d18: lookups read Postgres, and builds run in Snowflake |
 | `snowflake/23_export_marts.sql` | Copies the four marts out of Snowflake as compressed CSV (comma-separated values) files, plus a fifth small file holding each table's row count. The two flag marts are filtered to rows with `is_shown` true | Working rule W9: a hidden record never leaves Snowflake |
-| `src/datum/load_postgres.py` | Checks the files, loads each table under a temporary name, counts the rows, builds the indexes, and then swaps all four tables in with one transaction | A load that fails halfway must never leave the app reading half a table |
+| `src/datum/load_postgres.py` | Checks the files, loads each table under a temporary name, counts the rows, builds the narrow table and checks it, builds the indexes, and then swaps every table in with one transaction | A load that fails halfway must never leave the app reading half a table |
+| `company_search_names` (added Nov 24) | The narrow search table. It has one row per company, holding the document number and the simplified name and nothing else, and the rows are written in name order. The loader builds it inside Postgres from the company rows it has just loaded | The third approach to the search speed. A row here is 69 bytes against 241 in `company_search`, and so checking thousands of candidate names reads far fewer pages |
 | `src/datum/search.py` | The search. A `SearchBackend` brings back a pool of companies whose names are near the typed one, and plain Python ranks the pool by the rules of search version 1. It also holds the match level, the evidence and the tie count | `CLAUDE.md` rule 1: scoring is plain code. The backend is an interface, so tests use a fake and need no database |
 | `tests/fixtures/search/jarowinkler_pairs.csv` | 61 pairs of texts with the score Snowflake's `JAROWINKLER_SIMILARITY` gives each | Proves the plain-Python Jaro-Winkler function gives Snowflake's scores |
 | `evals/run.py` | One command that scores the search on the 10-case test set, on either backend, and can time it | The brief's comparison of the two backends, and the p50 and p95 |
@@ -59,8 +77,10 @@ Branch `leg/c2-postgres-search` (stacked on `leg/c1-serving-marts`) · pull requ
  business name "Ferguson Air Conditioning", city "Boynton Beach"
         │  name_key(): capitals, punctuation to spaces  →  FERGUSON AIR CONDITIONING
         ▼
- STEP 1  RETRIEVE   Postgres, trigram index: up to 200 companies whose name CONTAINS
-                    something close to the typed name (word similarity at 0.75 or more)
+ STEP 1  RETRIEVE   Postgres, trigram index on the narrow table: up to 200 companies whose
+                    name CONTAINS something close to the typed name (word similarity at 0.75
+                    or more). Only their document numbers leave the narrow table, and each
+                    company is then read in full from company_search by that number
         ▼
  STEP 2  RERANK     plain Python: Jaro-Winkler similarity, then a city match, then the
                     document number. The best five are the answer the evaluation scores
@@ -76,9 +96,9 @@ A trigram is a run of three characters, and two names are near when they share m
 | File | New or changed |
 |---|---|
 | `snowflake/23_export_marts.sql` | New |
-| `src/datum/load_postgres.py`, `tests/test_load_postgres.py` | New. 10 tests |
-| `src/datum/search.py`, `tests/test_search.py`, `tests/fixtures/search/` | New. 92 tests, 61 of them one per fixture pair |
-| `evals/run.py`, `tests/test_evals_run.py` | New. 12 tests |
+| `src/datum/load_postgres.py`, `tests/test_load_postgres.py` | New. 14 tests, 4 of them added on Nov 24 for the narrow table |
+| `src/datum/search.py`, `tests/test_search.py`, `tests/fixtures/search/` | New. 93 tests, 61 of them one per fixture pair, and 1 added on Nov 24 for the narrow-table query |
+| `evals/run.py`, `tests/test_evals_run.py` | New. 16 tests, 4 of them added on Nov 24 for the comparison of two approaches |
 | `docs/adr/0001-serving-layer.md` | New |
 | `requirements.txt` | Changed: `psycopg` 3.3.9 and `psycopg-binary` 3.3.9, each with a comment (ruling R24) |
 | `pytest.ini` | Changed: the repo root is on the import path, so a test can import `evals.run` |
@@ -130,6 +150,7 @@ source_coverage                              5                 5
 
 - ✅ Every table's count in Postgres equals the count Snowflake exported. The loader checks this itself and refuses to swap the tables in when one differs.
 - ✅ Before loading, the eight company files were counted by hand: 12,988,443 lines, which is 12,988,435 rows plus 8 header lines.
+- ✅ On Nov 24 the changed loader ran again from the same exported files, and it printed the same four counts. No new export was made, and so the Snowflake side of this check is the one from Nov 20. Check 9 has the line the loader now prints for the narrow table.
 
 ### Check 2: the evaluation on both backends
 
@@ -177,8 +198,9 @@ Three things are worth knowing about these numbers.
 - Cases 3 and 8 are a wrong match on both backends. The right company is in the first five and another company outranks it. That is the search rule's doing, not the database's, and this leg does not change the rule.
 - Case 7 (`realy good beer`) is a miss on both, and it is not a wrong match. The saved extraction marked the note as not specific, so the search asked for more and answered with no company.
 - The Snowflake run was repeated once, after the review changed how its pool is chosen (section 4), and it gave the same ten lines.
+- ✅ On Nov 24 the Postgres run was repeated with the narrow table, and it gave the same ten lines and the same three totals. The Snowflake run was not repeated, because nothing on that side changed.
 
-### Check 3: p50 and p95 search time. **This is the check that fails**
+### Check 3: p50 and p95 search time. **The first two approaches miss the target, and the third meets it**
 
 The measurement is the one the brief defines: the 8 specific test inputs plus 200 company names drawn at random, 208 searches in all, each timed from the typed name to the reranked answer. The 200 names are the same on every run, because the draw uses a fixed seed. No drawn name is printed.
 
@@ -230,7 +252,115 @@ explain (analyze) ... where 'SMITH' <% name_key ...                             
 
 The slow searches are the ones whose words are all common. The index answers quickly (47 milliseconds for SMITH), and then Postgres has to fetch thousands of rows that are scattered through a 3 GB table, most of which is not in memory (733 milliseconds). 🟡 That reading rests on these query plans and on the gap between the first and second runs. I did not profile all 11 slow searches one by one.
 
-Per the brief, I did not try a third approach and I did not change the target. Section 4 has the options.
+Per the brief, I did not try a third approach on Nov 21 and I did not change the target. Section 4 has the options that were put to Andres.
+
+#### The third approach: the narrow search table (Nov 24)
+
+Andres ruled on Nov 24 that one more approach should be tried, and named it: option A of section 4, a narrow search table.
+
+**What it is.** The loader builds a second table, `company_search_names`, with one row per company that holds only the document number and the simplified name. The trigram index the search reads is on that table. The question asked of the index did not change: it is still word similarity at 0.75 with the legal suffix left out. What changed is where Postgres goes to check the answer.
+
+```
+ approach 2                                   approach 3 (the narrow table)
+
+ index ──▶ thousands of candidate rows        index ──▶ thousands of candidate rows
+           in company_search                            in company_search_names
+           (241 bytes a row, 3.0 GB,                    (69 bytes a row, 0.85 GB,
+            rows in no useful order)                     rows in name order)
+              │ check each, keep 200                       │ check each, keep 200 document numbers
+              ▼                                            ▼
+           the pool                                     200 lookups in company_search by its
+                                                        primary key ──▶ the pool
+```
+
+**How it was measured.** The command is the one that timed the first two approaches, on the same 208 searches: the 8 specific test inputs and the 200 company names the fixed seed draws.
+
+- ✅ The 200 drawn names are the same ones before and after the loader ran again on Nov 24. A fingerprint of the drawn names (an MD5 hash, which is a short code that changes when any name changes) was `29e32d4a94b0a803614ddf7256322a37` both times.
+- 🟡 Nothing recorded the fingerprint on Nov 21. The command, the seed and the exported files are the same as then, and so I take the draw to be the same, and I cannot prove it.
+- Before timing anything, I decided which run would be the number for this report: the first run after Postgres is restarted, with the narrow table timed before the second approach. A restart empties Postgres's own memory. That is the closest match to "the first run" of Nov 21.
+- That first pair showed the second approach under 1 second too, which meant the conditions were not as cold as on Nov 21. So I added a stricter kind of run, called "cold" below. Postgres is stopped, the Mac is told to forget its cached copy of every database file, a check confirms that 0 MB of those files is left in memory, and Postgres is started again. Every search in a cold run reads from disk the first time it needs a page.
+
+```
+python -m evals.run --backend postgres --latency 200                    (approach 3, first run after a restart)
+latency over 208 searches (8 test inputs + 200 random company names, pool of 200):
+  p50 129 ms   p95 574 ms   slowest 2335 ms
+  searches over 1 second: 3 of 208
+
+python -m evals.run --backend postgres --latency 200 --retrieve word    (approach 2, straight after)
+  p50 180 ms   p95 545 ms   slowest 5007 ms
+  searches over 1 second: 5 of 208
+
+(Postgres stopped)  328 files, 5,505 MB: in memory before 612 MB, after 0 MB  (Postgres started)
+python -m evals.run --backend postgres --latency 200                    (approach 3, cold)
+  p50 120 ms   p95 560 ms   slowest 2464 ms
+  searches over 1 second: 3 of 208
+
+(Postgres stopped)  328 files, 5,505 MB: in memory before 1,162 MB, after 0 MB  (Postgres started)
+python -m evals.run --backend postgres --latency 200 --retrieve word    (approach 2, cold)
+  p50 148 ms   p95 847 ms   slowest 5402 ms
+  searches over 1 second: 8 of 208
+```
+
+Every timed run of Nov 24, in the order it was made. None is left out.
+
+| # | Approach | State before the run | p50 | p95 | Slowest | Over 1 second |
+|---|---|---|---|---|---|---|
+| 1 | **3, the narrow table** | **Postgres restarted. This is the run chosen in advance** | **129 ms** | **574 ms** | **2,335 ms** | 3 of 208 |
+| 2 | 2 | Straight after run 1 | 180 ms | 545 ms | 5,007 ms | 5 of 208 |
+| 3 | 2 | Postgres restarted | 173 ms | 916 ms | 5,757 ms | 8 of 208 |
+| 4 | 3, the narrow table | Straight after run 3 | 128 ms | 459 ms | 3,154 ms | 2 of 208 |
+| 5 | 3, the narrow table | Cold | 120 ms | 560 ms | 2,464 ms | 3 of 208 |
+| 6 | 2 | Cold | 148 ms | 847 ms | 5,402 ms | 8 of 208 |
+| 7 | 2 | Cold | 152 ms | 863 ms | 5,335 ms | 8 of 208 |
+| 8 | 3, the narrow table | Cold | 118 ms | 520 ms | 2,369 ms | 4 of 208 |
+| 9 | 3, the narrow table | Cold | 156 ms | 869 ms | 4,291 ms | 7 of 208 |
+| 10 | 3, the narrow table | Straight after run 9, so everything was in memory | 128 ms | 430 ms | 1,823 ms | 2 of 208 |
+
+| Approach | Runs | p95, lowest to highest | Target: p95 under 1 second |
+|---|---|---|---|
+| 1. Plain similarity (Nov 21) | 1 | 11,212 ms | ❌ |
+| 2. Word similarity on `company_search` (Nov 21) | 1 that counts | 1,229 ms | ❌ |
+| 2 again (Nov 24) | 4 | 545 to 916 ms | ✅ on that day, which the Nov 21 run contradicts |
+| **3. Word similarity on the narrow table (Nov 24)** | **6** | **430 to 869 ms** | ✅ **in every run** |
+
+**What these numbers do and do not show.**
+
+- ✅ The narrow table meets the target. Its p95 was under 1 second in all six runs, cold or not.
+- ✅ In the matched runs it is the faster of the two. After a restart, 574 milliseconds against 916. Cold, 560, 520 and 869 against 847 and 863. Its slowest search took between 1.8 and 4.3 seconds, against 5.0 to 5.8 for the second approach.
+- 🟡 **The second approach's miss of Nov 21 did not happen again.** It measured 1,229 milliseconds then, and 545 to 916 on Nov 24, even cold. A p95 over 208 searches is the 198th fastest time, and so it moves from under 1 second to over it when three or four searches near the line get slower. I do not know what made them slower on Nov 21. The honest reading is that the second approach sits close to the line, and the narrow table sits further under it.
+- 🟡 **Run 9 is the narrow table's worst, at 869 milliseconds, and I cannot say what slowed it.** The Mac was busy with its own night-time work while I timed (photo analysis and other system tasks, with a load average of about 9, which means about nine programs wanted the processor at any moment). I did not stop those tasks. They make every number here a little worse than a quiet machine would give, and they make the runs differ from each other.
+- 🟡 These are timings on the Mac. The host that will run the app has a different disk and a different amount of memory, and nothing here measures it.
+
+**Why the narrow table is faster.** The search for SMITH shows it. The index gives the same 14,864 candidate rows in both tables. To check them, Postgres read 14,406 pages of `company_search` and 5,563 pages of the narrow table, and a page is 8 kilobytes. Fewer pages hold the same names because each row is narrower, and because names that start alike sit together.
+
+```
+explain (analyze, buffers) ... 'SMITH' <% name_key ...                          (approach 2, Nov 24)
+  Bitmap Index Scan on company_search_name_key_trgm (actual time=48.120..48.120 rows=14864)
+  Bitmap Heap Scan on company_search (actual time=49.660..2729.311 rows=14094)
+    Heap Blocks: exact=14406
+  Execution Time: 2735.763 ms
+
+explain (analyze, buffers) ... 'SMITH' <% name_key ...                          (approach 3, Nov 24)
+  Bitmap Index Scan on company_search_names_name_key_trgm (actual time=41.631..41.631 rows=14864)
+  Bitmap Heap Scan on company_search_names (actual time=42.377..909.565 rows=14094)
+    Heap Blocks: exact=5563
+  Index Scan using company_search_pkey on company_search c (actual time=0.488..0.488 rows=1 loops=200)
+  Execution Time: 1011.014 ms
+```
+
+The last line of the second plan is the price of the narrow table: 200 lookups in `company_search` by document number, at about half a millisecond each when nothing is in memory. Both plans were taken once, with the Mac busy, and so the two times show the gap and are not a measurement of SMITH.
+
+The narrow table does not help a search whose time goes on reading the index itself. FERGUSON AIR CONDITIONING took 401 milliseconds on the narrow table and 510 on `company_search`, and in both nearly all of that was the index scan, which finds 26 candidates.
+
+**The searches that are still slow.** I timed each of the 208 searches once more and read the query plan of the six slowest. Their names are not printed here, because they are drawn company names.
+
+| What the six slowest have in common | The numbers |
+|---|---|
+| The name has two or three words: one long word of 9 to 14 letters, and one or two short words of 1 to 5 letters | Five of the six. The sixth has three words, of 3, 8 and 11 letters |
+| The index returns thousands of candidate rows. 🟡 My reading is that the long word is a common one and the short words add almost nothing to tell names apart. I read the counts and not the names | Between 8,394 and 182,812 candidates. The search for FERGUSON AIR CONDITIONING returns 26 |
+| Postgres has to open and check every candidate, and that work is what takes the time | 1.0 to 2.4 seconds on the narrow table, and 1.8 to 9.2 seconds on `company_search` for the same six |
+
+🟡 The narrow table shortens these searches and does not remove them. Making them fast would need a different question asked of the index, which is a change to what the search retrieves and not only to its speed. I did not try that, because the ruling was for one more approach.
 
 ### Check 4: table and index sizes, and the index build time
 
@@ -260,6 +390,36 @@ database total: 4213 MB
 
 The whole load took 4 minutes 5 seconds: the copy of 13 million rows, the primary key, the trigram index and the swap. 🟡 The plan of Oct 30 guessed that a database under about 4 GB would fit a Railway plan. This one is just over, and I did not check any host's current limits.
 
+**The sizes after the narrow table was added (Nov 24).** The table above is the state of Nov 20. This is the loader's output today.
+
+```
+python src/datum/load_postgres.py
+
+index company_search_name_key_trgm: built in 75.0 seconds
+index company_search_names_name_key_trgm: built in 66.6 seconds
+table company_search                                 2986 MB
+table company_search_names                            850 MB
+index company_search_pkey                             625 MB
+index company_search_name_key_trgm                    588 MB
+index company_search_names_name_key_trgm              441 MB
+table company_flags                                  4200 kB
+index company_flags_document_number                   232 kB
+index source_coverage_pkey                             16 kB
+index company_possible_matches_document_number    8192 bytes
+table source_coverage                             8192 bytes
+table company_possible_matches                       0 bytes
+database total: 5503 MB
+```
+
+| What | Size | Note |
+|---|---|---|
+| The whole database | **5,503 MB** | It was 4,213 MB. This is the number that picks a host |
+| `company_search_names`, the narrow table | 850 MB | 12,988,435 rows of 69 bytes each, against 241 bytes a row in `company_search` |
+| Its trigram index | 441 MB | Built in **66.6 seconds**. It is smaller than the 588 MB index on `company_search`, which holds the same names. 🟡 I think that is because the rows are in name order, and I did not test it |
+| The old trigram index on `company_search` | 588 MB | Only the second approach reads it now. Dropping it would bring the database to about 4,915 MB, and that is your call |
+
+The whole load now takes 6 minutes 13 seconds, which is about 2 minutes more than before. The extra time goes on sorting 13 million names, comparing the two tables and building the second index.
+
 ### Check 5: the offline suite does not need a database
 
 ```
@@ -272,6 +432,17 @@ pg_isready                            → /tmp:5432 - accepting connections
 ```
 
 ✅ With the database server stopped, all 255 tests pass. The tests hand the search a `FakeBackend` and hand the loader a stand-in connection that records what it is asked, so nothing in the suite opens a database. The server was started again afterwards.
+
+✅ The same check was run again on Nov 24, after the narrow table's commits, and 264 tests passed.
+
+```
+brew services stop postgresql@17      → Successfully stopped `postgresql@17`
+pg_isready                            → /tmp:5432 - no response
+pytest                                → 264 passed in 0.59s
+ruff check src tests                  → All checks passed!
+brew services start postgresql@17     → Successfully started `postgresql@17`
+pg_isready                            → /tmp:5432 - accepting connections
+```
 
 ### Check 6: the plain-Python Jaro-Winkler gives Snowflake's scores
 
@@ -294,6 +465,45 @@ The Python function does its arithmetic in exact fractions. With ordinary floati
 
 Section 5.
 
+### Check 8: the second approach and the narrow table return the same companies (Nov 24)
+
+The ruling asks for this check. Both approaches were run on the same 208 searches, and for each search the companies returned were compared: the same document numbers, in the same order, with the same details.
+
+```
+python -m evals.run --backend postgres --compare 200
+
+compared 208 searches (8 test inputs, then 200 random company names): the second approach (company_search) against the app's search (company_search_names)
+  the same companies in the same order: 208 of 208
+  differing: 0
+  the second approach returned 5 companies for 100 searches, 1 to 4 for 108, and none for 0
+```
+
+- ✅ **0 of the 208 searches differ.** There is no difference to explain.
+- The search shows five companies at most. For 100 of the searches both approaches returned the same five. For the other 108 fewer than five companies passed the first step, and both approaches returned the same one to four. No search came back empty, so no pair matched only because both were empty.
+- This is the expected result, and here is why. Both approaches ask the same question (word similarity at 0.75), in the same order (nearest name first, then document number), of two tables that hold the same names. Check 9 is what proves that last part.
+- The comparison covers the companies that are returned, which is what a contractor would see. It does not compare the whole pool of 200 that each approach hands to the rerank step.
+
+### Check 9: the narrow table and `company_search` hold the same document numbers (Nov 24)
+
+The ruling asks for a test of this. It is in two places, because the offline test suite may not open a database (`CLAUDE.md` rule 4).
+
+| Where | What it proves | How |
+|---|---|---|
+| The loader, on the real data, at every load | The narrow table it has just built holds exactly the companies of `company_search`. If it does not, nothing is swapped in | One query, `NAMES_CHECK_SQL`, returns four numbers: the rows in each table, the rows of the narrow table with no company of that document number and name, and the companies with no row in the narrow table |
+| `tests/test_load_postgres.py`, offline | That query notices every kind of difference, and the loader stops on each | The test runs the loader's own query in SQLite, a small database that ships inside Python and runs in memory, against tables that differ in five ways: a company missing, a company added, a different number, a number twice, and the right number under another name |
+
+```
+python src/datum/load_postgres.py        (the line it prints for the narrow table)
+company_search_names: 12,988,435 rows built from company_search's 12,988,435; 0 only in company_search_names, 0 only in company_search
+
+pytest tests/test_load_postgres.py -q
+14 passed in 0.13s
+```
+
+- ✅ On the real data both tables have 12,988,435 rows, and no document number is in one and not in the other.
+- ✅ Each new test was made to fail once. With the loader changed to ignore the row counts, the test of the loader failed. With the query changed to ignore the name, the test of the query failed. Both changes were then undone.
+- The check compares the document number and the name together, which is more than the ruling asks. A narrow table with the right numbers and a wrong name would send the search to the wrong company, and so it is refused too.
+
 ---
 
 ## 3. Decisions I made and why
@@ -313,11 +523,26 @@ Section 5.
 | 11 | The shortlist shows the best five by rank, as `report.py` does, and its tie count also covers exact-name companies further down the pool. It carries those companies, not only their number | Rule W7 says a tie is said out loud. The review found a count over the best five could miss an exact-name company ranked sixth, and then found two faults in my fixes (section 4) | An exact-name company ranked sixth is counted and carried, and it is still not on the list of five. Whether such a company should always be listed is a question for leg C3 and for you |
 | 12 | The evidence for a company with no city, or no status, on record says so | 186,666 companies have no city on record. `report.py` would print "registered in None", and would call a company with no status inactive. Every company has a status today, so that second case is a guard | Two wordings that `report.py` does not have. Leg C3 decides all wording |
 
+Decisions 13 to 18 were made on Nov 24, for the narrow table.
+
+| # | Decision | Why | The tradeoff |
+|---|---|---|---|
+| 13 | The narrow table's rows are written in name order | Postgres keeps rows in the order they arrive. Names that start alike then share a page, and the candidates of one search are mostly names that start alike. I chose this before timing anything | The load sorts 13 million names. 🟡 I built the table one way only, so I cannot say how much of the gain comes from the narrow rows and how much from their order |
+| 14 | The narrow table has no source address, no fetch time and no primary key | It states no fact to anybody. The search reads it only to learn which document numbers to fetch, and every company it then returns is read from `company_search`, with its source address and fetch time. A test holds the query to that. A primary key would be a second index of about 600 MB that nothing would read | Nothing in Postgres itself stops a document number appearing twice in the narrow table. The loader's check does that job at every load (check 9) |
+| 15 | The check that the two tables hold the same companies lives in the loader, and it runs before the swap | The offline suite may not open a database (`CLAUDE.md` rule 4), so a test of the live tables could not be part of it. In the loader the check runs on the real data every time, and a failure leaves the old tables in place | The check adds about 20 seconds to a load 🟡 (I did not time it apart from the rest) |
+| 16 | The old trigram index on `company_search` is kept | The ruling asks for the second approach to be run again, and it needs that index. The brief for this leg also names that index | 588 MB that the app's search no longer reads. Dropping it is your call |
+| 17 | The number for this report is the first run after a restart, chosen before any timing. The cold runs were added afterwards, and every run is listed | A number picked after seeing ten runs could be the one that flatters. Naming it first, and then listing all ten, lets you check that it was not | The cold runs use a small script that tells macOS to forget its cached copy of the database files. 🟡 It is in this run's scratch folder and not in the repo, because it is specific to macOS and has no test. `sudo purge` does the same for the whole Mac and needs your password |
+| 18 | The comparison checks the companies each search returns, and not the whole pool of 200 | The ruling asks whether each search returns the same five companies in the same order. The returned companies are what the evaluation scores and what a contractor would see | Two pools could differ below the companies returned and the check would not see it. With the same question asked of the same names that cannot happen, and check 9 proves the names are the same |
+
 ---
 
 ## 4. What I couldn't verify, and open questions for Andres
 
-### The decision this leg needs from you: the speed target
+### The speed target: what was asked on Nov 21, and what was decided on Nov 24
+
+**The outcome.** On Nov 24 Andres chose option A below, the narrow search table. It was built and measured, and it meets the target (check 3). Question Q33 in `docs/open_questions.md` is answered.
+
+What follows is the question as it was put on Nov 21, kept as it was written.
 
 The search misses a p95 of 1 second by 0.23 seconds under the better of two approaches. These are the options I can see. I did not build or measure any of them, because the brief says to stop after two.
 
@@ -329,6 +554,8 @@ The search misses a p95 of 1 second by 0.23 seconds under the better of two appr
 
 If you choose A, tell me to run it as one more approach in this leg. I will measure it the same way and report the number whichever way it falls.
 
+**How the estimate for option A held up.** The table above guessed the narrow table at about 0.9 GB, and it is 850 MB. It said the slow searches spend their time fetching scattered rows, and the plans for SMITH bear that out (14,406 pages against 5,563). It did not foresee that the second approach would come in under 1 second when timed again.
+
 ### Something outside this run switched the branch
 
 - At 00:28 Eastern time on Nov 21 I created this branch from C1.
@@ -339,13 +566,21 @@ If you choose A, tell me to run it as one more approach in this leg. I will meas
 
 🔴 I do not know what switched the branch. The same thing happened once at the very start of this session, before my first command. If it was you, or another Claude session working in `~/datum`, nothing is lost. If it was not, it is worth finding out what it was before the next unattended run, because a run that does not notice would commit to `main`.
 
+✅ On Nov 24 the branch did not change during the run. Every commit command first checked that the branch was `leg/c2-postgres-search`.
+
 ### What I couldn't verify
 
-- 🟡 **Which searches are the slow ones.** See check 3.
-- 🟡 **That a pool of 200 always holds the best five.** It does for the ten test cases. A larger test set is the real check, and the 90% bar on the 50-case set is yours.
-- 🟡 **The cost of the 0.75 threshold on names with typing mistakes** (decision 1).
-- 🔴 **The definition of `wrong_match`** (decision 4).
-- 🟡 **Host limits.** The database is 4.2 GB and I checked no host.
+This is the full list as of Nov 24. Items 1 to 4 are new, and items 5 to 9 stand from Nov 21.
+
+1. 🟡 **Why the second approach missed the target on Nov 21 and met it on Nov 24.** It measured 1,229 milliseconds then and 545 to 916 now, on the same 208 searches (check 3).
+2. 🟡 **The speed on a host.** Every timing is from the Mac, which was busy with its own night-time tasks while I timed. A host has a different disk and a different amount of memory.
+3. 🟡 **The searches that are still slow.** Between 2 and 7 of the 208 take longer than 1 second. I read the plans of the six slowest and not their names (check 3).
+4. 🟡 **That the 208 searches are the very ones of Nov 21.** The command, the seed and the exported files are the same, and the fingerprint of the drawn names did not change across the load of Nov 24. Nothing recorded it on Nov 21.
+5. 🟡 **That a pool of 200 always holds the best five.** It does for the ten test cases. A larger test set is the real check, and the 90% bar on the 50-case set is yours.
+6. 🟡 **The cost of the 0.75 threshold on names with typing mistakes** (decision 1).
+7. 🔴 **The definition of `wrong_match`** (decision 4).
+8. 🟡 **Host limits.** The database is now 5.5 GB and I checked no host.
+9. 🔴 **What switched the branch on Nov 21.** It is still unknown.
 
 ### The review
 
@@ -423,14 +658,17 @@ What used the warehouse in this leg:
 
 - The brief estimated about 0.05 credits for the export and up to 0.05 for each evaluation run on Snowflake. Two of each is about 0.2, and the leg used 0.15.
 - Phase C has now used about **0.63** of its cap of 3 credits (0.47 in leg C1 and 0.15 in this leg). November stands at about 2.96 of the monthly cap of 10.
+- ✅ **The work of Nov 24 used no credits.** It made no call to Snowflake: the loader read the files exported on Nov 20, and every timing and the comparison ran against Postgres on the Mac, which is free. The leg's total stays at about 0.15 credits.
 - 🟡 These numbers come from `information_schema`, which is current to the minute. The slower `account_usage` view may show a slightly different total tomorrow.
 
 ---
 
 ## 6. Three questions Andres should be able to answer
 
-1. The search has two steps, retrieve and rerank. Which step runs in Postgres and which in Python, and why not do the careful scoring on all 13 million names the way Snowflake does?
-2. Approach 1 and approach 2 use the same trigram index. Why is approach 2 so much faster (a p50 of 181 milliseconds against 5,101)? Use the search for `FERGUSON AIR CONDITIONING` and the numbers 104,651 and 26.
-3. The second timing run of approach 2 has a p95 of 766 milliseconds, which is under the target. Why is that not the number this report uses?
+These were rewritten on Nov 24, so that two of the three are about the narrow table.
 
-**Answers, to check yourself.** (1) Postgres retrieves a pool of up to 200 names from the trigram index, and Python reranks that pool by Jaro-Winkler, then city, then document number. Scoring 13 million names carefully takes Snowflake many seconds and bills the warehouse, while scoring 200 takes Python about a millisecond. (2) At a threshold of 0.3 a name can pass on common trigrams alone, so Postgres reads the long lists in full and fetches 104,651 candidate rows to check them. At 0.75 a match needs most of the typed trigrams, so the index only stops where the rare ones are and finds 26 candidates. (3) It searched the same 208 names a minute after the first run, so the rows those names need were already in memory. A real search is a name nobody just searched, and the first run, 1,229 milliseconds, is the honest measure.
+1. The search has two steps, retrieve and rerank. Which step runs in Postgres and which in Python, and why not do the careful scoring on all 13 million names the way Snowflake does?
+2. The narrow table holds the same names as `company_search`, and both have a trigram index on those names. Why is the search for `SMITH` faster on the narrow table? Use the numbers 14,864, 14,406 and 5,563.
+3. The narrow table has no source address and no fetch time. Why does that not break the rule that every fact carries both, and what stops the search from finding a company in the narrow table that `company_search` does not hold?
+
+**Answers, to check yourself.** (1) Postgres retrieves a pool of up to 200 names from the trigram index, and Python reranks that pool by Jaro-Winkler, then city, then document number. Scoring 13 million names carefully takes Snowflake many seconds and bills the warehouse, while scoring 200 takes Python about a millisecond. (2) The index only says which rows might match, and for `SMITH` it names the same 14,864 candidate rows in both tables. Postgres then has to open each one to check it. In `company_search` those rows are spread over 14,406 pages. In the narrow table a row is 69 bytes and not 241, and names that start alike sit together, so the same rows are on 5,563 pages, and fewer pages means less to read. (3) The narrow table states no fact. The search takes only document numbers from it, and every company it returns is read from `company_search`, which has the source address and the fetch time. At every load, before any table is swapped in, the loader checks that the two tables hold the same document numbers and names, and it refuses the load when they do not.
