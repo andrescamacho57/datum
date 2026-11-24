@@ -155,6 +155,32 @@ LC_ALL=C awk -F'|' '$1=="DPA" { n[$5]++ } END { for (k in n) print k, n[k] }' p*
 - `n[$5]++` is a tally keyed by the field's value (here FRM / TO); `END { ... }` runs after the last line
 - `LC_ALL=C` treats the file as plain bytes, so odd characters can't stop it
 
+## Added Nov 20–23: keys, branches and long runs
+
+```bash
+[ -n "$ANTHROPIC_API_KEY" ] && echo "SET somewhere" || echo "not set - good"
+grep -l ANTHROPIC_API_KEY ~/.zshrc ~/.zprofile ~/.zshenv 2>/dev/null
+grep -c "W10" docs/prompts/florida_master.md
+env -u ANTHROPIC_API_KEY claude rc
+caffeinate -is
+git switch main
+git fetch && git status
+git worktree add --detach ~/datum-review origin/main
+```
+
+- `[ -n "$VAR" ]` tests whether a variable is not empty. `&&` runs the next part if the test passed, and
+  `||` runs it if the test failed. It prints a label and never the secret
+- `grep -l` prints only the names of the files that match, so a key never appears on screen. `grep -c`
+  prints how many lines matched. `2>/dev/null` hides "no such file" errors
+- `env -u NAME command` runs one command with that variable removed
+- `caffeinate -is` keeps the Mac awake while it runs: `-i` stops idle sleep, and `-s` stops system sleep, but
+  only while the Mac is plugged in. Neither keeps it awake with the lid closed. Stop it with Ctrl+C
+- `git switch <branch>` changes the checked-out branch. Never run it in a folder an agent is working in
+- `git fetch && git status` says how far behind the branch is, without changing a file
+- `git worktree add --detach <folder> origin/main` makes a second working folder for the same repo, at the
+  newest `main` from GitHub. Git refuses a branch that another folder already has checked out, and
+  `--detach` avoids that by checking out the commit without a branch
+
 ## Habits Worth Keeping
 
 - Look before you load: count, peek, measure, checksum
@@ -165,3 +191,5 @@ LC_ALL=C awk -F'|' '$1=="DPA" { n[$5]++ } END { for (k in n) print k, n[k] }' p*
 - Long prompts go in a file (`docs/prompts/`), not the terminal paste buffer
 - A check that can't fail proves nothing: ask what input would make it fail
 - Don't move a folder that holds a `.venv`; if you must, leave a symbolic link at the old path
+- Before a session on the Mac: `git switch main`, then `git pull`
+- While an agent works in a folder, only read with git there (`status`, `log`, `diff`)

@@ -356,6 +356,47 @@ the same switch as the code it tests, `is distinct from`, `count_if`, a full ord
 
 ---
 
+### Day 10 — 2026-11-20 to 11-23: stricter link rules merged, Phase C started and stopped at a speed check
+
+**The short version.** Three pull requests merged on Nov 20, the build agent ran Phase C overnight, and it
+stopped where the brief told it to: the search works and misses its speed target. Most of these four days
+went into understanding what was built and into making reviews something a person can actually do.
+
+**What merged on Nov 20**
+- **Pull request 13 (leg C0):** rulings R29 and R30 made the linking rule stricter. 625 links moved from
+  CONFIRMED to AMBIGUOUS and none moved the other way.
+- **Pull request 10:** the secrets guardrail, after a Deep review.
+- **Pull request 14:** the full Phase C brief, in four legs, with ten working rules (W1 to W10).
+
+**Phase C, run unattended on the night of Nov 20**
+- **Leg C1 (pull request 15, open):** the four tables the app reads. Every check passed.
+- **Leg C2 (pull request 16, open):** the Postgres copy and the search. The copy matches Snowflake row for
+  row, and the search scored at least as well as Snowflake on the 10-case test set. Its speed missed: a p95
+  of 1,229 milliseconds against a target of 1,000. The agent recorded the numbers and stopped.
+- **Legs C3 and C4:** not started.
+
+**What went wrong, and what changed because of it**
+- Something checked out `main` in `~/datum` during the run, and four commits landed on local `main`. Nothing
+  was pushed. The rule now: no git command that changes the checkout while an agent is working in a folder.
+- I merged pull requests 13 and 10 before the explain-back the High tier asks for. I answered the three
+  questions for 13 afterward and had one of them backwards (what R30 uses its looser key for).
+- The leg reports were too long for me to review. Pull request 17 makes every pull request start with a
+  Human review section of at most 250 words.
+- Pull request 19 moved the four files that agents take their instructions from to High tier.
+- The study guide follows credit-stream again: `INTERVIEW_ANSWERS.md` is private and the other files are
+  public.
+- The `datum-dev` API key was due to expire on Nov 26. I made a new one and put it in `.env`.
+
+**Decisions**
+- Keep the 1-second p95 target and try a narrow search table. Revisit if the narrow table also misses.
+- Stay on API keys for local work. Revisit identity federation when the app is deployed.
+
+**Concepts added to `CONCEPTS.md`:** where a session runs, API keys and rotation, environment variables,
+fetch and pull, one folder one branch, percentiles, the complement rule, trigram indexes, OLAP and OLTP,
+vertical partitioning, near-namesakes, the Human review section, where instructions live, risk tiers for agent instructions, and where context lives.
+
+---
+
 ## Next
 
 **Nov 19:** dates are targets, not deadlines. When work slips, the dates move and the scope stays.
