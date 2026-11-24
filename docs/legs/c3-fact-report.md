@@ -1,6 +1,6 @@
 # Leg C3: the Fact type and the report
 
-Branch `leg/c3-fact-report` (stacked on `leg/c2-postgres-search`) · the pull request is opened after the review · run on Nov 24, 2026 · risk tier **High** · status: **built, with every check passing. The Deep review is in progress, and its result is added to section 4 in a later commit.**
+Branch `leg/c3-fact-report` (stacked on `leg/c2-postgres-search`) · the pull request is opened after the review · run on Nov 24, 2026 · risk tier **High** · status: **done. Every check passes, and the Deep review ended after three rounds with no Important finding left open. The answers to the last round's three Nits were not reviewed.**
 
 This is the third of the four legs of Phase C. Leg C2 made the search. This leg makes the thing the search leads to: the report a contractor reads about one company. It builds no web page. Leg C4 puts this report on a page.
 
@@ -15,18 +15,19 @@ This is the third of the four legs of Phase C. Leg C2 made the search. This leg 
   - It wrote "Strong" for a company that had tied with another. A tie is now said on the shortlist and on the report.
 - **The review found two more ways the note could get out, and both are closed.** An error message in the extraction step quoted the whole note, and the documented way to run the command put the note in the shell's history file.
 - **Five reports were built from the real data** in Postgres and saved under `data/reports/`, which git ignores: a company with federal liens, one with an inactive license, an inactive company, a new company and one with no flags.
-- The offline tests pass: **364**, of which 97 are new. 26 of the 97 were added to answer the review.
+- The offline tests pass: **368**, of which 101 are new. 30 of the 101 were added to answer the review.
 - This leg used **no Snowflake credits** and made **no call to the Claude API**.
 
 **What is left for Andres**
 
 1. **Read the table of fixed sentences** (check 3). These are the words a contractor will see, and wording is your call.
-2. **Rule on five questions this leg could not decide.** Each has a row in `docs/open_questions.md`.
+2. **Rule on six questions this leg could not decide.** Each has a row in `docs/open_questions.md`.
    - Q36: does a federal lien that is closed count in the summary line? I count it.
    - Q37: "New company" within 12 months of which day? I use the day the report is built.
    - Q38: what does a report say about a possible match, once you switch a reason on?
    - Q39: five entity-type codes have no plain-English label.
    - Q40: can the extraction step put a person's name into the fields a report shows? It came out of the review.
+   - Q41: should the search treat "St. Augustine" and "ST AUGUSTINE" as one city? It came out of the review too.
 3. Read section 3, which holds the calls I made where the brief did not say.
 4. Answer the three questions in section 6, because this is a High-tier change.
 
@@ -97,12 +98,12 @@ DBPR is the Department of Business and Professional Regulation, which licenses c
 | `src/datum/wording.py`, `tests/test_wording.py` | New. 8 tests |
 | `src/datum/models.py`, `tests/test_models.py` | New. 22 tests |
 | `src/datum/report_builder.py`, `tests/test_report_builder.py`, `tests/report_fixtures.py` | New. 27 tests |
-| `src/datum/report.py`, `tests/test_report_cli.py` | Rewritten, which the brief allows for this leg. 25 tests |
+| `src/datum/report.py`, `tests/test_report_cli.py` | Rewritten, which the brief allows for this leg. 28 tests |
 | `tests/fixtures/report/` (three files and a README) | New |
 | `tests/test_fixture_privacy.py` | Changed: it now checks the report fixtures. 15 new tests |
-| `src/datum/search.py` | Changed: the eight reasons that `evidence()` gives moved to `wording.py`, unchanged. Nothing else in the file changed |
+| `src/datum/search.py`, `tests/test_search.py` | Changed: the eight reasons that `evidence()` gives moved to `wording.py`. Three of them were then reworded in the review, and `tests/test_search.py` gained one test. No rule of the search changed |
 | `requirements.txt` | Changed: three comments. No package was added or upgraded |
-| `docs/open_questions.md` | Changed: Q36 to Q40 added, and a note on Q34 |
+| `docs/open_questions.md` | Changed: Q36 to Q41 added, and a note on Q34 |
 | `src/datum/extract.py` | Changed in the review: one error message no longer quotes the note. Nothing else in the file changed |
 
 No Snowflake object, no dbt model and no Postgres table was touched.
@@ -115,13 +116,13 @@ No Snowflake object, no dbt model and no Postgres table was touched.
 
 ```
 pytest
-364 passed in 0.72s
+368 passed in 0.77s
 
 ruff check src tests
 All checks passed!
 ```
 
-267 tests existed before this leg, and 97 are new. Some of the 97 are one test run over several inputs, so the tables below list 65 test names. The last table holds the 17 that the review added.
+267 tests existed before this leg, and 101 are new. Some of the 101 are one test run over several inputs, so the tables below list 66 test names. The last table holds the 18 that the review added.
 
 **The five tests the brief asks for by name**
 
@@ -186,7 +187,7 @@ All checks passed!
 | `test_fixture_privacy.py` | 14 new cases of `test_the_check_fails_on_a_row_that_still_leads_to_a_person` | Each case is a report fixture that breaks one rule: a document number of a real shape on a company or on a flag row, a company name, simplified name or street address left real, a filing or license number left real, a second number inside a citation, a status note or a caveat, a source address that points at one record, a source or a file the test has no rule for |
 | | `test_a_report_fixture_with_invented_companies_and_invented_numbers_passes` | A date such as 2026-11-18 mistaken for a record number |
 
-**The 17 tests the review added.** The review ran changes against the suite and found ones that no test noticed. Each test below fails on one of them.
+**The 18 tests the review added.** The review ran changes against the suite and found ones that no test noticed. Each test below fails on one of them.
 
 | File | The test | The input that makes it fail |
 |---|---|---|
@@ -198,9 +199,10 @@ All checks passed!
 | | `test_the_identification_has_no_default_so_no_caller_can_drop_it_by_accident` | A call to `build()` that leaves the identification out |
 | `test_report_cli.py` | `test_with_a_city_given_the_counts_say_which_companies_they_cover` | Seven same-name companies in the city given, then the same seven in another city. It fails if the line under the shortlist or the tie sentence reads as if it counted more than it does |
 | | `test_a_failed_extraction_says_two_fixed_sentences_and_never_the_errors_own_words`, run for five kinds of error | An extraction step that raises an error quoting the whole note. It fails if any word of the note or of the error's message is printed, or if only one kind of error is caught |
-| | `test_a_reply_with_a_field_missing_is_a_failed_extraction_too` | A reply from the extraction step that has a business name and nothing else |
-| | `test_no_error_raised_by_the_extraction_step_is_built_from_the_note` | A `raise` in `extract.py` that uses the note in any way: in an f-string, joined with `+`, or passed to `format()`. The test parses the code and does not import it |
-| | `test_main_hands_the_command_line_to_read_note_and_uses_it_nowhere_else` | A `main()` that joins the command line into the note, even on the same line as a call to `read_note` |
+| | `test_a_reply_with_any_one_field_missing_is_a_failed_extraction_too`, run once for each of the four fields | A reply from the extraction step with one field left out. A reply with no `is_specific` must not be searched as if the note had named a business |
+| | `test_no_error_raised_by_the_extraction_step_is_built_from_the_note` | A `raise` in `extract.py` that uses the note in any way: in an f-string, joined with `+`, passed to `format()`, under another parameter name, or copied to another name first. The test parses the code and does not import it |
+| | `test_main_hands_the_command_line_to_read_note_and_uses_it_nowhere_else` | A `main()` that joins the command line into the note, even on the same line as a call to `read_note`, or after `from sys import argv` |
+| `test_search.py` | `test_a_city_is_compared_by_its_spelling_and_the_reason_says_so` | The city "St. Augustine" against a company in ST AUGUSTINE. It fails if the reason says "not the city you gave" |
 | | `test_a_company_in_a_city_that_only_begins_with_the_one_given_is_not_said_to_be_in_that_city` | Seven companies in JACKSONVILLE BEACH when the city given is Jacksonville. It fails if any line says "city matches" or "in the city you gave" |
 | | `test_the_note_is_read_at_a_prompt_and_never_from_the_command_line` | A note typed after the command that is used, or shown back |
 | | `test_a_vague_note_shows_no_company_until_a_second_extraction_names_one` | A vague note followed by an answer. It fails if anything is printed about a company before the second extraction |
@@ -325,7 +327,7 @@ This is all of `src/datum/wording.py`: 70 entries. A piece in curly braces, such
 | `EVIDENCE_EXACT_NAME` | name matches (ignoring capitals and legal endings such as LLC, INC or CORP, and reading anything that is not a letter A to Z or a digit as a space) |
 | `EVIDENCE_SIMILAR_NAME` | name is similar ({similarity}/100) |
 | `EVIDENCE_CITY_MATCHES` | principal city on record begins with the city you gave |
-| `EVIDENCE_OTHER_CITY` | registered in {city}, not the city you gave |
+| `EVIDENCE_OTHER_CITY` | principal city on record is {city}, and that spelling does not begin with the city you gave |
 | `EVIDENCE_NO_CITY` | no principal city on record for this company |
 | `EVIDENCE_ACTIVE` | ACTIVE |
 | `EVIDENCE_INACTIVE` | INACTIVE with the state |
@@ -383,7 +385,7 @@ pytest tests/test_fixture_privacy.py -q
 | 12 | An entity-type code with no label is shown as the state writes it | Seven labels exist, from samples taken in October. Five codes have none, and a guessed label would be wording nobody approved | 22,848 companies show a code such as `FORLP`. Question Q39 |
 | 13 | The company's source link is the state's search-by-document-number page | Ruling R9: cite the search page and the number. The old `report.py` linked to a search by name, which lists every similar company | The contractor types the document number into the state's page. The site blocks a direct link to one company |
 | 14 | A fetch time is shown as its date in UTC | A report is read in Florida and the data's times are stored in UTC. A date is enough for "how fresh is this" | A file fetched at 9 PM Eastern shows the next day's date |
-| 15 | At the levels Likely and Possible, "matched equally well" counts the companies on the shortlist, and the sentence says "on the shortlist" | Leg C2 counts those two levels over the five companies shown. The review found that my first wording read as if every company were counted, and so each count now has a wording of its own | Two more sentences in `wording.py`. 🟡 At the level Strong the count covers the pool of up to 200 candidates. A name shared by more than 200 companies would be undercounted, and I did not look for one |
+| 15 | At the levels Likely and Possible, "matched equally well" counts the companies on the shortlist, and the sentence says "on the shortlist" | Leg C2 counts those two levels over the five companies shown. The review found that my first wording read as if every company were counted, and so each count now has a wording of its own | Two more sentences in `wording.py`. 🟡 At the level Strong the count covers the pool of up to 200 candidates, and a same-name company outside that pool would not be counted (item 9 of section 4) |
 | 17 | The note is read at a prompt, and text typed after the command is not used | The shell keeps every command line in its history file, and working rule W6 says the note is never stored. The review found that the documented way to run the command put the note there | Running the command takes one more keystroke. A note that was already typed after the command is in the history anyway, and the command says why it did not use it |
 | 18 | A failed extraction prints two fixed sentences, the second with the error's class name, and never the error's own message | An error message can quote what it was given, and the old one in `extract.py` quoted the whole note | The terminal says what kind of error it was and not what the error said. The full cause has to be found by running the extraction step on its own |
 | 19 | The builder refuses to build a report when no source may be shown | "No flags found in the sources checked." above an empty list of sources would be an all-clear about nothing | If every source were ever hidden, the app would show no report at all, and that would be the right thing to see |
@@ -406,7 +408,8 @@ pytest tests/test_fixture_privacy.py -q
 6. 🟡 **Odd dates in the state's file.** 1,964 companies have no date on record, 35 have one in the future, and the oldest is in the year 1609. A report shows the date as the state has it, with the note that it may be an effective date.
 7. 🟡 **How the report reads on a phone.** This leg makes text. Leg C4 makes the page.
 8. 🟡 **Whether the extraction step can return a person's name as the business name** (question Q40). The report shows the extracted fields, and the prompt does not tell the model to leave a person's name out. Testing it needs a call to the Claude API.
-9. 🟡 **A name shared by more than 200 companies.** The tie count at the level Strong covers the 200 candidates the search brings back (decision 15).
+9. 🟡 **A same-name company outside the pool of 200.** The counts at the level Strong cover the pool: up to 200 companies whose names are nearest the typed one. A company with the same name and a long legal ending can fall outside the pool when 200 or more shorter names are nearer, and both counts would then be too low. ✅ For the 8 test inputs it does not happen: I counted the same-name companies in the whole table (0 or 1 for each input) and the pool held every one. The largest pool of the 8 held 28 companies. 🟡 I did not measure it for common names.
+11. 🟡 **How the search compares a city** (question Q41). "St. Augustine" does not match a company in ST AUGUSTINE, because the comparison is one of spelling. The reason on the page now says that. The comparison is unchanged.
 10. 🟡 **The dates on the three federal lien rows of the fixture are real.** The numbers are invented. A reviewer asked whether a filing date beside a release date could lead back to the filing, and the verifier dropped the point because the fixture rule covers numbers. A federal lien in this mart is filed against a business. It is your call whether fixture dates should be invented too.
 
 ### Questions added to `docs/open_questions.md`
@@ -418,13 +421,16 @@ pytest tests/test_fixture_privacy.py -q
 | Q38 | What does a report say about a possible match, once a reason is switched on? |
 | Q39 | Five entity-type codes have no label |
 | Q40 | Can the extraction step put a person's name into the fields a report shows? |
+| Q41 | Should the search treat "St. Augustine", "ST AUGUSTINE" and "Saint Augustine" as one city? |
 | Q34 (note added) | The shortlist now names the same-name companies that are not on it. Whether they belong on it is still open |
 
 ### The review
 
 - **Tier:** High. The leg rewrites `src/datum/report.py` and decides the wording on a report.
 - **Depth:** Deep. In round 1, three `reviewer` subagents ran in parallel, each hunting one thing, and a fourth then checked every finding against the code. The three hunts are the ones the brief sets for a High leg of Phase C: a sentence the data does not support, that draws a conclusion or that reassures; a person's data, the typed note or a hidden record reaching a page, a log, Postgres or git; and a test that cannot fail.
-- **Rounds:** rounds 1 and 2 are below. Round 3 is in progress, and it is added in a later commit.
+- **Rounds:** 3, the most the rules allow.
+- **Findings in all:** 10 Important, 11 Nit and 3 Pre-existing, after duplicates were merged and 2 findings were dropped by the verifier. The security review found nothing.
+- **How it ended:** ✅ round 3 found no Important finding, and so the review is complete inside the three rounds. Its three Nits and its one Pre-existing finding were then fixed in two commits that **were not reviewed**: one rewords a single sentence and adds two tests, and the other changes tests only.
 
 **Round 1** (three reviewers, then a verifier, on the first seven commits).
 
@@ -494,7 +500,18 @@ the note joined into the error with +:           1 failed
 
 Before round 3 I read each new sentence against the code once more and changed two things that the reviewer had not flagged. "Ignoring punctuation and spacing" was not what the comparison does: `A.B.C` becomes `A B C`, which is not `ABC`. The phrase now says that anything that is not a letter A to Z or a digit is read as a space. And the line under the shortlist stopped restating the name and the city at all.
 
-**Round 3** is in progress.
+**Round 3** (one reviewer on the round 2 fix commit, doing all three hunts on that diff, and reading the Human review section).
+
+**0 Important, 3 Nit and 1 Pre-existing.** The reviewer checked each new sentence against the code it describes and found each one true. It found nothing about a person, the note or a hidden record reaching the terminal, and it found the Human review section supported, with all ten items of "What I couldn't verify" represented.
+
+| Finding | Tag | Answer |
+|---|---|---|
+| The reason for a city that failed the comparison read "registered in ST AUGUSTINE, not the city you gave", also when the city given was "St. Augustine". The comparison is one of spelling, and the sentence said the company was somewhere else. The sentence is from October | Pre-existing | Fixed, in a commit that was not reviewed. It now reads "principal city on record is ST AUGUSTINE, and that spelling does not begin with the city you gave". The comparison itself is question Q41 |
+| The test of a reply with a missing field removed three fields at once, so the first one hid the others. A reply with no `is_specific` could have been searched as if the note had named a business | Nit | Fixed, in a commit of tests that was not reviewed. Each of the four fields is removed on its own |
+| The two tests that parse source code could be got past by renaming the parameter, by copying the note to another name, or by `from sys import argv` | Nit | Fixed in the same commit. The test follows the parameter by position and through assignments, and it sees an imported `argv` |
+| The counts at the level Strong cover the pool of up to 200 nearest names, and a same-name company with a long legal ending can fall outside it. The report's wording of this ("a name shared by more than 200 companies") was narrower than the real case | Nit (the reviewer marked it uncertain, and did not query the database) | Answered with a measurement and a corrected sentence, and not with a code change. For the 8 test inputs the pool held every same-name company in the table. Item 9 of "What I couldn't verify" now describes the real case |
+
+The reviewer tried about thirty changes to the code of this round, and most failed a test. Of those that survived, the ones that mattered are the ones the last two commits close: a reply with no `is_specific`, a note that was renamed or copied before it was quoted, an imported `argv`, and a name comparison that ignored spaces.
 
 ---
 
