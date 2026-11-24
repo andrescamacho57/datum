@@ -1,6 +1,6 @@
 # Leg C4: the web app
 
-Branch `leg/c4-web-app` (stacked on `leg/c3-fact-report`) · the pull request is opened after the review · run on Nov 24, 2026 · risk tier **High** · status: **built, with every check passing. The Deep review is in progress, and its result is added to section 4 in a later commit.**
+Branch `leg/c4-web-app` (stacked on `leg/c3-fact-report`) · pull request C4_PR_REF · run on Nov 24, 2026 · risk tier **High** · status: **built and reviewed, with every check passing. The Deep review ended in its third round with no finding. Nothing is merged, and the app has been shown to nobody.**
 
 This is the last of the four legs of Phase C. Leg C2 made the search and leg C3 made the report. This leg puts both on pages that a contractor can open on a phone. The app runs on the Mac. Putting it on the internet is not part of this phase.
 
@@ -305,7 +305,9 @@ any address, another machine→ 403, with the code or without it
 
 - **Tier:** High. The leg decides what a contractor reads on a page, and the brief names leg C4 as High.
 - **Depth:** Deep. In round 1, three `reviewer` subagents ran in parallel, each with one of the hunts the brief sets for a High leg of Phase C, and a fourth then checked every finding against the code. A security review ran alongside, because `src/` changed.
-- **Rounds:** rounds 1 and 2 are below. Round 3 is in progress, and it is added in a later commit.
+- **Rounds:** three, which is the most the rules allow. The third found nothing, so the review ended there and nothing was left open.
+- **Findings over the three rounds:** 6 Important, 12 Nit and 1 Pre-existing, all fixed. Round 1 had 4 Important, 9 Nit and 1 Pre-existing. Round 2 had 2 Important and 3 Nit. Round 3 had none.
+- **What was not reviewed:** no code and no test. The only commits after round 3 change this report and add this pull request's row to `docs/review_log.csv`. Reviewers are told to skip leg reports, so the report's own text was checked only where the Human review section repeats it.
 
 **Round 1** (three reviewers, then a verifier, on the first five commits, and the security review).
 
@@ -380,7 +382,31 @@ the terminal searches for an empty name:                     1 failed
 HEAD /healthz open without the code:                         1 failed
 ```
 
-**Round 3** is in progress.
+**Round 3** (one reviewer on the round 2 commit, and the Human review section).
+
+**0 findings.** The round 2 commit changed tests only: the reviewer confirmed that nothing under `src/` differs between the end of round 1 and the end of round 2. So no sentence was added to a page and no new path for data was opened, and the round came down to one question: can the four new tests fail?
+
+- ✅ **The new shortlist test is set up honestly.** The reviewer read `search.match_level()` and confirmed that the test's two Likely companies are Likely for the reasons the test's comment gives: one has the same name and another city, and the other has the city only.
+- ✅ **The reviewer made 10 changes to the code, and each one failed a test.** It ran the whole suite on a copy of the code each time, and compared the failures with a run of the same copy unchanged.
+
+| Change the reviewer made | What failed |
+|---|---|
+| The caution shown on every card that is not Strong | The shortlist test. Only its new part, with the two Likely cards, can catch this |
+| The caution shown on Possible and on Likely | The same test |
+| The caution shown on every card | The same test |
+| The spacing class removed from the identification line of the report | The test of a value's spaces |
+| The spacing class removed from the table of company facts | The same test, and the test that reads every company fact on the page |
+| The terminal searches for an empty name | The test of a reply that calls the note specific and gives no name |
+| The web app searches for an empty name | The test that a reply with no business name is an extraction failure |
+| A HEAD request to `/healthz` let through without the code | The test of every address without the code |
+| A company that matches on city alone rated Possible, in `search.py` | Three tests, the new shortlist test among them |
+| The style sheet's rule that keeps a record's spaces switched off | The test of a value's spaces |
+
+- ✅ **The Human review section matches the code and this report.** The reviewer checked each of its claims.
+  - It counted the tests two ways: 456 pass now, and 368 are collected at the commit this leg starts from, so 88 are new.
+  - It checked that all ten items of "What I couldn't verify" above are in the section, and that the three places it points to exist.
+
+No Important finding remains, so the leg does not stop on its review.
 
 ---
 
