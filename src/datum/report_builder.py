@@ -222,6 +222,7 @@ class ReportBuilder:
             document_number=company.document_number, built_on=built_on, name=company.entity_name,
             company=rows, company_source=company_source, flags=flags,
             sources_checked=checked, sources_not_checked=not_checked, identification=identified,
+            caution=wording.POSSIBLE_CAUTION if identification is not None and identification.level == "Possible" else "",
         )
 
     @staticmethod
@@ -278,12 +279,14 @@ def render_markdown(report: Report) -> str:
     lines = [
         f"# {wording.REPORT_TITLE.format(name=report.name)}", "",
         wording.BUILT_ON.format(day=wording.day_text(report.built_on)), "",
+        *([f"**{report.caution}**", ""] if report.caution else []),   # a Possible match says so before anything else is read
         f"**{report.summary}**", "",
         report.confirmed_only, "",
         "| | |", "|---|---|",
     ]
     lines += [f"| {label} | {fact.text.replace('|', chr(92) + '|')} |" for label, fact in report.company]   # a "|" in a name would end the table cell, so it is written as \|
-    lines += [f"| {wording.LABEL_COMPANY_SOURCE} | {cited(report.company_source)} |", ""]
+    source = report.company_source          # its text is the citation AND the date the state published the file, so the text is what is shown
+    lines += [f"| {wording.LABEL_COMPANY_SOURCE} | [{source.text}]({source.source_url}) · {source.fetched_text} |", ""]
     if report.flags:
         lines += [f"## {wording.HEADING_FLAGS}", ""]
         for flag in report.flags:

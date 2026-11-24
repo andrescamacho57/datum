@@ -48,13 +48,14 @@ from datetime import date                   # the day a report is built
 from pathlib import Path                    # where the templates and the style sheets are
 
 from fastapi import FastAPI, Form, Request                    # the app, a form field, and the incoming request
+from fastapi.exceptions import RequestValidationError          # what the framework raises for a form it cannot read
 from fastapi.responses import PlainTextResponse, Response      # answers that are plain text
 from fastapi.staticfiles import StaticFiles                    # serves the files in static/
 from fastapi.templating import Jinja2Templates                 # renders the HTML templates, with auto-escaping on
 from starlette.exceptions import HTTPException as StarletteHTTPException   # what the framework raises for an unknown address
 
 from datum import wording
-from datum.models import Identification
+from datum.models import Identification, read_extracted
 from datum.report_builder import CompanyNotFound, ReportBackend, ReportBuilder, candidate_for_page
 from datum.search import SearchBackend, evidence, search_pool, shortlist
 
@@ -92,6 +93,12 @@ class Picks:
     It holds EXTRACTED fields, never the note. It forgets an entry after an hour, and keeps
     at most 200 shortlists. A report opened with no token, or with one that was forgotten,
     says it was opened by its document number.
+
+    "After an hour" is enforced on every call, put or get, by forget_old(): an entry is
+    removed the first time anything touches the store once the entry is an hour old, whether
+    or not anybody asks for it again. So nothing older than an hour is in memory while the
+    app is in use. An app that nobody uses holds its last entries until it is next used or
+    stopped, which the leg report says in so many words.
     """
 
     def __init__(self, keep: int = 200, seconds: float = 3600, clock: Callable[[], float] = time.monotonic):
@@ -103,6 +110,7 @@ class Picks:
         """Keep one shortlist's identifications and return the token that stands for them."""
         token = secrets.token_urlsafe(16)   # 16 random bytes as text: it cannot be guessed, and it says nothing about the search
         with self.lock:
+            self.forget_old()
             self.entries[token] = (self.clock(), identifications)
             while len(self.entries) > self.keep:
                 self.entries.popitem(last=False)   # drop the oldest
@@ -113,14 +121,15 @@ class Picks:
         if not token:
             return None
         with self.lock:
+            self.forget_old()
             entry = self.entries.get(token)
-            if entry is None:
-                return None
-            kept_at, identifications = entry
-            if self.clock() - kept_at > self.seconds:
-                del self.entries[token]     # too old: forget it
-                return None
-            return identifications.get(document_number)
+            return entry[1].get(document_number) if entry else None
+
+    def forget_old(self) -> None:
+        """Remove every entry that is more than `seconds` old. The caller holds the lock."""
+        now = self.clock()
+        for token in [token for token, (kept_at, _) in self.entries.items() if now - kept_at > self.seconds]:
+            del self.entries[token]
 
 
 def code_given(header: str | None) -> str | None:
@@ -138,7 +147,7 @@ def code_given(header: str | None) -> str | None:
 def create_app(access_code: str, extract: Callable[[str], dict], open_backends: OpenBackends,
                today: Callable[[], date] = date.today, local_only: bool = True) -> FastAPI:
     """Build the app. It refuses to be built without an access code (rule W8: a forgotten setting locks the app, it does not publish it)."""
-    if not access_code:
+    if not access_code or not access_code.strip():   # missing, empty, or only spaces: none of them is a code
         raise RuntimeError("APP_ACCESS_CODE is not set, so the app will not start. Set it and start again.")
     expected = access_code.encode("utf-8")
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)   # no automatic pages that describe the app
@@ -149,14 +158,29 @@ def create_app(access_code: str, extract: Callable[[str], dict], open_backends: 
         """Render one template. Every template gets the wording module as `w`, and holds no sentence of its own."""
         return templates.TemplateResponse(request, name, {"w": wording, "robots": NO_INDEX, **context}, status_code=status)
 
+    async def answered(request: Request, call_next) -> Response:
+        """Let the request through to its page, and turn anything that goes wrong there into an empty 500.
+
+        Without this, an error nobody foresaw would reach Uvicorn, which prints the error's
+        message and the lines of code around it into the server's log. That message can quote
+        an extracted field. Here only the error's class name is logged.
+        """
+        try:
+            return await call_next(request)
+        except Exception as error:
+            log.error("a page failed: %s", type(error).__name__)
+            return PlainTextResponse("", status_code=500)
+
     @app.middleware("http")
     async def gate(request: Request, call_next):
         """Runs around every request: the door (rule W8), and the headers on every answer."""
         client = request.client.host if request.client else ""
+        path = request.scope["path"]        # the path exactly as the router will match it. request.url.path is the same text parsed
+                                            # again, and that parse drops a tab or a line break, so "/heal<line break>thz" would read as /healthz
         if local_only and client not in LOOPBACK:                  # not this machine: refused, before anything else is looked at
             answer: Response = PlainTextResponse("", status_code=403)
-        elif request.url.path == "/healthz":                       # the one address that needs no code
-            answer = await call_next(request)
+        elif path == "/healthz" and request.method == "GET":       # the one address that needs no code, and only for a plain GET
+            answer = await answered(request, call_next)
         else:
             given = code_given(request.headers.get("authorization"))
             if given is None or not secrets.compare_digest(given.encode("utf-8"), expected):
@@ -164,7 +188,7 @@ def create_app(access_code: str, extract: Callable[[str], dict], open_backends: 
                 # last, so the time an answer takes tells a guesser nothing.
                 answer = PlainTextResponse("", status_code=401, headers={"WWW-Authenticate": 'Basic realm="Datum", charset="UTF-8"'})
             else:
-                answer = await call_next(request)
+                answer = await answered(request, call_next)
         for name, value in SECURITY_HEADERS.items():
             answer.headers[name] = value
         return answer
@@ -174,6 +198,11 @@ def create_app(access_code: str, extract: Callable[[str], dict], open_backends: 
         """An unknown address, or a method an address does not take: one plain page that repeats nothing that was typed."""
         status = error.status_code if error.status_code in (404, 405) else 404
         return page(request, "message.html", status=status, heading=wording.NOT_FOUND_HEADING, message=wording.NOT_FOUND, form=False)
+
+    @app.exception_handler(RequestValidationError)
+    async def unreadable(request: Request, error: RequestValidationError):
+        """A form the search box did not send, such as a file in the note field. The framework's own answer would describe what was sent."""
+        return page(request, "message.html", status=400, heading=wording.SEARCH_HEADING, message=wording.REQUEST_NOT_READ, form=True)
 
     @app.get("/healthz")
     def healthz():
@@ -196,9 +225,9 @@ def create_app(access_code: str, extract: Callable[[str], dict], open_backends: 
         if len(note) > MAX_NOTE:
             return page(request, "message.html", heading=wording.SEARCH_HEADING, message=wording.NOTE_TOO_LONG, form=True)
         try:
-            fields = extract(note)          # the ONLY use of the note
-            business_name, city, street = fields["business_name"], fields["city"] or "", fields["street"] or ""
-            is_specific = fields["is_specific"]
+            extracted = read_extracted(extract(note))   # the ONLY use of the note. The reply is checked here, inside the try
+            business_name, city, street = extracted.business_name, extracted.city, extracted.street
+            is_specific = extracted.is_specific and bool(business_name)   # a reply with no name names no business
         except Exception as error:          # the API is down, the key is wrong, the reply is malformed
             log.warning("the extraction step failed: %s", type(error).__name__)   # the class name only. The message could quote the note
             return page(request, "message.html", status=503, heading=wording.SEARCH_HEADING, message=wording.SEARCH_UNAVAILABLE, form=True)
@@ -227,7 +256,7 @@ def create_app(access_code: str, extract: Callable[[str], dict], open_backends: 
         return page(
             request, "shortlist.html", read_as=read_as, token=picks.put(identifications),
             candidates=[candidate_for_page(found, level, short.city_given) for level, found in zip(short.levels, short.candidates)],
-            tie=wording.SHORTLIST_TIE if short.tied_at_top > 1 else "",
+            tie=wording.tie_text(short.tied_at_top, short.top_level),
             not_shown_line=wording.not_shown_text(short.tied_not_shown),
             not_shown=[candidate_for_page(found, "Strong", short.city_given) for found in short.not_shown],   # only a Strong candidate is ever in not_shown
         )

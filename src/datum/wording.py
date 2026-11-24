@@ -137,8 +137,18 @@ EVIDENCE_INACTIVE = "INACTIVE with the state"
 EVIDENCE_NO_STATUS = "status not on record"
 # The eight lines above are the reasons search.evidence() gives for a match level. They were
 # written in search.py in leg C2 and moved here unchanged, so that this file holds them all.
-SHORTLIST_TIE = "These look about equally likely. Is it one of these? A street or a city would help tell them apart."
-# report.py's line, without "or an owner's name": rule W6, the app never asks for one.
+TIE_STRONG = "{count} companies match at the level Strong. Check which one you mean before you open a report."
+TIE_ON_LIST = "{count} companies on this list match at the level {level}. Check which one you mean before you open a report."
+# Shown ABOVE the shortlist when more than one company shares the top level (rule W7). Each
+# says what it counts, as the tie sentences on a report do: at Strong every candidate the
+# search brought back, at Likely and Possible the companies on the list. The sentence before
+# it, from October, read "These look about equally likely ... A street or a city would help
+# tell them apart": it stood under the whole list, so "these" took in companies that were not
+# tied, and it asked for a city when one had been given and for a street the search never uses.
+POSSIBLE_CAUTION = "This is only a POSSIBLE match: the name is similar, and nothing else confirms it is the company you mean."
+# On the shortlist under every company rated Possible, and at the top of a report whose company
+# was picked at that level. The terminal has asked "Make the report anyway?" since October.
+# A web page cannot ask before it opens, so it says this where the contractor will read it.
 SHORTLIST_NOT_SHOWN_ONE = "1 more company matches at the level Strong and is not on this list."
 SHORTLIST_NOT_SHOWN_MANY = "{count} more companies match at the level Strong and are not on this list."
 # The sentence names the LEVEL, because that is exactly what is counted: the candidates rated
@@ -169,7 +179,8 @@ NOTE_NOT_ON_COMMAND_LINE = (
 EXTRACTION_ERROR_KIND = "The extraction step stopped with this kind of error: {kind}."
 # The kind is the error's class name, such as APIConnectionError. A class name cannot hold the
 # note. The error's own message can, and so it is never printed.
-SEARCH_UNAVAILABLE = "The search is unavailable right now, so no company is shown. Try again in a few minutes."
+SEARCH_UNAVAILABLE = "The search is unavailable right now, so no company is shown."
+# It does not say "try again in a few minutes". A wrong API key does not pass in a few minutes.
 
 
 # --- The web app (leg C4) -----------------------------------------------------------------
@@ -185,7 +196,8 @@ NOTE_EMPTY = "Nothing was typed. Type the business's name, and a street or a cit
 NOTE_TOO_LONG = "That is too long to search for. Type the business's name, and a street or a city if you have one."
 ASK_FOR_A_BUSINESS_ON_A_PAGE = ASK_FOR_A_BUSINESS + "."      # the terminal's question, as a sentence on a page (acceptance test A2)
 NO_COMPANY_FOUND = "No company with a name close to that was found. Check the spelling of the business's name."
-REPORT_UNAVAILABLE = "The report is unavailable right now. Try again in a few minutes."
+REPORT_UNAVAILABLE = "The report is unavailable right now."
+REQUEST_NOT_READ = "That could not be read as a search. Type the business's name in the box."   # a form that was not sent by the search box
 NOT_FOUND_HEADING = "Not found"
 NOT_FOUND = "Nothing was found at this address."
 # One sentence for every 404, whether the address is unknown, the document number has the
@@ -224,6 +236,13 @@ def tied_text(others: int, level: str) -> str:
     if level == "Strong":
         return TIED_ONE if others == 1 else TIED_MANY.format(count=others)
     return TIED_ON_LIST_ONE if others == 1 else TIED_ON_LIST_MANY.format(count=others)
+
+
+def tie_text(count: int, level: str | None) -> str:
+    """The line above a shortlist whose top level is shared by `count` companies (rule W7). Empty when there is no tie."""
+    if count <= 1 or level is None:
+        return ""
+    return TIE_STRONG.format(count=count) if level == "Strong" else TIE_ON_LIST.format(count=count, level=level)
 
 
 def not_shown_text(count: int) -> str:

@@ -99,11 +99,12 @@ def test_two_companies_with_the_same_name_are_called_a_tie_on_the_shortlist_and_
                    entity_name="INVENTED AIR CONDITIONING INC", name_key="INVENTED AIR CONDITIONING INC", principal_city="BOYNTON BEACH")
     talk = Talk(["2"])
     path = run(talk, tmp_path, companies=[first, twin])
-    assert "These look about equally likely. Is it one of these? A street or a city would help tell them apart." in talk.everything
+    tie = "2 companies match at the level Strong. Check which one you mean before you open a report.\n"
+    assert tie in talk.said and talk.said.index(tie) < next(i for i, line in enumerate(talk.said) if line.startswith("1. "))   # said ABOVE the list
     assert path.name.startswith(fx.NO_FLAG_COMPANY) and "match level Strong" in path.read_text()
     assert "1 other company matched equally well." in path.read_text()
     alone = Talk(["1"])
-    assert "matched equally well" not in run(alone, tmp_path, companies=[first]).read_text() and wording.SHORTLIST_TIE not in alone.everything
+    assert "matched equally well" not in run(alone, tmp_path, companies=[first]).read_text() and "match at the level" not in alone.everything
 
 
 def test_a_same_name_company_that_did_not_fit_on_the_list_is_named_and_counted(tmp_path):
@@ -161,7 +162,9 @@ def test_a_possible_match_needs_a_yes_before_a_report_is_made(tmp_path):
     assert run(refused, tmp_path, fields=fields) is None and list(tmp_path.iterdir()) == []
     assert any("That's only a POSSIBLE match" in prompt for prompt in refused.asked)
     accepted = Talk(["1", "y"])
-    assert "match level Possible" in run(accepted, tmp_path, fields=fields).read_text()
+    saved = run(accepted, tmp_path, fields=fields).read_text()
+    assert "match level Possible" in saved
+    assert "**This is only a POSSIBLE match: the name is similar, and nothing else confirms it is the company you mean.**" in saved   # and the saved report says so at the top
 
 
 def test_a_wrong_pick_is_asked_again_and_zero_asks_for_more(tmp_path):
@@ -198,7 +201,7 @@ def test_a_failed_extraction_says_two_fixed_sentences_and_never_the_errors_own_w
 
     talk = Talk([])                                                      # it must not ask anything either
     assert run(talk, tmp_path, extract=broken) is None
-    assert talk.said == ["\nThe search is unavailable right now, so no company is shown. Try again in a few minutes.",
+    assert talk.said == ["\nThe search is unavailable right now, so no company is shown.",
                          f"The extraction step stopped with this kind of error: {error_class.__name__}."]   # the class name only: it cannot hold the note
     for word in PRIVATE + (NOTE, "No fields returned"):
         assert word not in talk.everything

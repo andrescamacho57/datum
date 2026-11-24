@@ -13,7 +13,7 @@ import pytest                               # the test runner; pytest.raises che
 from pydantic import ValidationError        # the error Pydantic raises when a value breaks a model's rules
 
 from datum import wording
-from datum.models import Candidate, Fact, Flag, Identification, Report
+from datum.models import Candidate, Extracted, Fact, Flag, Identification, Report, read_extracted
 
 FETCHED = datetime(2026, 10, 22, 19, 31, 31, tzinfo=timezone.utc)
 SUNBIZ = "https://search.sunbiz.org/Inquiry/CorporationSearch/ByDocumentNumber"
@@ -89,7 +89,7 @@ def a_report(flags=()):
         document_number="T26000000001", built_on=date(2026, 11, 24), name="INVENTED ROOFING CORP",
         company=((wording.LABEL_STATUS, a_fact()),), company_source=a_fact(), flags=tuple(flags),
         sources_checked=(a_fact(text="source one"), a_fact(text="source two")), sources_not_checked=("Court cases",),
-        identification=a_fact(text=wording.IDENTIFIED_BY_NUMBER),
+        identification=a_fact(text=wording.IDENTIFIED_BY_NUMBER), caution="",
     )
 
 
@@ -127,3 +127,16 @@ def test_a_candidate_states_its_name_its_place_and_its_evidence_as_facts():
     with pytest.raises(ValidationError, match="evidence"):
         # Rule W1 names a company's status. "ACTIVE" as a bare text would be a statement with no source and no fetch time.
         Candidate(document_number="T26000000001", name=a_fact(text="INVENTED ROOFING CORP"), place=None, level="Likely", evidence=("ACTIVE",))
+
+
+def test_the_extraction_steps_reply_is_checked_and_trimmed_before_anything_uses_it():
+    # The reply comes from a model, so it is checked like any outside input. Each fault must raise HERE, where the caller catches it.
+    good = {"business_name": "  Acme Roofing ", "city": None, "street": "   ", "is_specific": True}
+    assert read_extracted(good) == Extracted(business_name="Acme Roofing", city="", street="", is_specific=True)   # trimmed. A city of nothing, or of spaces, is no city
+    for missing in good:
+        with pytest.raises(KeyError):
+            read_extracted({name: value for name, value in good.items() if name != missing})
+    for field, wrong in (("business_name", None), ("business_name", 7), ("city", 7), ("street", ["Bay St"]), ("is_specific", "true"), ("is_specific", None), ("is_specific", 1)):
+        with pytest.raises((ValidationError, AttributeError, TypeError)):
+            read_extracted({**good, field: wrong})                        # a wrong kind of value never becomes a search
+    assert "note" not in Extracted.model_fields                           # and the checked reply has no place for the note either
