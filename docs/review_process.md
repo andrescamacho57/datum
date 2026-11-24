@@ -28,10 +28,10 @@ agent builds the leg -> done-when checks pass -> tier set from REVIEW.md
 
 ### The Human review section (added Nov 23, 2026, rewritten Nov 24)
 
-Every pull request body starts with a section called `## Human review`. It exists because a leg report is long on purpose, so that a later agent can see exactly what was done, and that length is too much for a person to review well. The section is the account for Andres. He reads it in under 5 minutes, and it tells him everything he needs without opening anything else in the pull request: enough to explain the change back, answer the three questions and make his decisions.
+Every pull request body starts with a section called `## Human review`. It exists because a leg report is long on purpose, so that a later agent can see exactly what was done, and that length is too much for a person to review well. The section is the account for Andres. He reads it in under 5 minutes, and it tells him everything he needs without opening the leg report: enough to explain the change back, answer the three questions and make his decisions.
 
 - It is written the way a colleague would explain the change out loud: full sentences, and never a bold label followed by clipped fragments. It is usually 300 to 600 words.
-- It says what the leg does and why, shows what was built in a small diagram, says what is proven and what is not, lists his decisions as a numbered list with the facts each one needs, and names at most three places to look in the code.
+- It says what the leg does and why, shows what was built in a small diagram, says what is proven and by which check, lists every item that is not proven, lists his decisions as a numbered list with the facts each one needs, and names at most three places to look in the code.
 - The first version, on Nov 23, capped the section at 250 words. Three pull requests showed that the cap produced fragments such as "Your decisions. Dropping the old 588 MB index, and a host for 5.5 GB.", and so on Nov 24 the cap was raised and the style rule was added.
 - The author writes it, and so the AI reviewer checks it against the diff in the last review round. A sentence the diff does not support is an `Important` finding, because a wrong summary is the one part of the pull request a person is sure to read.
 - It does not replace reading the diff on a High-tier change. It tells Andres what the change does and where in the diff to read.
