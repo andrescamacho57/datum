@@ -205,10 +205,14 @@ def test_a_failed_extraction_says_two_fixed_sentences_and_never_the_errors_own_w
     assert list(tmp_path.iterdir()) == []
 
 
-def test_a_reply_with_a_field_missing_is_a_failed_extraction_too(tmp_path):
+@pytest.mark.parametrize("missing", ["business_name", "city", "street", "is_specific"])
+def test_a_reply_with_any_one_field_missing_is_a_failed_extraction_too(tmp_path, missing):
+    # One field at a time. A reply with no is_specific must not be searched as if the note had named a business (acceptance test A2).
+    reply = {name: value for name, value in FIELDS.items() if name != missing}
     talk = Talk([])
-    assert run(talk, tmp_path, extract=lambda text: {"business_name": "Invented Air Conditioning"}) is None   # no city, no street, no is_specific
-    assert talk.said[0].strip() == wording.SEARCH_UNAVAILABLE and "INVENTED" not in talk.everything
+    assert run(talk, tmp_path, extract=lambda text: dict(reply)) is None
+    assert talk.said == ["\n" + wording.SEARCH_UNAVAILABLE, "The extraction step stopped with this kind of error: KeyError."]
+    assert "INVENTED" not in talk.everything and list(tmp_path.iterdir()) == []
 
 
 def names_used(node):
@@ -216,15 +220,36 @@ def names_used(node):
     return {child.id for child in ast.walk(node) if isinstance(child, ast.Name)}
 
 
+def names_that_hold_the_note(function):
+    """The function's parameter for the note, and every name assigned from it, directly or through another such name."""
+    holding = {function.args.args[1].arg}                                 # extract_fields(client, note): the second parameter, whatever it is called
+    grew = True
+    while grew:                                                           # follow "text = note", then "copy = text", until nothing new is found
+        grew = False
+        for node in ast.walk(function):
+            if isinstance(node, ast.Assign) and names_used(node.value) & holding:
+                for target in node.targets:
+                    for name in names_used(target) - holding:
+                        holding.add(name)
+                        grew = True
+    return holding
+
+
+def raises_that_quote_the_note(source):
+    function = next(node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.FunctionDef) and node.name == "extract_fields")
+    holding = names_that_hold_the_note(function)
+    return [node for node in ast.walk(function) if isinstance(node, ast.Raise) and names_used(node) & holding]
+
+
 def test_no_error_raised_by_the_extraction_step_is_built_from_the_note():
     # extract.py is parsed and not imported: importing it loads the API key, and the offline suite needs no key. Parsing sees the
-    # STRUCTURE of the code, so it catches the note joined with +, put in an f-string, or passed to format().
-    tree = ast.parse((Path(report.__file__).parent / "extract.py").read_text())
-    function = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "extract_fields")
-    raises = [node for node in ast.walk(function) if isinstance(node, ast.Raise)]
-    assert raises and all("note" not in names_used(node) for node in raises)
-    for spelling in ('raise ValueError(f"x {note!r}")', 'raise ValueError("x " + note)', 'raise ValueError("x {}".format(note))'):
-        assert "note" in names_used(ast.parse(spelling))                  # the check sees each way of quoting the note
+    # STRUCTURE of the code, so it catches the note in an f-string, joined with +, passed to format(), renamed, or copied to another name first.
+    source = (Path(report.__file__).parent / "extract.py").read_text()
+    assert "raise " in source and raises_that_quote_the_note(source) == []
+    for body in ('raise ValueError(f"x {note!r}")', 'raise ValueError("x " + note)', 'raise ValueError("x {}".format(note))',
+                 'text = note\n    raise ValueError(f"x {text!r}")', 'text = note\n    copy = text[:80]\n    raise ValueError(copy)'):
+        assert len(raises_that_quote_the_note(f"def extract_fields(client, note):\n    {body}")) == 1, body
+    assert len(raises_that_quote_the_note('def extract_fields(client, text):\n    raise ValueError(f"x {text!r}")')) == 1   # the parameter under another name
 
 
 def test_the_note_is_read_at_a_prompt_and_never_from_the_command_line():
@@ -237,17 +262,31 @@ def test_the_note_is_read_at_a_prompt_and_never_from_the_command_line():
     assert report.read_note([], quiet.ask, quiet.say) == "a note" and quiet.said == []
 
 
+def uses_of_the_command_line(source):
+    """(every use of argv in main() or imported at the top of the module, the uses that are an argument of read_note)."""
+    tree = ast.parse(source)
+    main = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "main")
+
+    def argv_nodes(node):
+        return [child for child in ast.walk(node)
+                if (isinstance(child, ast.Attribute) and child.attr in ("argv", "orig_argv")) or (isinstance(child, ast.Name) and child.id in ("argv", "orig_argv"))]
+
+    imported = [alias for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) for alias in node.names if alias.name in ("argv", "orig_argv")]
+    handed_over = [node for call in ast.walk(main) if isinstance(call, ast.Call) and getattr(call.func, "id", "") == "read_note"
+                   for argument in call.args for node in argv_nodes(argument)]
+    return argv_nodes(main) + imported, handed_over
+
+
 def test_main_hands_the_command_line_to_read_note_and_uses_it_nowhere_else():
-    # Parsed, so that sys.argv joined into the note on the same line as a call to read_note would still be seen.
-    main = next(node for node in ast.walk(ast.parse(inspect.getsource(report))) if isinstance(node, ast.FunctionDef) and node.name == "main")
-    every_use = [node for node in ast.walk(main) if isinstance(node, ast.Attribute) and node.attr == "argv"]
-    inside_read_note = [node for call in ast.walk(main) if isinstance(call, ast.Call) and getattr(call.func, "id", "") == "read_note"
-                        for argument in call.args for node in ast.walk(argument) if isinstance(node, ast.Attribute) and node.attr == "argv"]
-    assert len(every_use) == 1 and len(inside_read_note) == 1             # one use, and it is the argument of read_note
-    bad = ast.parse('def main():\n    note = " ".join(sys.argv[1:]) or read_note([])')
-    assert len([node for node in ast.walk(bad) if isinstance(node, ast.Attribute) and node.attr == "argv"]) == 1
-    assert not [node for call in ast.walk(bad) if isinstance(call, ast.Call) and getattr(call.func, "id", "") == "read_note"
-                for argument in call.args for node in ast.walk(argument) if isinstance(node, ast.Attribute)]   # ...and the check tells the bad spelling apart
+    # Parsed, so that the command line joined into the note is seen however it is spelled.
+    every_use, handed_over = uses_of_the_command_line(inspect.getsource(report))
+    assert len(every_use) == 1 and len(handed_over) == 1                  # one use in all, and it is the argument of read_note
+    for bad in ('    note = " ".join(sys.argv[1:]) or read_note([])',
+                '    note = " ".join(sys.argv[1:]) or read_note(sys.argv[1:])',
+                '    from sys import argv\n    note = " ".join(argv[1:]) or read_note(sys.argv[1:])',
+                '    note = read_note(arguments=sys.argv[1:])\n    extra = sys.orig_argv'):
+        every_use, handed_over = uses_of_the_command_line("def main():\n" + bad)
+        assert len(every_use) != 1 or len(handed_over) != 1, bad          # each bad spelling is told apart from the good one
 
 
 def test_a_vague_note_shows_no_company_until_a_second_extraction_names_one(tmp_path):
