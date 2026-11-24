@@ -19,6 +19,6 @@ Three small files that stand in for the three Postgres tables the report builder
 
 Phase C's brief allows a fixture row to be cut from a real mart row about a company. A small company's principal address is often somebody's home, the repo is public, and the report builder's tests need the shape of a company row and not any particular company. So the six companies are made up: their names hold the word INVENTED, their addresses are `1 INVENTED WAY` and so on, and their document numbers start with `T`. One of them has no address, no date and an entity-type code that has no label, to test what the report says about a gap.
 
-`tests/test_fixture_privacy.py` checks all of the above on every run.
+`tests/test_fixture_privacy.py` checks part of the above on every run, and here is which part. It checks that every document number starts with `T`, that every company's name, simplified name and street address hold the word INVENTED, that every filing and license number is in its invented range, and that no sentence and no source address in a flag row holds any other number. It does not check that the license row's dates are invented, and it cannot check that no real document number starts with `T`: that count was made by hand against Postgres.
 
 To refresh `source_coverage.csv` or the wording in `company_flags.csv`, read the rows again, replace the numbers the same way, and commit the refresh on its own (`CLAUDE.md` rule 5).

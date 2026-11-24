@@ -226,6 +226,10 @@ def report_problems(report_dir: Path) -> list[str]:
                 if path.name == "company_search.csv":
                     if INVENTED_WORD not in (row.get("entity_name") or ""):
                         problems.append(f"{where} line {number}: a company name without the word {INVENTED_WORD}")
+                    if INVENTED_WORD not in (row.get("name_key") or ""):     # the simplified name is a second copy of the name
+                        problems.append(f"{where} line {number}: a company's name key without the word {INVENTED_WORD}")
+                    if A_NUMBER.search(row.get("source_url") or ""):         # an address that points at one record would carry its number
+                        problems.append(f"{where} line {number}: a company's source address holds a number")
                     if row.get("principal_address_1") and INVENTED_WORD not in row["principal_address_1"]:
                         problems.append(f"{where} line {number}: a company's street address without the word {INVENTED_WORD}")
                     continue
@@ -235,8 +239,9 @@ def report_problems(report_dir: Path) -> list[str]:
                     problems.append(f"{where} line {number}: a flag row from a source this test does not know, so it cannot check its numbers")
                 elif not invented.fullmatch(record):
                     problems.append(f"{where} line {number}: a flag row has a record number outside the invented range")
-                # The same number is written into the sentences the mart builds. No other number may be in them.
-                for column in ("citation", "status_note", "caveat"):
+                # The same number is written into the sentences the mart builds. No other number may be in them,
+                # nor in the source address, which is a search page today and could one day point at a single record.
+                for column in ("citation", "status_note", "caveat", "source_url"):
                     if any(found != record for found in A_NUMBER.findall(row.get(column) or "")):
                         problems.append(f"{where} line {number}: a flag row's {column} holds a number that is not its invented record number")
     return problems
@@ -345,6 +350,16 @@ BROKEN = [
      {"report/company_flags.csv": FLAG_HEADER + FLAG_ROW.format(number="26FLR9900001", source="sunbiz_flr").replace("filing 26FLR9900001", "filing 21FLR0000000")}, "citation holds a number"),
     ("a report fixture flag row with a second, real-shaped number in its status note",
      {"report/company_flags.csv": FLAG_HEADER + FLAG_ROW.format(number="CGC9900004", source="dbpr").replace("status note.", "License CGC0000000: inactive.")}, "status_note holds a number"),
+    ("a report fixture flag row with a real-shaped number in its caveat",
+     {"report/company_flags.csv": FLAG_HEADER + FLAG_ROW.format(number="26FLR9900001", source="sunbiz_flr").replace("A caveat.", "See filing 21FLR0000000.")}, "caveat holds a number"),
+    ("a report fixture flag row whose source address points at one real-shaped record",
+     {"report/company_flags.csv": FLAG_HEADER + FLAG_ROW.format(number="CGC9900004", source="dbpr").replace("https://example.org/search", "https://example.org/license/CGC0000000")}, "source_url holds a number"),
+    ("a report fixture flag row attached to a document number of a real shape",
+     {"report/company_flags.csv": FLAG_HEADER + FLAG_ROW.format(number="26FLR9900001", source="sunbiz_flr").replace("T26000000001", "L26000000001")}, "company_flags.csv line 2: a document number outside the invented range"),
+    ("a report fixture company whose simplified name was left real",
+     {"report/company_search.csv": COMPANY_HEADER + "T26000000001,INVENTED POOLS INC,ACME POOLS INC,A,FLAL,2020-01-15,1 INVENTED WAY,TAMPA,FL,33602\r\n"}, "name key without the word"),
+    ("a report fixture company whose source address points at one real-shaped record",
+     {"report/company_search.csv": COMPANY_HEADER.replace("principal_zip", "principal_zip,source_url") + "T26000000001,INVENTED POOLS INC,INVENTED POOLS INC,A,FLAL,2020-01-15,1 INVENTED WAY,TAMPA,FL,33602,https://example.org/company/L26000000001\r\n"}, "source address holds a number"),
     ("a report fixture flag row from a source the test has no rule for",
      {"report/company_flags.csv": FLAG_HEADER + FLAG_ROW.format(number="2024900001", source="duval")}, "source this test does not know"),
     ("a report fixture file the test has no layout for",
