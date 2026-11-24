@@ -6,9 +6,10 @@ The branch was stacked on `leg/c1-serving-marts`. Pull request 15 was merged on 
 
 **The short version**
 
-- **The speed target is met by the third approach.** The target is a p95 under 1 second. The p95 is the time that 95 of every 100 searches beat, and the p50 is the time that half of them beat. With the narrow search table, the 208 searches have a p50 of **129 milliseconds**, a p95 of **574 milliseconds** and a slowest search of **2,335 milliseconds**. That is the run measured the way the first two approaches were. I timed the narrow table six times in all, three of them with the Mac's memory emptied of the database first, and the p95 was under 1 second every time: between 430 and 869 milliseconds.
-- **The answers did not change.** The second approach and the narrow table were run on the same 208 searches, and all **208** returned the same companies in the same order. **0** differ.
-- **One number does not add up, and you should know it.** The second approach missed the target on Nov 21 with a p95 of 1,229 milliseconds. Timed again on Nov 24, on the same 208 searches, it came in under 1 second in all four runs, between 545 and 916 milliseconds. I could not reproduce its miss and I cannot say why (check 3 has what I know). So the measured gain of the narrow table is smaller than the Nov 21 number suggests. Timed from a cold start, the narrow table had a p95 of 560, 520 and 869 milliseconds, against 847 and 863 for the second approach, which makes it faster in two cold runs of three and level in the third. Its slowest search was about half as slow in every run.
+- **The speed target is met by the third approach.** The target is a p95 under 1 second. The p95 is the time that 95 of every 100 searches beat, and the p50 is the time that half of them beat. With the narrow search table, the 208 searches have a p50 of **129 milliseconds**, a p95 of **574 milliseconds** and a slowest search of **2,335 milliseconds**. That is the run chosen in advance, before any timing. I timed the narrow table six times in all, three of them with the Mac's memory emptied of the database first, and the p95 was under 1 second every time: between 430 and 869 milliseconds.
+- **The answers did not change.** The second approach and the narrow table were run on the same 208 searches, and all **208** returned the same companies in the same order, both in the five companies returned and in the whole pool behind them. **0** differ.
+- **The 200 random names were not the same on every run, and that was a fault in the Nov 21 code.** The report of Nov 21 said the fixed seed made every run search the same names. It did not: Postgres can start reading a large table from where the last read stopped, and so each draw met different companies first. I found this on Nov 24, measured it, and fixed it. Seven of the ten timed runs of Nov 24 share one set of names, because each came straight after a restart of Postgres, and every comparison between the two approaches in this report now uses only those seven. Check 3 says which run used which names.
+- **The second approach's miss of Nov 21 did not happen again, and the fault above is the likely reason.** It measured a p95 of 1,229 milliseconds on Nov 21. Timed again on Nov 24 it came in under 1 second in all four runs, between 545 and 916 milliseconds. 🟡 The likely reason is that the Nov 21 run searched a different set of 200 names, and I cannot prove it, because nothing recorded which names it drew. So the measured gain of the narrow table is smaller than the Nov 21 number suggests. On the same names and from a cold start, the narrow table had a p95 of 560, 520 and 869 milliseconds, against 847 and 863 for the second approach, which makes it faster in two cold runs of three and level in the third. Its slowest search took 2.3 to 4.3 seconds, against 5.3 to 5.8 for the second approach.
 - **A few searches are still slow.** Between 2 and 7 of the 208 searches took longer than 1 second, depending on the run. They are names built from one long, common word and one or two very short ones. Check 3 explains them.
 - Everything else the leg asks for is done and checked.
   - The four marts are in Postgres, and every table's row count equals Snowflake's: **12,988,435** companies, **9,950** shown flags, **0** possible matches and **5** source rows.
@@ -32,6 +33,7 @@ The condition you set for going on to legs C3 and C4 is met: the p95 is under 1 
 | Nov 20 and 21 | The leg was built. Two approaches to the search were timed, with a p95 of 11,212 and of 1,229 milliseconds. Both missed the target, and so the leg stopped, as the brief requires |
 | Nov 21 | Three review rounds. The fix for the third round's finding, commit `d2e51f1`, was not reviewed, because no fourth round is allowed |
 | Nov 24 | Andres ruled that a third approach should be tried: option A, the narrow search table. It was built, timed and compared, and the new commits were reviewed from round 1, together with `d2e51f1` |
+| Nov 24 | While answering the review, a count in the comparison's output changed between two runs. That led to the fault in the random draw, which was fixed the same day |
 
 ---
 
@@ -98,7 +100,7 @@ A trigram is a run of three characters, and two names are near when they share m
 | `snowflake/23_export_marts.sql` | New |
 | `src/datum/load_postgres.py`, `tests/test_load_postgres.py` | New. 14 tests, 4 of them added on Nov 24 for the narrow table |
 | `src/datum/search.py`, `tests/test_search.py`, `tests/fixtures/search/` | New. 93 tests, 61 of them one per fixture pair, and 1 added on Nov 24 for the narrow-table query |
-| `evals/run.py`, `tests/test_evals_run.py` | New. 16 tests, 4 of them added on Nov 24 for the comparison of two approaches |
+| `evals/run.py`, `tests/test_evals_run.py` | New. 18 tests, 6 of them added on Nov 24: 5 for the comparison of two approaches and 1 for the random draw |
 | `docs/adr/0001-serving-layer.md` | New |
 | `requirements.txt` | Changed: `psycopg` 3.3.9 and `psycopg-binary` 3.3.9, each with a comment (ruling R24) |
 | `pytest.ini` | Changed: the repo root is on the import path, so a test can import `evals.run` |
@@ -204,6 +206,8 @@ Three things are worth knowing about these numbers.
 
 The measurement is the one the brief defines: the 8 specific test inputs plus 200 company names drawn at random, 208 searches in all, each timed from the typed name to the reranked answer. The 200 names are the same on every run, because the draw uses a fixed seed. No drawn name is printed.
 
+> **Correction, Nov 24.** The sentence above was wrong. The seed fixes which companies are sampled, and the command keeps the first 200 that Postgres meets, and Postgres did not always start reading at the same place. The three runs below very likely searched three different sets of 200 names. The numbers are what was measured. What they compare is less than this section says. The part of this check dated Nov 24 has the details.
+
 ```
 python -m evals.run --backend postgres --latency 200 --retrieve plain      (approach 1)
 latency over 208 searches (8 test inputs + 200 random company names, pool of 200):
@@ -226,6 +230,8 @@ python -m evals.run --backend postgres --latency 200                       (appr
 | 2 again, the same 208 inputs a second time | The same | 173 ms | 766 ms | Not a fair number: see below |
 
 **Why the second run of approach 2 does not count.** It searched the same 208 names as the first run, a minute later, so the parts of the table those names need were already in memory. A contractor's search is a name nobody searched a minute ago. The first run is the honest number, and it misses.
+
+> **Correction, Nov 24.** 🟡 This explanation is very likely wrong. The second run came straight after the first with no restart of Postgres between them, and on Nov 24 a second draw in that situation gave a different set of names every time it was tried. So the gap between 1,229 and 766 milliseconds is more likely two different sets of names than memory. I cannot check it, because the Nov 21 draws were not recorded.
 
 **Why approach 1 is slow.** The trigram index holds, for each trigram, the list of names that contain it. At a threshold of 0.3 a name can pass by sharing only the common trigrams, such as the ones in ING or CONDITIONING, so Postgres has to read those long lists in full and then fetch every candidate row to check it. For one search it fetched about 100,000 rows to keep 10,000.
 
@@ -273,12 +279,33 @@ Andres ruled on Nov 24 that one more approach should be tried, and named it: opt
                                                         primary key ──▶ the pool
 ```
 
-**How it was measured.** The command is the one that timed the first two approaches, on the same 208 searches: the 8 specific test inputs and the 200 company names the fixed seed draws.
+**How it was measured.** The command is the one that timed the first two approaches: the 8 specific test inputs and 200 company names drawn with the fixed seed, 208 searches in all.
 
-- ✅ The 200 drawn names are the same ones before and after the loader ran again on Nov 24. A fingerprint of the drawn names (an MD5 hash, which is a short code that changes when any name changes) was `29e32d4a94b0a803614ddf7256322a37` both times.
-- 🟡 Nothing recorded the fingerprint on Nov 21. The command, the seed and the exported files are the same as then, and so I take the draw to be the same, and I cannot prove it.
-- Before timing anything, I decided which run would be the number for this report: the first run after Postgres is restarted, with the narrow table timed before the second approach. A restart empties Postgres's own memory. That is the closest match to "the first run" of Nov 21.
-- That first pair showed the second approach under 1 second too, which meant the conditions were not as cold as on Nov 21. So I added a stricter kind of run, called "cold" below. Postgres is stopped, the Mac is told to forget its cached copy of every database file, a check confirms that 0 MB of those files is left in memory, and Postgres is started again. Every search in a cold run reads from disk the first time it needs a page.
+- Before timing anything, I decided which run would be the number for this report: the first run after Postgres is restarted, with the narrow table timed before the second approach. A restart empties Postgres's own memory.
+- That first pair showed the second approach under 1 second too, which meant the conditions were not what I expected. So I added a stricter kind of run, called "cold" below. Postgres is stopped, the Mac is told to forget its cached copy of every database file, a check confirms that 0 MB of those files is left in memory, and Postgres is started again. Every search in a cold run reads from disk the first time it needs a page.
+
+**Which names each run searched.** This is the fault described in the short version, and it decides which runs may be compared.
+
+- The draw asks Postgres for a random 0.01% of the companies, about 1,300 of them, and keeps the first 200 it meets. The seed fixes which 1,300 are sampled. It does not fix where Postgres starts reading.
+- Postgres has a setting called `synchronize_seqscans`, which is on by default. With it on, a read of a large table from start to end may begin where the last such read stopped. So the first 200 sampled companies that a draw meets depend on what ran before it.
+- ✅ Measured on Nov 24. A fingerprint is an MD5 hash of the drawn names, which is a short code that changes when any name changes. After a restart of Postgres, three draws in a row gave three fingerprints. With the setting switched off for the session, three draws gave the same one.
+
+```
+(Postgres restarted, then the draw three times, printing only the fingerprint)
+29e32d4a94b0a803614ddf7256322a37
+7f9d6e12df53374b40c93595ba01f4d4
+afaa9615698aae3db2a95d7112731f5e
+
+(the same draw with synchronize_seqscans off for the session, three times)
+29e32d4a94b0a803614ddf7256322a37
+29e32d4a94b0a803614ddf7256322a37
+29e32d4a94b0a803614ddf7256322a37
+```
+
+- Below, **set A** is the 200 names with the fingerprint `29e3...`, which is what the first draw after a restart gives. **Set B** is the next draw, `7f9d...`. Seven of the ten timed runs came straight after a restart and so searched set A. The other three came second and searched set B.
+- ✅ The draw is fixed. `evals/run.py` now switches the setting off before it draws, and three runs of the fixed draw in three sessions all gave set A. From now on every run searches set A.
+- ✅ Set A did not change when the loader ran again on Nov 24: the fingerprint was `29e3...` before and after.
+- 🔴 Which names the three runs of Nov 21 searched is unknown. Nothing recorded them. The ruling asked for the same 208 searches as the report's, and that cannot be shown. What can be shown is that the second approach and the narrow table were timed against each other on the same names on Nov 24.
 
 ```
 python -m evals.run --backend postgres --latency 200                    (approach 3, first run after a restart)
@@ -303,31 +330,35 @@ python -m evals.run --backend postgres --latency 200 --retrieve word    (approac
 
 Every timed run of Nov 24, in the order it was made. None is left out.
 
-| # | Approach | State before the run | p50 | p95 | Slowest | Over 1 second |
-|---|---|---|---|---|---|---|
-| 1 | **3, the narrow table** | **Postgres restarted. This is the run chosen in advance** | **129 ms** | **574 ms** | **2,335 ms** | 3 of 208 |
-| 2 | 2 | Straight after run 1 | 180 ms | 545 ms | 5,007 ms | 5 of 208 |
-| 3 | 2 | Postgres restarted | 173 ms | 916 ms | 5,757 ms | 8 of 208 |
-| 4 | 3, the narrow table | Straight after run 3 | 128 ms | 459 ms | 3,154 ms | 2 of 208 |
-| 5 | 3, the narrow table | Cold | 120 ms | 560 ms | 2,464 ms | 3 of 208 |
-| 6 | 2 | Cold | 148 ms | 847 ms | 5,402 ms | 8 of 208 |
-| 7 | 2 | Cold | 152 ms | 863 ms | 5,335 ms | 8 of 208 |
-| 8 | 3, the narrow table | Cold | 118 ms | 520 ms | 2,369 ms | 4 of 208 |
-| 9 | 3, the narrow table | Cold | 156 ms | 869 ms | 4,291 ms | 7 of 208 |
-| 10 | 3, the narrow table | Straight after run 9, so everything was in memory | 128 ms | 430 ms | 1,823 ms | 2 of 208 |
+| # | Approach | State before the run | Names | p50 | p95 | Slowest | Over 1 second |
+|---|---|---|---|---|---|---|---|
+| 1 | **3, the narrow table** | **Postgres restarted. This is the run chosen in advance** | **A** | **129 ms** | **574 ms** | **2,335 ms** | 3 of 208 |
+| 2 | 2 | Straight after run 1 | B | 180 ms | 545 ms | 5,007 ms | 5 of 208 |
+| 3 | 2 | Postgres restarted | A | 173 ms | 916 ms | 5,757 ms | 8 of 208 |
+| 4 | 3, the narrow table | Straight after run 3 | B | 128 ms | 459 ms | 3,154 ms | 2 of 208 |
+| 5 | 3, the narrow table | Cold | A | 120 ms | 560 ms | 2,464 ms | 3 of 208 |
+| 6 | 2 | Cold | A | 148 ms | 847 ms | 5,402 ms | 8 of 208 |
+| 7 | 2 | Cold | A | 152 ms | 863 ms | 5,335 ms | 8 of 208 |
+| 8 | 3, the narrow table | Cold | A | 118 ms | 520 ms | 2,369 ms | 4 of 208 |
+| 9 | 3, the narrow table | Cold | A | 156 ms | 869 ms | 4,291 ms | 7 of 208 |
+| 10 | 3, the narrow table | Straight after run 9, so everything was in memory | B | 128 ms | 430 ms | 1,823 ms | 2 of 208 |
+
+Runs 2, 4 and 10 searched set B, and so they are not compared with the others below. They do show one thing: on a second set of names the narrow table was under 1 second as well.
 
 | Approach | Runs | p95, lowest to highest | Target: p95 under 1 second |
 |---|---|---|---|
-| 1. Plain similarity (Nov 21) | 1 | 11,212 ms | ❌ |
-| 2. Word similarity on `company_search` (Nov 21) | 1 that counts | 1,229 ms | ❌ |
-| 2 again (Nov 24) | 4 | 545 to 916 ms | ✅ on that day, which the Nov 21 run contradicts |
-| **3. Word similarity on the narrow table (Nov 24)** | **6** | **430 to 869 ms** | ✅ **in every run** |
+| 1. Plain similarity (Nov 21, names unknown) | 1 | 11,212 ms | ❌ |
+| 2. Word similarity on `company_search` (Nov 21, names unknown) | 1 that counts | 1,229 ms | ❌ |
+| 2 again (Nov 24, set A) | 3 | 847 to 916 ms | ✅ on set A, close to the line |
+| **3. Word similarity on the narrow table (Nov 24, set A)** | **4** | **520 to 869 ms** | ✅ **in every run** |
+| 2 and 3 on set B (Nov 24) | 1 and 2 | 545 ms, and 430 and 459 ms | ✅ |
 
 **What these numbers do and do not show.**
 
-- ✅ The narrow table meets the target. Its p95 was under 1 second in all six runs, cold or not.
-- ✅ In the matched runs it is the faster of the two. After a restart, 574 milliseconds against 916. Cold, 560, 520 and 869 against 847 and 863. Its slowest search took between 1.8 and 4.3 seconds, against 5.0 to 5.8 for the second approach.
-- 🟡 **The second approach's miss of Nov 21 did not happen again.** It measured 1,229 milliseconds then, and 545 to 916 on Nov 24, even cold. A p95 over 208 searches is the 198th fastest time, and so it moves from under 1 second to over it when three or four searches near the line get slower. I do not know what made them slower on Nov 21. The honest reading is that the second approach sits close to the line, and the narrow table sits further under it.
+- ✅ The narrow table meets the target. Its p95 was under 1 second in all six runs, cold or not, and on both sets of names.
+- ✅ On the same names it is the faster of the two. After a restart, 574 milliseconds against 916. Cold, 560, 520 and 869 against 847 and 863. Its slowest search took between 2.3 and 4.3 seconds, against 5.3 to 5.8 for the second approach. All of those runs searched set A.
+- 🟡 **The second approach's miss of Nov 21 did not happen again.** It measured 1,229 milliseconds then, and 847 to 916 on set A on Nov 24, even cold. A p95 over 208 searches is the 198th fastest time, and so it moves from under 1 second to over it when three or four searches near the line get slower, or when the draw holds three or four more slow names. The likely reason is the second one: the Nov 21 run searched some other set of names. The same approach measured 545 milliseconds on set B and 847 to 916 on set A, which shows how far the p95 moves with the names alone. The honest reading is that the second approach sits close to the line, and the narrow table sits further under it.
+- 🟡 **200 names is a small sample for a p95.** The p95 rests on about ten slow searches, and so one draw and another can differ by hundreds of milliseconds. A larger draw would give a steadier number. I did not time one, because the ruling asked for the same measurement as before.
 - 🟡 **Run 9 is the narrow table's worst, at 869 milliseconds, and I cannot say what slowed it.** The Mac was busy with its own night-time work while I timed (photo analysis and other system tasks, with a load average of about 9, which means about nine programs wanted the processor at any moment). I did not stop those tasks. They make every number here a little worse than a quiet machine would give, and they make the runs differ from each other.
 - 🟡 These are timings on the Mac. The host that will run the app has a different disk and a different amount of memory, and nothing here measures it.
 
@@ -352,7 +383,7 @@ The last line of the second plan is the price of the narrow table: 200 lookups i
 
 The narrow table does not help a search whose time goes on reading the index itself. FERGUSON AIR CONDITIONING took 401 milliseconds on the narrow table and 510 on `company_search`, and in both nearly all of that was the index scan, which finds 26 candidates.
 
-**The searches that are still slow.** I timed each of the 208 searches once more and read the query plan of the six slowest. Their names are not printed here, because they are drawn company names.
+**The searches that are still slow.** I timed 208 searches once more and read the query plan of the six slowest. Their names are not printed here, because they are drawn company names. 🟡 That pass was made before the draw was fixed and came fourth after a restart, and so it searched yet another set of 200 names, neither A nor B. It shows what kind of name is slow, and its six are not the slow searches of set A.
 
 | What the six slowest have in common | The numbers |
 |---|---|
@@ -467,21 +498,21 @@ Section 5.
 
 ### Check 8: the second approach and the narrow table return the same companies (Nov 24)
 
-The ruling asks for this check. Both approaches were run on the same 208 searches, and for each search the companies returned were compared: the same document numbers, in the same order, with the same details.
+The ruling asks for this check. Both approaches were run on the same 208 searches, the 8 test inputs and the 200 names of set A (check 3 says what set A is). For each search two things were compared: the companies returned, which are five at most, and the whole pool behind them, which is up to 200 companies in ranked order.
 
 ```
 python -m evals.run --backend postgres --compare 200
 
 compared 208 searches (8 test inputs, then 200 random company names): the second approach (company_search) against the app's search (company_search_names)
-  the same companies in the same order: 208 of 208
+  the same companies in the same order, in the five returned and in the whole pool: 208 of 208
   differing: 0
-  the second approach returned 5 companies for 100 searches, 1 to 4 for 108, and none for 0
+  the second approach returned 5 companies for 103 searches, 1 to 4 for 105, and none for 0
 ```
 
 - ✅ **0 of the 208 searches differ.** There is no difference to explain.
-- The search shows five companies at most. For 100 of the searches both approaches returned the same five. For the other 108 fewer than five companies passed the first step, and both approaches returned the same one to four. No search came back empty, so no pair matched only because both were empty.
+- The search shows five companies at most. For 103 of the searches both approaches returned the same five. For the other 105 fewer than five companies passed the first step, and both approaches returned the same one to four. No search came back empty, so no pair matched only because both were empty.
 - This is the expected result, and here is why. Both approaches ask the same question (word similarity at 0.75), in the same order (nearest name first, then document number), of two tables that hold the same names. Check 9 is what proves that last part.
-- The comparison covers the companies that are returned, which is what a contractor would see. It does not compare the whole pool of 200 that each approach hands to the rerank step.
+- **The check was run twice, and the first run is how the fault in the draw was found.** The first version compared only the companies returned. It gave 208 of 208 as well, with 100 searches returning five companies and 108 returning fewer. The review then asked for the pool to be compared too, because `shortlist()` reads the pool below the fifth place. The second run gave 103 and 105, which two runs on the same names could not do. ✅ The first run had searched a third set of names, and the second searched set A. Within each run both approaches got the same names, so both results stand: 208 of 208 on set A, and 208 of 208 on another 208.
 
 ### Check 9: the narrow table and `company_search` hold the same document numbers (Nov 24)
 
@@ -531,8 +562,9 @@ Decisions 13 to 18 were made on Nov 24, for the narrow table.
 | 14 | The narrow table has no source address, no fetch time and no primary key | It states no fact to anybody. The search reads it only to learn which document numbers to fetch, and every company it then returns is read from `company_search`, with its source address and fetch time. A test holds the query to that. A primary key would be a second index of about 600 MB that nothing would read | Nothing in Postgres itself stops a document number appearing twice in the narrow table. The loader's check does that job at every load (check 9) |
 | 15 | The check that the two tables hold the same companies lives in the loader, and it runs before the swap | The offline suite may not open a database (`CLAUDE.md` rule 4), so a test of the live tables could not be part of it. In the loader the check runs on the real data every time, and a failure leaves the old tables in place | The check adds about 20 seconds to a load 🟡 (I did not time it apart from the rest) |
 | 16 | The old trigram index on `company_search` is kept | The ruling asks for the second approach to be run again, and it needs that index. The brief for this leg also names that index | 588 MB that the app's search no longer reads. Dropping it is your call |
-| 17 | The number for this report is the first run after a restart, chosen before any timing. The cold runs were added afterwards, and every run is listed | A number picked after seeing ten runs could be the one that flatters. Naming it first, and then listing all ten, lets you check that it was not | The cold runs use a small script that tells macOS to forget its cached copy of the database files. 🟡 It is in this run's scratch folder and not in the repo, because it is specific to macOS and has no test. `sudo purge` does the same for the whole Mac and needs your password |
-| 18 | The comparison checks the companies each search returns, and not the whole pool of 200 | The ruling asks whether each search returns the same five companies in the same order. The returned companies are what the evaluation scores and what a contractor would see | Two pools could differ below the companies returned and the check would not see it. With the same question asked of the same names that cannot happen, and check 9 proves the names are the same |
+| 17 | The number for this report is the first run after a restart, chosen before any timing. The cold runs were added afterwards, and every run is listed with the names it searched | A number picked after seeing ten runs could be the one that flatters. Naming it first, and then listing all ten, lets you check that it was not | The cold runs use a small script that tells macOS to forget its cached copy of the database files. 🟡 It is in this run's scratch folder and not in the repo, because it is specific to macOS and has no test. `sudo purge` does the same for the whole Mac and needs your password |
+| 18 | The comparison checks the companies each search returns, and the whole pool of up to 200 behind them | The ruling asks whether each search returns the same five companies in the same order. My first version checked only those. The review pointed out that `shortlist()` also reads the pool below the fifth place, to count same-name companies that are not shown, and so the pool is compared too | None. It is the stricter check, and it takes the same two minutes |
+| 19 | The random draw now switches `synchronize_seqscans` off for its own session | With the setting on, the same seed gave different names on each draw (check 3). With it off, the scan starts at the first page of the table every time, and the draw is the set a restart of Postgres gives, which seven of the ten timed runs had already searched | The draw is the same until `company_search` is loaded from different files. It reads about the first seventh of that table before any search is timed, which warms that part of the table for the second approach a little, in every run alike 🟡 |
 
 ---
 
@@ -570,12 +602,12 @@ If you choose A, tell me to run it as one more approach in this leg. I will meas
 
 ### What I couldn't verify
 
-This is the full list as of Nov 24. Items 1 to 4 are new, and items 5 to 9 stand from Nov 21.
+This is the full list as of Nov 24. Items 1 to 4 are new, and items 5 to 9 stand from Nov 21. Item 4 is marked 🔴 because the Nov 21 report stated it as a fact.
 
-1. 🟡 **Why the second approach missed the target on Nov 21 and met it on Nov 24.** It measured 1,229 milliseconds then and 545 to 916 now, on the same 208 searches (check 3).
+1. 🟡 **Why the second approach missed the target on Nov 21 and met it on Nov 24.** It measured 1,229 milliseconds then, and 847 to 916 on Nov 24 on set A. The likely reason is that the Nov 21 run searched other names (check 3).
 2. 🟡 **The speed on a host.** Every timing is from the Mac, which was busy with its own night-time tasks while I timed. A host has a different disk and a different amount of memory.
-3. 🟡 **The searches that are still slow.** Between 2 and 7 of the 208 take longer than 1 second. I read the plans of the six slowest and not their names (check 3).
-4. 🟡 **That the 208 searches are the very ones of Nov 21.** The command, the seed and the exported files are the same, and the fingerprint of the drawn names did not change across the load of Nov 24. Nothing recorded it on Nov 21.
+3. 🟡 **The searches that are still slow, and how steady the p95 is.** Between 2 and 7 of the 208 take longer than 1 second. I read the plans of the six slowest of one draw and not their names. A p95 over 200 drawn names moves by hundreds of milliseconds from one draw to another (check 3).
+4. 🔴 **Which names the Nov 21 runs searched.** The draw was not the same from run to run until it was fixed on Nov 24, and nothing recorded the Nov 21 draws. So the Nov 24 timings cannot be shown to use the searches of Nov 21, and the three Nov 21 runs very likely differ from each other too (check 3).
 5. 🟡 **That a pool of 200 always holds the best five.** It does for the ten test cases. A larger test set is the real check, and the 90% bar on the 50-case set is yours.
 6. 🟡 **The cost of the 0.75 threshold on names with typing mistakes** (decision 1).
 7. 🔴 **The definition of `wrong_match`** (decision 4).
