@@ -126,7 +126,11 @@ EVIDENCE_CITY_MATCHES = "principal city on record begins with the city you gave"
 # company in PONTE VEDRA BEACH. It also means JACKSONVILLE finds one in JACKSONVILLE BEACH,
 # which is another city, so the sentence may not say "city matches". The shortlist shows the
 # company's city next to it. The city compared is the principal address's, the only one the table holds.
-EVIDENCE_OTHER_CITY = "registered in {city}, not the city you gave"
+EVIDENCE_OTHER_CITY = "principal city on record is {city}, and that spelling does not begin with the city you gave"
+# It used to end "not the city you gave". The comparison is one of spelling: ST AUGUSTINE does
+# not begin with "St. Augustine", because of the full stop, and the old sentence then told a
+# contractor the company was in another city. The sentence now says only what was compared.
+# Whether the comparison itself should treat "St." and "ST" alike is question Q41.
 EVIDENCE_NO_CITY = "no principal city on record for this company"   # the principal address is the only one the table holds
 EVIDENCE_ACTIVE = "ACTIVE"
 EVIDENCE_INACTIVE = "INACTIVE with the state"

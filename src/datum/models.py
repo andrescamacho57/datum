@@ -95,7 +95,7 @@ class Candidate(Frozen):
     place: Fact | None                      # "BOYNTON BEACH, FL". None when the state has no principal city for the company
     level: Level
     evidence: tuple[Fact, ...]              # the reasons behind the level, from search.evidence()
-    # The reasons are Facts too. "ACTIVE" and "registered in TAMPA, not the city you gave" are
+    # The reasons are Facts too. "ACTIVE" and "principal city on record is TAMPA, ..." are
     # statements about the company, and "name is similar (93/100)" is worked out from its name,
     # so each carries the company record's source address and fetch time (rule W1, and CLAUDE.md
     # rule 3: a derived value carries its inputs' provenance).
