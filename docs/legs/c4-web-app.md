@@ -230,8 +230,7 @@ robots.txt: User-agent: *  Disallow: /
 | `5_asks_for_a_business.png` | The page for a vague note |
 | `6_not_found.png` | The plain 404 page |
 
-- ✅ I looked at all six. Before the review's fixes I looked at the shortlist and at the report with flags. The six were then made again, and I looked at five of the new ones: the search box, the shortlist, the report with no flag, the page for a vague note and the 404 page. In each, every line wraps inside the 390 pixels, the two-column table fits, and nothing is cut off at the right edge. The caution sits under each company rated Possible and wraps like the rest.
-- 🟡 The one I did not look at again after the fixes is the report with flags. It is the same template as the report with no flag, with the flag cards I saw before the fixes.
+- ✅ I looked at all six, in the versions made after the review's fixes: the search box, the shortlist, the report with flags, the report with no flag, the page for a vague note and the 404 page. In each, every line wraps inside the 390 pixels, the two-column table fits, and nothing is cut off at the right edge. The caution sits under each company rated Possible and wraps like the rest.
 - **How they were made, because the first attempt misled me.** Headless Chrome (Chrome with no window) will not make its window narrower than about 500 pixels on this Mac. Asked for 390, it laid the page out at 500 and cut the picture at 390, which looked exactly like a page that overflows a phone. So each page is shown inside a frame exactly 390 pixels wide, in a wider window, and the picture is cut to the frame.
 - 🟡 A screenshot is not a phone. Tap targets, the on-screen keyboard and the sign-in box on iOS are yours to try (section 7).
 
@@ -367,7 +366,7 @@ a width of 40rem:                                 1 failed
 | Finding | Tag | Answer |
 |---|---|---|
 | No test checked that a company rated Likely carries no caution. With the caution shown on every card that is not Strong, every test passed, and on a Likely card "nothing else confirms it" is false | Important | Fixed with a test: a shortlist with two Likely companies and three Possible ones, checked card by card |
-| The Human review section said six screenshots show the pages fit a phone. This report said I had looked at two | Important | Fixed by doing the work: I looked at the other four, and check 3 now says exactly which ones I looked at and when |
+| The Human review section said six screenshots show the pages fit a phone. This report said I had looked at two | Important | Fixed by doing the work: I looked at all six of the current screenshots, and check 3 says so |
 | The line of a report that says how its company was identified could lose the class that keeps a record's spacing, and no test noticed | Nit | Fixed with a test |
 | The terminal could search for an empty name and no test noticed. The web app's copy of that line was tested | Nit | Fixed with a test |
 | The Human review section said the city comparison "misses 12,723 companies". That is the double-space case alone, and the other cases are not counted | Nit | Fixed. It now says "at least 12,723" |
