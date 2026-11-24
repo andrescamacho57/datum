@@ -25,8 +25,10 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ['dbpr', 'duval', 'sunbiz_flr']
-          # A new downloader must be added here on purpose.
+                values: ['dbpr', 'duval', 'sunbiz_flr', 'sunbiz_cor']
+          # A new source must be added here on purpose. sunbiz_cor is the
+          # state's corporate files (the company register), added in leg C1
+          # so that a company's own record has a fetch time.
 
       - name: source_file
         data_tests:

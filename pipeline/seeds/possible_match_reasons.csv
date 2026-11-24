@@ -1,0 +1,10 @@
+link_reason,is_shown,meaning
+before_company_filed,false,The record is dated before the company's own filing date on Sunbiz (ruling R2)
+date_unknown,false,The record or the company has no readable date so ruling R2 could not be checked
+no_entity_word,false,The record has no ZIP code and its name has no legal-entity word such as LLC so it may be a person's name
+several_companies,false,The record has no ZIP code and two or more companies share its match key
+several_companies_same_zip,false,Two or more companies share the record's match key at the record's ZIP code
+several_similar_names,false,The record has no ZIP code and another company in Florida is a near-namesake (ruling R30)
+several_similar_names_same_zip,false,A near-namesake of the company is at the record's ZIP code (ruling R30)
+zip_differs,false,A company has the record's match key but none is at the record's ZIP code
+zip_unreadable,false,The record's ZIP code is present and is not 5 digits (ruling R29)
