@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ w.SHORTLIST_HEADING }}</h1>
+<p>{{ read_as }}</p>
+{% for candidate in candidates %}{% include "_candidate.html" %}
+{% endfor %}
+{% if tie %}<p><strong>{{ tie }}</strong></p>{% endif %}
+{% if not_shown %}<p><strong>{{ not_shown_line }}</strong></p>
+{% with token = "" %}{% for candidate in not_shown %}{% include "_candidate.html" %}
+{% endfor %}{% endwith %}{% endif %}
+<h2>{{ w.SEARCH_AGAIN }}</h2>
+{% include "_form.html" %}
+{% endblock %}

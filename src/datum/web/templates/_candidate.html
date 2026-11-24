@@ -1,0 +1,8 @@
+<article>
+<h2>{% if token %}<a href="/company/{{ candidate.document_number }}?from={{ token }}">{{ candidate.name.text }}</a>{% else %}{{ candidate.name.text }}{% endif %}</h2>
+<p><strong>{{ candidate.level }}</strong> · {{ w.LABEL_DOCUMENT_NUMBER }} {{ candidate.document_number }}{% if candidate.place %} · {{ candidate.place.text }}{% endif %}</p>
+<ul>
+{% for reason in candidate.evidence %}<li>{{ reason.text }}</li>
+{% endfor %}</ul>
+<p><small>{{ w.LABEL_SOURCE }}: <a href="{{ candidate.source.source_url }}" rel="noopener noreferrer">{{ candidate.source.citation }}</a> · {{ candidate.source.fetched_text }}</small></p>
+</article>

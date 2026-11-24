@@ -172,6 +172,26 @@ EXTRACTION_ERROR_KIND = "The extraction step stopped with this kind of error: {k
 SEARCH_UNAVAILABLE = "The search is unavailable right now, so no company is shown. Try again in a few minutes."
 
 
+# --- The web app (leg C4) -----------------------------------------------------------------
+APP_NAME = "Datum"
+SEARCH_HEADING = "Check a company"
+SEARCH_LABEL = "Describe the client"
+SEARCH_HINT = "A business name, and a street or a city if you have one."
+# Rule W6: the app asks for a business name, a street or a city, and never for an owner's name.
+SEARCH_BUTTON = "Search"
+SEARCH_AGAIN = "Search again"
+SHORTLIST_HEADING = "Which company do you mean?"
+NOTE_EMPTY = "Nothing was typed. Type the business's name, and a street or a city if you have one."
+NOTE_TOO_LONG = "That is too long to search for. Type the business's name, and a street or a city if you have one."
+ASK_FOR_A_BUSINESS_ON_A_PAGE = ASK_FOR_A_BUSINESS + "."      # the terminal's question, as a sentence on a page (acceptance test A2)
+NO_COMPANY_FOUND = "No company with a name close to that was found. Check the spelling of the business's name."
+REPORT_UNAVAILABLE = "The report is unavailable right now. Try again in a few minutes."
+NOT_FOUND_HEADING = "Not found"
+NOT_FOUND = "Nothing was found at this address."
+# One sentence for every 404, whether the address is unknown, the document number has the
+# wrong shape or no company has it. It never repeats what was typed into the address.
+
+
 def day_text(value: date | datetime) -> str:
     """A date the way every page writes it: 2026-11-24. A fetch time is shown as its UTC date."""
     return value.strftime("%Y-%m-%d")

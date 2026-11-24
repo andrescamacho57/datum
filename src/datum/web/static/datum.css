@@ -1,0 +1,6 @@
+/* datum.css: the few rules Datum adds on top of Pico CSS. Pico does the rest.
+   Nothing here sets a fixed width, so a page fits a phone 390 pixels wide. */
+body { overflow-wrap: anywhere; }             /* a long name or citation wraps inside the screen and never pushes it sideways */
+table { table-layout: fixed; width: 100%; }   /* the two columns share the screen's width */
+th[scope="row"] { width: 38%; }               /* the label column: a share of the width, not a number of pixels */
+article { margin-bottom: 1rem; }              /* a little air between two cards */

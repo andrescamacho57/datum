@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ w.REPORT_TITLE.format(name=report.name) }}</h1>
+<p><small>{{ w.BUILT_ON.format(day=day(report.built_on)) }}</small></p>
+<p><strong>{{ report.summary }}</strong></p>
+<p>{{ report.confirmed_only }}</p>
+<table>
+<tbody>
+{% for label, fact in report.company %}<tr><th scope="row">{{ label }}</th><td>{{ fact.text }}</td></tr>
+{% endfor %}<tr><th scope="row">{{ w.LABEL_COMPANY_SOURCE }}</th><td><a href="{{ report.company_source.source_url }}" rel="noopener noreferrer">{{ report.company_source.citation }}</a> · {{ report.company_source.fetched_text }}</td></tr>
+</tbody>
+</table>
+{% if report.flags %}<h2>{{ w.HEADING_FLAGS }}</h2>
+{% for flag in report.flags %}<article>
+<h3>{{ flag.title }}</h3>
+<ul>
+{% if flag.kind == "company_record" %}<li>{{ flag.fact.text }}</li>{% endif %}
+{% if flag.kind == "linked_record" and flag.fact_date %}<li>{{ w.LABEL_FLAG_DATE }}: {{ day(flag.fact_date) }}</li>{% endif %}
+{% if flag.status %}<li>{{ w.LABEL_FLAG_STATUS }}: {{ flag.status }}{% if flag.status_note %}. {{ flag.status_note }}{% endif %}</li>{% endif %}
+<li>{{ flag.caveat }}</li>
+<li>{{ w.LABEL_SOURCE }}: <a href="{{ flag.fact.source_url }}" rel="noopener noreferrer">{{ flag.fact.citation }}</a> · {{ flag.fact.fetched_text }}</li>
+</ul>
+</article>
+{% endfor %}{% endif %}
+<h2>{{ w.HEADING_CHECKED }}</h2>
+<ul>
+{% for fact in report.sources_checked %}<li>{{ fact.text }} {{ w.LABEL_SOURCE }}: <a href="{{ fact.source_url }}" rel="noopener noreferrer">{{ fact.citation }}</a> · {{ fact.fetched_text }}</li>
+{% endfor %}</ul>
+<h2>{{ w.HEADING_NOT_CHECKED }}</h2>
+<ul>
+{% for item in report.sources_not_checked %}<li>{{ item }}</li>
+{% endfor %}</ul>
+<p><strong>{{ w.LABEL_IDENTIFIED }}:</strong> {{ report.identification.text }}</p>
+<p><em>{{ report.disclaimer }}</em></p>
+<p><a href="/">{{ w.SEARCH_AGAIN }}</a></p>
+{% endblock %}
