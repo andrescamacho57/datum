@@ -16,7 +16,7 @@ from pathlib import Path                    # file paths
 import pytest                               # the test runner; parametrize runs one test body over several cases
 
 from datum.search import (
-    CANDIDATE_POOL, Company, FakeBackend, PostgresBackend, company_from_row, evidence, jaro_winkler_similarity, match_level, name_key, rank,
+    CANDIDATE_POOL, COMPANY_COLUMNS, Company, FakeBackend, PostgresBackend, company_from_row, evidence, jaro_winkler_similarity, match_level, name_key, rank,
     search, search_pool, shortlist,
 )
 
@@ -286,6 +286,17 @@ def test_the_postgres_query_sends_what_was_typed_as_a_value_never_as_sql():
     sql = PostgresBackend.NEAREST_SQL
     assert sql.count("%(key)s") == 2 and sql.count("%(limit)s") == 1
     assert "{" not in sql and "'" not in sql
+
+
+def test_the_postgres_query_finds_names_in_the_narrow_table_and_reads_every_company_from_company_search():
+    # The narrow table has no source address and no fetch time, so nothing a Company holds may be read from it.
+    sql = PostgresBackend.NEAREST_SQL
+    subquery = sql[sql.index("(select"):sql.index(") as nearest")]
+    assert subquery.startswith("(select document_number from company_search_names where %(key)s <%% name_key ")   # only the number leaves the narrow table
+    assert subquery.endswith("limit %(limit)s")                           # the pool is cut BEFORE the join, so at most `limit` full rows are fetched
+    assert sql.endswith(") as nearest join company_search as c using (document_number)")
+    selected = sql[len("select "):sql.index(" from (")].split(", ")
+    assert selected == ["c." + column for column in COMPANY_COLUMNS]      # every field, source_url and fetched_at included, comes from company_search
 
 
 class RecordingConnection:

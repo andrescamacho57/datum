@@ -3,8 +3,9 @@
 The search has two steps, and the split is the point of this module:
 
     1. RETRIEVE   ask the database for the companies whose names are nearest to the one typed.
-                  This step is fast and rough. It reads an index, and it brings back a pool
-                  of candidates (200 by default) out of 13 million companies.
+                  This step is fast and rough. It reads an index over a narrow table of names,
+                  and it brings back a pool of candidates (200 by default) out of 13 million
+                  companies, each fetched in full from company_search by its document number.
     2. RERANK     score that small pool carefully, in plain Python, with the same rules as
                   search version 1 (snowflake/11_score_search_v1.sql): Jaro-Winkler
                   similarity first, then a city match, then the document number as a fixed
@@ -310,6 +311,17 @@ class PostgresBackend:
     into its trigrams, and the loader builds an index that lists, for each trigram, the
     names that hold it.
 
+    The names are searched in company_search_names, the NARROW table the loader builds: one
+    row per company, holding its document number and its simplified name and nothing else.
+    The index only says which rows MIGHT match, so Postgres has to open each of those rows to
+    check it, and for a name made of common words that is thousands of rows. Opening them in
+    a table of 0.85 GB whose rows are in name order reads far fewer pages than opening them
+    in company_search, which is 3 GB with the rows in no useful order. The 200 companies
+    that are kept are then read in full from company_search, by document number, so every
+    Company still carries its source address and fetch time. The loader refuses to swap the
+    tables in unless both hold the same companies. Leg C2's report has the timings of this
+    approach and of the two before it.
+
     The comparison is WORD SIMILARITY, the operator <%. It asks whether the typed name is
     close to some stretch of the registered name, so "CINEMARK" is a full match inside
     "CINEMARK USA INC". Plain trigram similarity (the operator %) compares the two whole
@@ -331,11 +343,16 @@ class PostgresBackend:
     WORK_MEMORY = "64MB"                    # room for this session to hold the list of matching rows exactly, not page by page
 
     NEAREST_SQL = (
-        f"select {', '.join(COMPANY_COLUMNS)} from company_search "
+        f"select {', '.join('c.' + column for column in COMPANY_COLUMNS)} "
+        "from (select document_number from company_search_names "
         "where %(key)s <%% name_key "
         "order by name_key <-> %(key)s, document_number "
-        "limit %(limit)s"
+        "limit %(limit)s) as nearest "
+        "join company_search as c using (document_number)"
     )
+    # The part in brackets is a SUBQUERY: it runs first, against the narrow table, and gives back
+    # the document numbers of the nearest names. The join then looks each of those numbers up in
+    # company_search through its primary key, which is one quick lookup per company.
     # %(key)s and %(limit)s are PLACEHOLDERS: the driver sends the values apart from the SQL, so
     # nothing a contractor types can ever be read as SQL (that is how SQL injection is prevented).
     # The operator is <% ("is word-similar to"), and because % also marks a placeholder here, a
