@@ -947,3 +947,22 @@ Source: Anthropic, "Building Effective Agents" (the evaluator-optimizer workflow
   GitHub. That is the cost of making `INTERVIEW_ANSWERS.md` private, which is planned and not yet done.
 - The rule of thumb: keep files in the repo, let Claude read them when needed, and use project docs only for
   material that has no home in the repo.
+
+---
+
+## A Search That Passes Its Tests Can Still Fail Its User (Nov 24)
+
+- On Nov 24 I tried the web app on a restaurant I know. "v pizza orlando" put an inactive company in Winter Park
+  first, and the one I meant, V PIZZA LAKE BUENA VISTA LLC at 8586 Palm Pkwy, Orlando, was not on the list.
+  Searching its street address found nothing at all.
+- The data was fine: that company is in the register, active, with exactly that address. The search was the problem.
+- **Why it ranked 13th.** The search scores names by Jaro-Winkler similarity, and a short name scores higher than a
+  long one against a short query. "V PIZZA" scores 90 against "V PIZZA WP LLC" and lower against "V PIZZA LAKE BUENA
+  VISTA LLC". The city only breaks ties, so a company in the right city still loses to one with a shorter name.
+  Active or inactive is not used at all.
+- **Why the address found nothing.** The search reads only the name and the city. The street the contractor types is
+  extracted and then ignored, even though every company's principal address is already in the table.
+- **The lesson.** The 10-case test set was built from names, so it could not catch either problem. A test set has to
+  come from the way real users search: here, a trade name plus a city, and an address with no name.
+- **A legal name is not the name on the sign.** A contractor knows "V Pizza & Tap Room" and an address. The register
+  holds "V PIZZA LAKE BUENA VISTA LLC". Fictitious names (DBAs) and address search close that gap.
