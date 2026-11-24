@@ -27,18 +27,32 @@ def test_an_estimated_fetch_time_says_about_and_a_measured_one_does_not():
 
 
 def test_a_tie_is_worded_for_one_other_company_for_several_and_not_at_all_for_none():
-    assert (wording.tied_text(0), wording.tied_text(-1)) == ("", "")
-    assert wording.tied_text(1) == "1 other company matched equally well."
-    assert wording.tied_text(4) == "4 other companies matched equally well."
-    assert (wording.not_shown_text(0), wording.not_shown_text(1)) == ("", "1 more company has exactly this name and is not on this list.")
-    assert wording.not_shown_text(3) == "3 more companies have exactly this name and are not on this list."
+    assert (wording.tied_text(0, "Strong"), wording.tied_text(-1, "Likely")) == ("", "")
+    assert wording.tied_text(1, "Strong") == "1 other company matched equally well."
+    assert wording.tied_text(4, "Strong") == "4 other companies matched equally well."
+
+
+def test_a_sentence_about_a_count_says_what_the_count_covers():
+    # Below the level Strong only the companies on the shortlist are counted, so the sentence may not read as if all were.
+    assert wording.tied_text(1, "Likely") == "1 other company on the shortlist matched equally well."
+    assert wording.tied_text(3, "Possible") == "3 other companies on the shortlist matched equally well."
+    # With a city given, a same-name company in another city is not counted, so the sentence names the city.
+    assert (wording.not_shown_text(0, False), wording.not_shown_text(0, True)) == ("", "")
+    assert wording.not_shown_text(1, False) == "1 more company has this name (ignoring LLC/INC) and is not on this list."
+    assert wording.not_shown_text(3, False) == "3 more companies have this name (ignoring LLC/INC) and are not on this list."
+    assert wording.not_shown_text(1, True) == "1 more company has this name (ignoring LLC/INC) in the city you gave and is not on this list."
+    assert wording.not_shown_text(2, True) == "2 more companies have this name (ignoring LLC/INC) in the city you gave and are not on this list."
+    every = [value for name, value in vars(wording).items() if name.isupper() and isinstance(value, str)]
+    assert not [text for text in every if "exactly this name" in text]    # "exactly" claimed more than the comparison does: it ignores the legal suffix
 
 
 def test_the_identification_line_is_built_from_extracted_fields_and_leaves_out_an_empty_one():
     line = wording.identified_text("Acme Roofing", "", "", "Likely", ("name is similar (93/100)", "ACTIVE"), 0)
     assert line == 'from the business name "Acme Roofing" · match level Likely (name is similar (93/100); ACTIVE) · chosen by the user from a shortlist.'
     full = wording.identified_text("Acme Roofing", "Tampa", "Bay St", "Strong", ("city matches",), 2)
-    assert 'the business name "Acme Roofing", the city "Tampa", the street "Bay St"' in full and full.endswith("2 other companies matched equally well.")
+    assert 'the business name "Acme Roofing", the city "Tampa", the street "Bay St"' in full and full.endswith(" 2 other companies matched equally well.")
+    likely = wording.identified_text("Acme Roofing", "Tampa", "", "Likely", ("city matches",), 2)
+    assert likely.endswith(" 2 other companies on the shortlist matched equally well.")
 
 
 def test_the_not_checked_list_names_what_the_brief_says_datum_never_looked_at():

@@ -109,9 +109,29 @@ def test_a_same_name_company_that_did_not_fit_on_the_list_is_named_and_counted(t
     talk = Talk(["1"])
     fields = {"business_name": "Invented Air", "city": "", "street": "", "is_specific": True}
     path = run(talk, tmp_path, fields=fields, companies=exact)
-    assert "2 more companies have exactly this name and are not on this list." in talk.everything
+    assert "2 more companies have this name (ignoring LLC/INC) and are not on this list." in talk.everything
     assert "INVENTED AIR LTD  (T26000000105)" in talk.everything and "INVENTED AIR CORP  (T26000000103)" in talk.everything   # each is named with its number
     assert "6 other companies matched equally well." in path.read_text() # seven share the name: the one picked and six others, two of them off the list
+
+
+def seven_with_one_name(city):
+    base = next(c for c in fx.load_companies() if c.document_number == fx.NO_FLAG_COMPANY)
+    return [replace(base, document_number=f"T2600000010{n}", entity_name=f"INVENTED AIR {suffix}", name_key=f"INVENTED AIR {suffix}", principal_city=city)
+            for n, suffix in enumerate(("LLC", "INC", "CORP", "CO", "LTD", "LP", "PA"), start=1)]
+
+
+def test_with_a_city_given_the_counts_say_which_companies_they_cover(tmp_path):
+    # The review of leg C3 found that both sentences read as if they counted every company with the name. They count less, and now say so.
+    fields = {"business_name": "Invented Air", "city": "Tampa", "street": "", "is_specific": True}
+    in_the_city = Talk(["1"])                                            # seven same-name companies IN Tampa: all Strong, two off the list
+    path = run(in_the_city, tmp_path, fields=fields, companies=seven_with_one_name("TAMPA"))
+    assert "2 more companies have this name (ignoring LLC/INC) in the city you gave and are not on this list." in in_the_city.everything
+    assert path.read_text().count("6 other companies matched equally well.") == 1   # Strong: counted over every candidate, on the list or not
+    elsewhere = Talk(["1"])                                              # the same seven in Miami: the name matches and the city does not, so all are Likely
+    path = run(elsewhere, tmp_path, fields=fields, companies=seven_with_one_name("MIAMI"))
+    assert "not on this list" not in elsewhere.everything                 # nothing is claimed about the two that did not fit: they are not counted
+    assert "match level Likely" in path.read_text()
+    assert "4 other companies on the shortlist matched equally well." in path.read_text()   # five are shown, and the sentence says its count is of those
 
 
 def test_a_possible_match_needs_a_yes_before_a_report_is_made(tmp_path):

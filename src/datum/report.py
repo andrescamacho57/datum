@@ -45,9 +45,10 @@ MAX_ROUNDS = 3                                              # never ask more tha
 def others_at_the_same_level(short: Shortlist, picked: int) -> int:
     """How many OTHER companies matched as well as the one picked (rule W7).
 
-    At the top level the shortlist's own count is used, because for a same-name match it
-    also covers companies that did not fit on the list. Below the top level the count is
-    over the companies shown.
+    At the top level the shortlist's own count is used. For the level Strong that count
+    covers every candidate the search brought back, on the list or not. For Likely and
+    Possible, at the top level or below it, the count is over the companies shown, and the
+    sentence wording.tied_text() makes then says "on the shortlist".
     """
     level = short.levels[picked]
     same = short.tied_at_top if level == short.top_level else short.levels.count(level)
@@ -65,7 +66,7 @@ def show_shortlist(short: Shortlist, say: Callable[[str], None]) -> None:
     if short.tied_at_top > 1:               # more than one company at the top level
         say("\n" + wording.SHORTLIST_TIE)
     if short.not_shown:                     # same-name companies that are counted in the tie and did not fit on the list
-        say(wording.not_shown_text(short.tied_not_shown))
+        say(wording.not_shown_text(short.tied_not_shown, short.city_given))
         for candidate in short.not_shown:   # each one is named, so the count above is never a statement with nothing behind it
             say(f"   {candidate.company.entity_name}  ({candidate.company.document_number})")
 
