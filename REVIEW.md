@@ -20,9 +20,9 @@ The change sets the tier, not the author. A pull request takes the highest tier 
 
 | Tier | Paths | AI review | What Andres does |
 |---|---|---|---|
-| **High** | `pipeline/macros/`, `pipeline/models/intermediate/`, `pipeline/models/marts/`, `pipeline/seeds/` (allowlists and maps), `pipeline/dbt_project.yml`, `src/datum/report.py`, `.claude/`, `.github/`, `CLAUDE.md`, `REVIEW.md`, anything that decides `is_shown` or the wording on a report | Deep: three reviewers in parallel, then a verifier | Reads the report and the diff, explains the change back, answers three questions |
+| **High** | `pipeline/macros/`, `pipeline/models/intermediate/`, `pipeline/models/marts/`, `pipeline/seeds/` (allowlists and maps), `pipeline/dbt_project.yml`, `src/datum/report.py`, `.claude/`, `.github/`, `CLAUDE.md`, `REVIEW.md`, `docs/prompts/`, `docs/review_process.md`, anything that decides `is_shown` or the wording on a report | Deep: three reviewers in parallel, then a verifier | Reads the report and the diff, explains the change back, answers three questions |
 | **Medium** | `src/datum/` (other files), `snowflake/`, `pipeline/models/staging/`, `pipeline/tests/`, app code | Standard: one reviewer, plus a security pass when `src/` changed | Reads the leg report and the review findings, skims the diff |
-| **Low** | `docs/`, the study guide `*.md` files at the root, `tests/` (tests and fixtures only), comments | Quick: one pass | Nothing once the checks are green. Merges it |
+| **Low** | `docs/` (except the two paths named under High), the study guide `*.md` files at the root, `tests/` (tests and fixtures only), comments | Quick: one pass | Nothing once the checks are green. Merges it |
 
 ### Why each path is in its tier
 
@@ -33,8 +33,9 @@ The tier answers one question: if this change is wrong, how far does the mistake
   - `report.py`, `is_shown` and the report wording decide what a contractor actually reads.
   - `dbt_project.yml` changes how every model is built, so one line can change all of them.
   - `.claude/`, `.github/`, `CLAUDE.md` and `REVIEW.md` are the guardrails. A mistake here weakens the checking of every later change.
+  - `docs/prompts/` and `docs/review_process.md` are the instructions an unattended agent follows: what to build, when to stop, and how its own work is reviewed. They sit under `docs/`, and they are not documentation. A change to them changes what every later run does, so Andres reads it.
 - **Medium** means the mistake stays inside the pipeline, where a test or a later layer can still catch it before it is shown. Loaders, staging views and Snowflake scripts are here. They can still leak a secret or spend money, which is why Python changes get a security pass.
-- **Low** means nothing a contractor sees and nothing that runs in the pipeline can change. Docs, tests and comments are here.
+- **Low** means nothing a contractor sees and nothing that runs in the pipeline can change. Docs, tests and comments are here. The two paths under `docs/` that agents take their instructions from are High.
 
 One high-tier line outweighs fifty low-tier lines because harm comes from the riskiest thing a change touches, not from how much it touches.
 
