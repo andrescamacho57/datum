@@ -16,8 +16,8 @@ import pytest                               # the test runner; pytest.raises che
 from datum.search import COMPANY_COLUMNS, Company, FakeBackend, name_key
 from datum.search import PostgresBackend
 from evals.run import (
-    ASK, RETRIEVERS, Case, SnowflakeBackend, WideTableBackend, compare_backends, percentile, print_comparison, read_cases, run_cases,
-    score_case, summarize,
+    ASK, DRAW_SQL, LATENCY_SEED, RETRIEVERS, Case, SnowflakeBackend, WideTableBackend, compare_backends, draw_company_names, percentile,
+    print_comparison, read_cases, run_cases, score_case, summarize,
 )
 
 
@@ -210,3 +210,26 @@ def test_the_second_approach_reads_company_search_itself_and_the_default_is_the_
     assert sql.count("%(key)s") == 2 and sql.count("%(limit)s") == 1 and "'" not in sql   # what was typed still travels as a value
     assert RETRIEVERS["narrow"][0] is PostgresBackend and RETRIEVERS["word"][0] is WideTableBackend
     assert list(RETRIEVERS)[0] == "narrow"                                # the first key is the one --retrieve defaults to
+
+
+def test_the_random_draw_switches_synchronized_scans_off_before_it_draws():
+    # With that setting on, a scan of a large table starts where the last one stopped, and the "same" draw returns other names.
+    class DrawConnection:
+        """Stands in for a psycopg connection: it keeps what it was asked, in order, and answers the draw with two rows."""
+
+        def __init__(self):
+            self.asked = []
+
+        def execute(self, sql, params=None):
+            self.asked.append((sql, params))
+            return self
+
+        def fetchall(self):
+            return [("ACME ROOFING LLC", ""), ("BEST POOLS INC", "")]
+
+    conn = DrawConnection()
+    assert draw_company_names(conn, 200) == [("ACME ROOFING LLC", ""), ("BEST POOLS INC", "")]   # (name, no city), as the search takes them
+    statements = [sql for sql, _ in conn.asked]
+    assert statements == ["select set_config('synchronize_seqscans', 'off', false)", DRAW_SQL]   # the setting first, then the draw, and nothing between
+    assert conn.asked[1][1] == (LATENCY_SEED, 200)                         # the seed and the count travel as values
+    assert "repeatable (%s) limit %s" in DRAW_SQL and "order by" not in DRAW_SQL   # no sort: the scan order IS the draw, which is why the setting matters

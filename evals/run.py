@@ -53,7 +53,7 @@ from datum.search import COMPANY_COLUMNS, CANDIDATE_POOL, SHORTLIST_SIZE, Compan
 TEST_SET = REPO_ROOT / "pipeline" / "seeds" / "test_set.csv"
 EXTRACTED = REPO_ROOT / "pipeline" / "seeds" / "extracted_inputs.csv"
 ASK = "NEEDS_MORE_INFO"                     # the expected answer of a case that names no business
-LATENCY_SEED = 42                           # the same random companies on every run, so two runs can be compared
+LATENCY_SEED = 42                           # the seed of the random draw. The same companies on every run also needs draw_company_names' setting
 
 
 @dataclass(frozen=True)                     # frozen = fields can't change after creation
@@ -297,6 +297,27 @@ def print_comparison(comparisons: list[Comparison], test_inputs: int) -> None:
           f"1 to {SHORTLIST_SIZE - 1} for {len(comparisons) - full - none}, and none for {none}")
 
 
+DRAW_SQL = "select entity_name, '' from company_search tablesample bernoulli (0.01) repeatable (%s) limit %s"
+# tablesample bernoulli (0.01) picks a random 0.01% of the rows, about 1,300 companies, and
+# repeatable (42) makes it pick the same rows every time. limit then keeps the first 200 that
+# the scan MEETS, and that is the catch: see draw_company_names below.
+
+
+def draw_company_names(conn, count: int) -> list[tuple[str, str]]:
+    """`count` company names drawn at random, each with an empty city: the same names on every run. They are searched and never printed.
+
+    A fixed seed is not enough to get the same names twice. Postgres lets a scan of a large
+    table start wherever the last scan of that table stopped (the setting is called
+    synchronize_seqscans, and it is on by default), so the first 200 sampled rows a scan
+    meets depend on what ran before it. Until Nov 24, 2026 this draw gave different names on
+    every call after the first one following a restart of Postgres. Leg C2's report shows it:
+    three calls in a row gave three different sets. With the setting off for this session the
+    scan always starts at the first page of the table, and the draw is the same every time.
+    """
+    conn.execute("select set_config('synchronize_seqscans', 'off', false)")   # this session only. It must come BEFORE the draw
+    return [tuple(row) for row in conn.execute(DRAW_SQL, (LATENCY_SEED, count)).fetchall()]
+
+
 RETRIEVERS = {                              # --retrieve: which retrieve step to run on Postgres
     "narrow": (PostgresBackend, "narrow table, word similarity"),            # the search the app uses (the third approach)
     "word": (WideTableBackend, "company_search, word similarity"),           # the second approach
@@ -324,13 +345,7 @@ def main(argv: list[str] | None = None) -> int:
 
             def with_random_names(count: int) -> list[tuple[str, str]]:
                 """The test inputs, then `count` company names drawn at random, the same ones on every run."""
-                drawn = conn.execute(
-                    "select entity_name, '' from company_search tablesample bernoulli (0.01) repeatable (%s) limit %s",
-                    (LATENCY_SEED, count),
-                ).fetchall()
-                # tablesample bernoulli (0.01) reads a random 0.01% of the rows, and repeatable (42)
-                # makes it the same sample every time. The names are searched and never printed.
-                return test_inputs + [tuple(row) for row in drawn]
+                return test_inputs + draw_company_names(conn, count)
 
             if args.compare:
                 inputs = with_random_names(args.compare)
