@@ -9,7 +9,8 @@ How it is used:
     1. Each downloader (dbpr.py, duval.py, sunbiz_flr.py) calls record_fetch() right after
        a file lands on disk. One file = one row appended to data/raw/fetch_manifest.csv.
     2. Files that were downloaded before the manifest existed are backfilled from their
-       modification time, marked is_approximate = true:
+       modification time, marked is_approximate = true. That includes the state's corporate
+       files, which were pulled by hand and have no downloader (sunbiz_cor.py):
            python src/datum/manifest.py backfill
     3. snowflake/18_fetch_manifest.sql loads the CSV into datum.raw.fetch_manifest, and the
        staging view stg_datum__fetch_manifest gives every raw source_file its fetch time.
@@ -29,7 +30,7 @@ from pathlib import Path                    # file paths that work on any operat
 REPO_ROOT = Path(__file__).resolve().parents[2]            # this file is src/datum/manifest.py → go up 2 folders to the repo root
 MANIFEST_PATH = REPO_ROOT / "data" / "raw" / "fetch_manifest.csv"   # one manifest for every source; data/ is gitignored
 COLUMNS = ("source", "file_name", "source_url", "fetched_at_utc", "size_bytes", "sha256", "is_approximate")   # the CSV header, in order
-SOURCES = ("dbpr", "duval", "sunbiz_flr")                  # the only values allowed in the source column
+SOURCES = ("dbpr", "duval", "sunbiz_flr", "sunbiz_cor")    # the only values allowed in the source column. sunbiz_cor (the company register) joined in leg C1
 TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"                         # ISO 8601 in UTC, e.g. 2026-11-18T07:15:02Z (Z = "zero offset" = UTC)
 
 
@@ -37,7 +38,7 @@ TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"                         # ISO 8601 in UTC, e.
 class FetchRecord:
     """One fetched file. It cannot be built without a source URL and a UTC fetch time (CLAUDE.md rule 3)."""
 
-    source: str                             # which source the file belongs to: dbpr, duval or sunbiz_flr
+    source: str                             # which source the file belongs to: one of SOURCES
     file_name: str                          # the file's name on disk, e.g. d2026110501id.16
     source_url: str                         # the exact address the file came from
     fetched_at_utc: datetime                # when the download finished, in UTC
@@ -153,8 +154,9 @@ def main(argv: list[str]) -> int:
         return 2                                                   # 2 = "you called me wrong", by Unix convention
     import dbpr                                                    # imported here, not at the top: the downloaders import this module,
     import duval                                                   # so importing them at the top would be a circle
+    import sunbiz_cor                                              # the company register: it has no downloader, only files pulled by hand
     import sunbiz_flr
-    for module in (dbpr, duval, sunbiz_flr):                       # each downloader knows its own files and addresses
+    for module in (dbpr, duval, sunbiz_flr, sunbiz_cor):           # each module knows its own files and addresses
         added = module.backfill_manifest()                         # returns how many rows it added
         print(f"{module.SOURCE}: added {added} approximate row(s)")
     print(f"manifest now has {len(read_manifest())} row(s): {MANIFEST_PATH}")
