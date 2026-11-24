@@ -1,6 +1,6 @@
 # Leg C3: the Fact type and the report
 
-Branch `leg/c3-fact-report` (stacked on `leg/c2-postgres-search`) · the pull request is opened after the review · run on Nov 24, 2026 · risk tier **High** · status: **done. Every check passes, and the Deep review ended after three rounds with no Important finding left open. The answers to the last round's three Nits were not reviewed.**
+Branch `leg/c3-fact-report` (stacked on `leg/c2-postgres-search`) · pull request [#21](https://github.com/andrescamacho57/datum/pull/21) · run on Nov 24, 2026 · risk tier **High** · status: **done. Every check passes, and the Deep review ended after three rounds with no Important finding left open. The answers to the last round's three Nits were not reviewed.**
 
 This is the third of the four legs of Phase C. Leg C2 made the search. This leg makes the thing the search leads to: the report a contractor reads about one company. It builds no web page. Leg C4 puts this report on a page.
 
