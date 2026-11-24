@@ -22,9 +22,9 @@
 paramiko==3.5.1                 # SFTP client (duval.py, sunbiz_flr.py). MUST stay below 4: the Clerk's server only offers an ssh-dss key, which paramiko 4+ refuses
 python-dotenv==1.2.4            # load_dotenv(): reads secrets from the local secrets file into the environment
 truststore==0.10.5              # verifies HTTPS certificates against the operating system's trusted list (dbpr.py)
-anthropic==2.3.0                # Claude API client (extract.py, report.py)
-snowflake-connector-python==5.1.0   # runs SQL from Python (report.py)
-pydantic==2.14.1                # data models that validate themselves (used by anthropic; planned for the Fact model)
+anthropic==2.3.0                # Claude API client (extract.py, and report.py through it)
+snowflake-connector-python==5.1.0   # runs SQL from Python (the Snowflake backend of evals/run.py). report.py stopped using it in leg C3
+pydantic==2.14.1                # data models that check themselves when they are built (models.py: Fact, Flag, Candidate, Report). anthropic needs it too
 psycopg==3.3.9                  # the Postgres driver, version 3 (load_postgres.py, search.py's PostgresBackend, evals/run.py). Added in leg C2
 
 # --- Tools run from the terminal --------------------------------------------------------
