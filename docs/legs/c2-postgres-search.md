@@ -15,7 +15,7 @@ The branch was stacked on `leg/c1-serving-marts`. Pull request 15 was merged on 
   - The four marts are in Postgres, and every table's row count equals Snowflake's: **12,988,435** companies, **9,950** shown flags, **0** possible matches and **5** source rows.
   - No hidden record left Snowflake. **14,263** hidden flags and all **9,651** possible matches stayed behind.
   - The search scores at least as well as Snowflake on the test set: top-1 **7** of 10 against 6, recall at 5 **9** against 9, and wrong_match **2** against 3.
-  - The offline tests pass with Postgres stopped: 264 passed.
+  - The offline tests pass with Postgres stopped: 267 passed.
 - On Nov 21 something outside the run switched the working folder to the branch `main`, and four commits landed on local `main`. Nothing was pushed, and the commits were moved to this branch. It did not happen on Nov 24, when every commit was preceded by a check of the branch name. Section 4 has the details.
 
 **What is left for Andres**
@@ -100,7 +100,7 @@ A trigram is a run of three characters, and two names are near when they share m
 | `snowflake/23_export_marts.sql` | New |
 | `src/datum/load_postgres.py`, `tests/test_load_postgres.py` | New. 14 tests, 4 of them added on Nov 24 for the narrow table |
 | `src/datum/search.py`, `tests/test_search.py`, `tests/fixtures/search/` | New. 93 tests, 61 of them one per fixture pair, and 1 added on Nov 24 for the narrow-table query |
-| `evals/run.py`, `tests/test_evals_run.py` | New. 18 tests, 6 of them added on Nov 24: 5 for the comparison of two approaches and 1 for the random draw |
+| `evals/run.py`, `tests/test_evals_run.py` | New. 19 tests, 7 of them added on Nov 24: 5 for the comparison of two approaches, 1 for the random draw and 1 for its fingerprint |
 | `docs/adr/0001-serving-layer.md` | New |
 | `requirements.txt` | Changed: `psycopg` 3.3.9 and `psycopg-binary` 3.3.9, each with a comment (ruling R24) |
 | `pytest.ini` | Changed: the repo root is on the import path, so a test can import `evals.run` |
@@ -303,7 +303,8 @@ afaa9615698aae3db2a95d7112731f5e
 ```
 
 - Below, **set A** is the 200 names with the fingerprint `29e3...`, which is what the first draw after a restart gives. **Set B** is the next draw, `7f9d...`. Seven of the ten timed runs came straight after a restart and so searched set A. The other three came second and searched set B.
-- ✅ The draw is fixed. `evals/run.py` now switches the setting off before it draws, and three runs of the fixed draw in three sessions all gave set A. From now on every run searches set A.
+- ✅ The draw is fixed. `evals/run.py` now switches the setting off before it draws, and three runs of the fixed draw in three sessions all gave set A. From now on every run searches set A, for as long as `company_search` is not loaded again from different files.
+- ✅ Every run now prints the fingerprint of the names it drew, on a line that reads `fingerprint of the random names:`. Two runs that print the same code searched the same names. The outputs pasted in this report were printed before that line existed.
 - ✅ Set A did not change when the loader ran again on Nov 24: the fingerprint was `29e3...` before and after.
 - 🔴 Which names the three runs of Nov 21 searched is unknown. Nothing recorded them. The ruling asked for the same 208 searches as the report's, and that cannot be shown. What can be shown is that the second approach and the narrow table were timed against each other on the same names on Nov 24.
 
@@ -464,12 +465,12 @@ pg_isready                            → /tmp:5432 - accepting connections
 
 ✅ With the database server stopped, all 255 tests pass. The tests hand the search a `FakeBackend` and hand the loader a stand-in connection that records what it is asked, so nothing in the suite opens a database. The server was started again afterwards.
 
-✅ The same check was run again on Nov 24, after the narrow table's commits, and 264 tests passed.
+✅ The same check was run again on Nov 24, after the last code commit of the review, and 267 tests passed.
 
 ```
 brew services stop postgresql@17      → Successfully stopped `postgresql@17`
 pg_isready                            → /tmp:5432 - no response
-pytest                                → 264 passed in 0.59s
+pytest                                → 267 passed in 0.53s
 ruff check src tests                  → All checks passed!
 brew services start postgresql@17     → Successfully started `postgresql@17`
 pg_isready                            → /tmp:5432 - accepting connections
@@ -532,7 +533,8 @@ pytest tests/test_load_postgres.py -q
 ```
 
 - ✅ On the real data both tables have 12,988,435 rows, and no document number is in one and not in the other.
-- ✅ Each new test was made to fail once. With the loader changed to ignore the row counts, the test of the loader failed. With the query changed to ignore the name, the test of the query failed. Both changes were then undone.
+- ✅ Each new test was made to fail once. With the loader's check cut down to one of its three conditions, the test of the loader failed. With the query changed to ignore the name, the test of the query failed. Both changes were then undone.
+- The review then found a gap in those tests, and it is closed. The loader refuses a narrow table on any of three conditions: the row counts differ, a narrow row has no company, or a company has no narrow row. No test needed the third one. The case that needs it is a document number held twice in place of another: the counts are equal and one company can never be found. That case is now in both tests, and the test of the loader fails when the third condition is removed. The second condition can never be the only one that fires, because `company_search` has one row per document number, and so it is a safeguard that no test can single out.
 - The check compares the document number and the name together, which is more than the ruling asks. A narrow table with the right numbers and a wrong name would send the search to the wrong company, and so it is refused too.
 
 ---
@@ -616,11 +618,54 @@ This is the full list as of Nov 24. Items 1 to 4 are new, and items 5 to 9 stand
 
 ### The review
 
+There were two reviews, because the leg was worked on twice. The one of Nov 24 comes first here, because it is the one that decides whether the pull request is ready, and the one of Nov 21 follows as it was written.
+
+#### The review of Nov 24
+
+- **Tier:** Medium. The new commits touch `src/datum/load_postgres.py`, `src/datum/search.py`, `evals/run.py`, tests and docs. None of those paths is High in the table of `REVIEW.md` that was merged on Nov 24.
+- **Depth:** Standard, which is one `reviewer` pass each round, plus a security review because `src/` changed.
+- **What was reviewed:** the three commits for the narrow table, and commit `d2e51f1`, the fix from Nov 21 that had never been reviewed. The rounds were counted from 1, as the ruling says.
+- **Rounds:** 3.
+- **Findings in all:** 2 Important and 3 Nit. The security review found nothing.
+- **How it ended:** ✅ round 3 found no Important finding, and so the review is complete inside the three rounds the rules allow. The one Nit of round 3 was fixed with a change to comment text only, and that last commit was not reviewed.
+
+**Round 1** (one reviewer on `d2e51f1` and the three narrow-table commits, and the security review).
+
+| Finding | Tag | Answer |
+|---|---|---|
+| The loader refuses a narrow table on any of three conditions, and no test needed the third one, "a company has no row in the narrow table". The reviewer removed it from a copy of the loader and all 14 tests still passed. The case that needs it is a document number held twice in place of another one | Important | Fixed. That case is now in the test of the loader and in the test that runs the query in SQLite. ✅ With the third condition removed, the test of the loader fails |
+| The comparison of the two approaches looked only at the five companies returned, and `shortlist()` also reads the pool below the fifth place | Nit | Fixed. The comparison now covers the whole pool as well, with a test. ✅ Run again on set A: 208 of 208 the same |
+
+The reviewer also confirmed three things without a finding. Commit `d2e51f1` is correct, and its test fails when the companies that are not shown are left out or put in another order. The loader never puts a table live outside its one transaction, and both of its refusals drop every half-loaded table. And SQLite and Postgres give the same answer for the query that the test runs in SQLite.
+
+The security review read the whole branch and reported no vulnerability it was at least 80% sure of. It checked that every piece of SQL the loader builds comes from constants in the code, that nothing read from a file becomes SQL text, that what a person types reaches the search only as a value the driver sends separately, that no shell command is built, that nothing is written outside the tests' temporary folders, and that no drawn company name is printed.
+
+**Between rounds 1 and 2, I found the fault in the random draw myself.** The comparison printed 103 where it had printed 100, and two runs on the same names could not do that. Check 3 has the cause, the measurement and the fix. The fix went into round 2.
+
+**Round 2** (one reviewer on the two fix commits and the fix to the draw).
+
+| Finding | Tag | Answer |
+|---|---|---|
+| A sentence of the Human review section said as a fact that the Nov 21 runs had drawn other names. This report says only that it is likely, and that the names are unknown | Important | Fixed. The section now says the names are unknown and that they likely differed. The same claim was softened in question Q33 |
+| Comments in `evals/run.py` said the fixed draw is the same every time. That holds only while `company_search` is not loaded again from different files, and a run printed nothing that identified its draw | Nit | Fixed. The comments say when the draw changes, and every run now prints a fingerprint of the names it drew, with a test |
+
+The reviewer tried each of the three conditions of the loader's check on a copy. Removing the first or the third now fails a test. Removing the second fails none, and the reviewer judged that correct: the second condition can never be the only one that fires, so it is a safeguard and not a gap.
+
+**Round 3** (one reviewer on the fingerprint commit, and the Human review section again).
+
+| Finding | Tag | Answer |
+|---|---|---|
+| A comment said the fingerprint gives no name away. That is true for a draw of 200 names and false for a draw of one, whose name could be found by hashing every company name in the public file | Nit | Fixed, in comment text only. **This last commit was not reviewed.** It changes no code |
+
+The round 3 reviewer checked the Human review section sentence by sentence against the code and this report, found every number and every claim supported, and found all nine items of "What I couldn't verify" represented in it.
+
+#### The review of Nov 21
+
 - **Tier:** Medium. The leg touches `src/datum/` (not `report.py`), `snowflake/`, tests and `evals/`.
 - **Depth:** Standard, which is one `reviewer` pass, plus a security review because `src/` changed.
 - **Rounds:** 3, the most the rules allow.
 - **Findings in all:** 4 Important, 5 Nit, 2 Pre-existing. The security review found nothing.
-- **How it ended:** the third round found one Important finding. I fixed it, and **that last fix has not been reviewed**, because no fourth round is allowed. `docs/prompts/florida_master.md` says a leg stops when an Important finding remains after the third round. This leg was already stopped at the speed check, so this is a second reason for the same stop, and the pull request says so.
+- **How it ended:** the third round found one Important finding. I fixed it, and **that last fix was not reviewed at the time**, because no fourth round is allowed. ✅ It was reviewed on Nov 24, in round 1 above, and found correct. `docs/prompts/florida_master.md` says a leg stops when an Important finding remains after the third round. This leg was already stopped at the speed check, so this is a second reason for the same stop, and the pull request says so.
 
 **Round 1** (one reviewer on the first four commits, and the security review).
 
@@ -648,7 +693,7 @@ The security review read the same four commits and reported no vulnerability it 
 
 | Finding | Tag | Answer |
 |---|---|---|
-| The shortlist counted same-name companies that it did not carry. A page could say one more company has this exact name and could not name it or cite it, which is a statement with no source (`CLAUDE.md` rule 3) | Important | Fixed and **not reviewed**: the shortlist now carries those companies in a field `not_shown`, each with its source address and fetch time, and a test checks that every company counted in a tie can be reached from the shortlist |
+| The shortlist counted same-name companies that it did not carry. A page could say one more company has this exact name and could not name it or cite it, which is a statement with no source (`CLAUDE.md` rule 3) | Important | Fixed, and not reviewed until Nov 24, when round 1 of the second review found the fix correct: the shortlist now carries those companies in a field `not_shown`, each with its source address and fetch time, and a test checks that every company counted in a tie can be reached from the shortlist |
 
 The round 3 reviewer also checked every case of the shortlist against its description (an empty pool, a short pool, no exact-name match, an exact-name match only outside the five shown, and more than five) and found them consistent.
 
