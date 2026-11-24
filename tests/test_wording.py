@@ -36,22 +36,24 @@ def test_a_sentence_about_a_count_says_what_the_count_covers():
     # Below the level Strong only the companies on the shortlist are counted, so the sentence may not read as if all were.
     assert wording.tied_text(1, "Likely") == "1 other company on the shortlist matched equally well."
     assert wording.tied_text(3, "Possible") == "3 other companies on the shortlist matched equally well."
-    # With a city given, a same-name company in another city is not counted, so the sentence names the city.
-    assert (wording.not_shown_text(0, False), wording.not_shown_text(0, True)) == ("", "")
-    assert wording.not_shown_text(1, False) == "1 more company has this name (ignoring LLC/INC) and is not on this list."
-    assert wording.not_shown_text(3, False) == "3 more companies have this name (ignoring LLC/INC) and are not on this list."
-    assert wording.not_shown_text(1, True) == "1 more company has this name (ignoring LLC/INC) in the city you gave and is not on this list."
-    assert wording.not_shown_text(2, True) == "2 more companies have this name (ignoring LLC/INC) in the city you gave and are not on this list."
+    # The line under the shortlist names the level it counts, which is exactly what is in Shortlist.not_shown.
+    assert wording.not_shown_text(0) == ""
+    assert wording.not_shown_text(1) == "1 more company matches at the level Strong and is not on this list."
+    assert wording.not_shown_text(3) == "3 more companies match at the level Strong and are not on this list."
+    ignoring = "ignoring capitals and legal endings such as LLC, INC or CORP, and reading anything that is not a letter A to Z or a digit as a space"
+    assert wording.EVIDENCE_EXACT_NAME == f"name matches ({ignoring})" and wording.EVIDENCE_CITY_MATCHES == "principal city on record begins with the city you gave"
     every = [value for name, value in vars(wording).items() if name.isupper() and isinstance(value, str)]
-    assert not [text for text in every if "exactly this name" in text]    # "exactly" claimed more than the comparison does: it ignores the legal suffix
+    # Phrases that claimed more than the comparison behind them does. None may come back.
+    for phrase in ("exactly this name", "matches exactly", "ignoring LLC/INC", "in the city you gave", "city matches", "punctuation", "spacing"):
+        assert not [text for text in every if phrase in text], phrase
 
 
 def test_the_identification_line_is_built_from_extracted_fields_and_leaves_out_an_empty_one():
     line = wording.identified_text("Acme Roofing", "", "", "Likely", ("name is similar (93/100)", "ACTIVE"), 0)
     assert line == 'from the business name "Acme Roofing" · match level Likely (name is similar (93/100); ACTIVE) · chosen by the user from a shortlist.'
-    full = wording.identified_text("Acme Roofing", "Tampa", "Bay St", "Strong", ("city matches",), 2)
+    full = wording.identified_text("Acme Roofing", "Tampa", "Bay St", "Strong", ("ACTIVE",), 2)
     assert 'the business name "Acme Roofing", the city "Tampa", the street "Bay St"' in full and full.endswith(" 2 other companies matched equally well.")
-    likely = wording.identified_text("Acme Roofing", "Tampa", "", "Likely", ("city matches",), 2)
+    likely = wording.identified_text("Acme Roofing", "Tampa", "", "Likely", ("ACTIVE",), 2)
     assert likely.endswith(" 2 other companies on the shortlist matched equally well.")
 
 
@@ -69,6 +71,9 @@ def test_the_sentence_every_report_carries_and_the_banned_words_are_held_here_as
     assert wording.SHORTLIST_TIE == "These look about equally likely. Is it one of these? A street or a city would help tell them apart."
     assert wording.SEARCH_UNAVAILABLE == "The search is unavailable right now, so no company is shown. Try again in a few minutes."
     assert wording.IDENTIFIED_BY_NUMBER == "opened by its document number, so no match level applies."
+    assert wording.NOTE_NOT_ON_COMMAND_LINE == ("What you typed after the command was not used. A shell usually keeps each command line in its history file, "
+                                                "so that text may be stored there now. Type the note below instead.")
+    assert "not kept" not in wording.NOTE_NOT_ON_COMMAND_LINE             # it is shown exactly when the text MAY have been kept, so it must not say otherwise
 
 
 def test_the_two_company_record_flags_use_the_plans_wording_word_for_word():

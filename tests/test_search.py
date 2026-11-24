@@ -149,7 +149,7 @@ def test_evidence_says_what_the_level_rests_on():
         company("T00000000001", "ACME ROOFING LLC", city="JACKSONVILLE"),
         company("T00000000002", "ACME ROOFING AND SIDING INC", city="TAMPA"),
     ], "acme roofing", city="jacksonville")
-    assert evidence(exact, city_given=True) == ["name matches exactly (ignoring LLC/INC)", "city matches", "ACTIVE"]
+    assert evidence(exact, city_given=True) == ["name matches (ignoring capitals and legal endings such as LLC, INC or CORP, and reading anything that is not a letter A to Z or a digit as a space)", "principal city on record begins with the city you gave", "ACTIVE"]
     assert evidence(similar, city_given=True) == ["name is similar (88/100)", "registered in TAMPA, not the city you gave", "ACTIVE"]
     assert evidence(similar, city_given=False) == ["name is similar (88/100)", "ACTIVE"]   # no city given: the city is not mentioned
 

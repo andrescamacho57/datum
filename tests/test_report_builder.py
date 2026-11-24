@@ -33,7 +33,7 @@ W4_SENTENCE = ("Datum shows a record only when it can confirm that the record be
                "A record filed under a similar name or at a different address is not shown.")
 ALL_COMPANIES = (fx.LIEN_COMPANY, fx.LICENSE_COMPANY, fx.INACTIVE_COMPANY, fx.NEW_COMPANY, fx.NO_FLAG_COMPANY, fx.GAPS_COMPANY)
 PICKED = Identification(business_name="Invented Air Conditioning", city="Boynton Beach", level="Strong",
-                        evidence=("name matches exactly (ignoring LLC/INC)", "city matches", "ACTIVE"))
+                        evidence=("name matches (ignoring capitals and legal endings such as LLC, INC or CORP, and reading anything that is not a letter A to Z or a digit as a space)", "principal city on record begins with the city you gave", "ACTIVE"))
 
 
 def build(document_number, identification=None, extra_flags=None):
@@ -152,7 +152,8 @@ def test_the_identification_line_shows_the_extracted_fields_and_no_note():
     assert identification.citation == "Florida Division of Corporations (Sunbiz) record, document number T26000000001"   # it restates the status, so it cites the record
     line = identification.text
     assert line == ('from the business name "Invented Air Conditioning", the city "Boynton Beach" · match level Strong '
-                    "(name matches exactly (ignoring LLC/INC); city matches; ACTIVE) · chosen by the user from a shortlist.")
+                    "(name matches (ignoring capitals and legal endings such as LLC, INC or CORP, and reading anything that is not a letter A to Z or a digit as a space); principal city on record begins with the city you gave; ACTIVE) "
+                    "· chosen by the user from a shortlist.")
     with_street = PICKED.model_copy(update={"city": "", "street": "Race Track Rd"})
     assert 'the business name "Invented Air Conditioning", the street "Race Track Rd"' in build(fx.LIEN_COMPANY, with_street).identification.text
     opened = render_markdown(build(fx.LIEN_COMPANY))
@@ -307,7 +308,7 @@ def test_a_search_result_becomes_a_page_candidate_whose_name_and_place_are_facts
     found = SearchCandidate(company=companies[fx.LIEN_COMPANY], similarity=100, city_match=True, exact_name=True)
     candidate = candidate_for_page(found, "Strong", city_given=True)
     assert (candidate.name.text, candidate.place.text, candidate.level) == ("INVENTED AIR CONDITIONING, LLC", "BOYNTON BEACH, FL", "Strong")
-    assert [reason.text for reason in candidate.evidence] == ["name matches exactly (ignoring LLC/INC)", "city matches", "ACTIVE"]
+    assert [reason.text for reason in candidate.evidence] == ["name matches (ignoring capitals and legal endings such as LLC, INC or CORP, and reading anything that is not a letter A to Z or a digit as a space)", "principal city on record begins with the city you gave", "ACTIVE"]
     for fact in (candidate.name, candidate.place) + candidate.evidence:   # rule W1: the status and the city are stated with their source, like the name
         assert fact.source_url == companies[fx.LIEN_COMPANY].source_url and fact.fetched_at_is_approximate is True
         assert fact.citation == "Florida Division of Corporations (Sunbiz) record, document number T26000000001"

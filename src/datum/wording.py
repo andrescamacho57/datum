@@ -112,9 +112,20 @@ TIED_ON_LIST_MANY = "{count} other companies on the shortlist matched equally we
 # sentence says "on the shortlist". A sentence must not claim more than its count covers.
 
 # --- The search and the shortlist (the terminal command now, the web app in leg C4) -------
-EVIDENCE_EXACT_NAME = "name matches exactly (ignoring LLC/INC)"
+NAME_IGNORING = "ignoring capitals and legal endings such as LLC, INC or CORP, and reading anything that is not a letter A to Z or a digit as a space"
+# Exactly what the name comparison in search.py does before it calls two names the same. It
+# puts both in capitals, turns every run of characters that are not A to Z or 0 to 9 into one
+# space (search.name_key), and removes the legal endings at the end (search.without_suffixes).
+# The list of endings is longer than three (CO, LTD, LP, PA and others are on it), which is
+# why the phrase says "such as". It does NOT say "ignoring punctuation": A.B.C becomes A B C,
+# which is not ABC.
+EVIDENCE_EXACT_NAME = f"name matches ({NAME_IGNORING})"
 EVIDENCE_SIMILAR_NAME = "name is similar ({similarity}/100)"
-EVIDENCE_CITY_MATCHES = "city matches"
+EVIDENCE_CITY_MATCHES = "principal city on record begins with the city you gave"
+# "Begins with", because that is the comparison (search.city_matches): PONTE VEDRA finds a
+# company in PONTE VEDRA BEACH. It also means JACKSONVILLE finds one in JACKSONVILLE BEACH,
+# which is another city, so the sentence may not say "city matches". The shortlist shows the
+# company's city next to it. The city compared is the principal address's, the only one the table holds.
 EVIDENCE_OTHER_CITY = "registered in {city}, not the city you gave"
 EVIDENCE_NO_CITY = "no principal city on record for this company"   # the principal address is the only one the table holds
 EVIDENCE_ACTIVE = "ACTIVE"
@@ -124,13 +135,11 @@ EVIDENCE_NO_STATUS = "status not on record"
 # written in search.py in leg C2 and moved here unchanged, so that this file holds them all.
 SHORTLIST_TIE = "These look about equally likely. Is it one of these? A street or a city would help tell them apart."
 # report.py's line, without "or an owner's name": rule W6, the app never asks for one.
-SHORTLIST_NOT_SHOWN_ONE = "1 more company has this name (ignoring LLC/INC) and is not on this list."
-SHORTLIST_NOT_SHOWN_MANY = "{count} more companies have this name (ignoring LLC/INC) and are not on this list."
-SHORTLIST_NOT_SHOWN_IN_CITY_ONE = "1 more company has this name (ignoring LLC/INC) in the city you gave and is not on this list."
-SHORTLIST_NOT_SHOWN_IN_CITY_MANY = "{count} more companies have this name (ignoring LLC/INC) in the city you gave and are not on this list."
-# Two wordings here too. When a city was given, the companies counted are the ones with this
-# name IN that city: a company with the same name in another city is not counted, and so the
-# sentence names the city. "This name (ignoring LLC/INC)" is the comparison search.py makes.
+SHORTLIST_NOT_SHOWN_ONE = "1 more company matches at the level Strong and is not on this list."
+SHORTLIST_NOT_SHOWN_MANY = "{count} more companies match at the level Strong and are not on this list."
+# The sentence names the LEVEL, because that is exactly what is counted: the candidates rated
+# Strong that did not fit on the list (search.shortlist). It does not restate what Strong means.
+# Each of those companies is then shown with its own reasons, as the companies on the list are.
 ASK_FOR_A_BUSINESS = "That describes a business but doesn't name one. Add its name, a street or a city"
 ASK_FOR_MORE = "Add a street or a city"
 POSSIBLE_ONLY = (
@@ -148,9 +157,14 @@ PRESS_ENTER = " (press Enter if you don't know): "
 SAVED_TO = "Saved to {path}"
 DESCRIBE_THE_CLIENT = "Describe the client: "
 NOTE_NOT_ON_COMMAND_LINE = (
-    "Type the note here, not after the command. What is typed after a command is kept in the shell's history, "
-    "and a note is not kept anywhere."
+    "What you typed after the command was not used. A shell usually keeps each command line in its history file, "
+    "so that text may be stored there now. Type the note below instead."
 )
+# It is shown only when something WAS typed after the command, so it must not say that the note
+# is kept nowhere: that text may already be in the history file, and the user should know.
+EXTRACTION_ERROR_KIND = "The extraction step stopped with this kind of error: {kind}."
+# The kind is the error's class name, such as APIConnectionError. A class name cannot hold the
+# note. The error's own message can, and so it is never printed.
 SEARCH_UNAVAILABLE = "The search is unavailable right now, so no company is shown. Try again in a few minutes."
 
 
@@ -188,12 +202,10 @@ def tied_text(others: int, level: str) -> str:
     return TIED_ON_LIST_ONE if others == 1 else TIED_ON_LIST_MANY.format(count=others)
 
 
-def not_shown_text(count: int, city_given: bool) -> str:
-    """The shortlist's line for same-name companies it counts and does not list. Empty when there are none."""
+def not_shown_text(count: int) -> str:
+    """The shortlist's line for the Strong candidates it counts and does not list. Empty when there are none."""
     if count <= 0:
         return ""
-    if city_given:
-        return SHORTLIST_NOT_SHOWN_IN_CITY_ONE if count == 1 else SHORTLIST_NOT_SHOWN_IN_CITY_MANY.format(count=count)
     return SHORTLIST_NOT_SHOWN_ONE if count == 1 else SHORTLIST_NOT_SHOWN_MANY.format(count=count)
 
 

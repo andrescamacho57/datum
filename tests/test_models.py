@@ -68,7 +68,7 @@ def test_a_fact_cannot_be_changed_after_it_is_built_and_takes_no_extra_field():
 
 def test_an_identification_has_nowhere_to_put_the_typed_note():
     # Rule W6: the note is used for one extraction call and then dropped. The type that travels to the report has no field for it.
-    good = Identification(business_name="Ferguson Air Conditioning", city="Boynton Beach", level="Strong", evidence=("city matches",))
+    good = Identification(business_name="Ferguson Air Conditioning", city="Boynton Beach", level="Strong", evidence=("principal city on record begins with the city you gave",))
     assert "note" not in Identification.model_fields and good.street == ""
     for field in ("note", "raw_note", "owner", "owner_name"):
         with pytest.raises(ValidationError, match="Extra inputs"):
@@ -120,7 +120,7 @@ def test_a_report_cannot_take_its_identification_line_as_bare_text():
 
 def test_a_candidate_states_its_name_its_place_and_its_evidence_as_facts():
     candidate = Candidate(document_number="T26000000001", name=a_fact(text="INVENTED ROOFING CORP"), place=None, level="Likely",
-                          evidence=(a_fact(text="city matches"), a_fact(text="ACTIVE")))
+                          evidence=(a_fact(text="principal city on record begins with the city you gave"), a_fact(text="ACTIVE")))
     assert candidate.name.source_url == SUNBIZ and candidate.place is None and candidate.source is candidate.name
     with pytest.raises(ValidationError, match="name"):
         Candidate(document_number="T26000000001", name="INVENTED ROOFING CORP", place=None, level="Likely", evidence=())   # a bare text is not a fact

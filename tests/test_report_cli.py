@@ -8,10 +8,13 @@ API key, no database and no keyboard are needed.
 Run from ~/datum:  pytest
 """
 
+import ast                                  # parses source code into its structure, without running it
 import inspect                              # reads the source of the module under test
 import re                                   # the search for the words rule W4 bans
 from pathlib import Path                    # the path of extract.py, which one test reads as text
 from dataclasses import replace             # a copy of a frozen dataclass with one field changed
+
+import pytest                               # the test runner; parametrize runs one test body over several cases
 
 import report_fixtures as fx                # tests/report_fixtures.py: the fixture rows as objects
 from datum import report, wording
@@ -111,8 +114,9 @@ def test_a_same_name_company_that_did_not_fit_on_the_list_is_named_and_counted(t
     talk = Talk(["1"])
     fields = {"business_name": "Invented Air", "city": "", "street": "", "is_specific": True}
     path = run(talk, tmp_path, fields=fields, companies=exact)
-    assert "2 more companies have this name (ignoring LLC/INC) and are not on this list." in talk.everything
-    assert "INVENTED AIR LTD  (T26000000105)" in talk.everything and "INVENTED AIR CORP  (T26000000103)" in talk.everything   # each is named with its number
+    assert "2 more companies match at the level Strong and are not on this list." in talk.everything
+    assert "   [Strong] INVENTED AIR LTD  (T26000000105)" in talk.said and "   [Strong] INVENTED AIR CORP  (T26000000103)" in talk.said   # each is named with its level and number
+    assert sum(1 for line in talk.said if line.strip().startswith("MIAMI, FL  ·  name matches (")) == 7   # all seven, on the list or under it, show their place and reasons
     assert "6 other companies matched equally well." in path.read_text() # seven share the name: the one picked and six others, two of them off the list
     # Rule W1: every company the shortlist names, on the list or under it, is followed by where to check it and when it was fetched.
     sources = [line for line in talk.said if line.strip().startswith("Source: ")]
@@ -132,13 +136,23 @@ def test_with_a_city_given_the_counts_say_which_companies_they_cover(tmp_path):
     fields = {"business_name": "Invented Air", "city": "Tampa", "street": "", "is_specific": True}
     in_the_city = Talk(["1"])                                            # seven same-name companies IN Tampa: all Strong, two off the list
     path = run(in_the_city, tmp_path, fields=fields, companies=seven_with_one_name("TAMPA"))
-    assert "2 more companies have this name (ignoring LLC/INC) in the city you gave and are not on this list." in in_the_city.everything
+    assert "2 more companies match at the level Strong and are not on this list." in in_the_city.everything
     assert path.read_text().count("6 other companies matched equally well.") == 1   # Strong: counted over every candidate, on the list or not
     elsewhere = Talk(["1"])                                              # the same seven in Miami: the name matches and the city does not, so all are Likely
     path = run(elsewhere, tmp_path, fields=fields, companies=seven_with_one_name("MIAMI"))
     assert "not on this list" not in elsewhere.everything                 # nothing is claimed about the two that did not fit: they are not counted
     assert "match level Likely" in path.read_text()
     assert "4 other companies on the shortlist matched equally well." in path.read_text()   # five are shown, and the sentence says its count is of those
+
+
+def test_a_company_in_a_city_that_only_begins_with_the_one_given_is_not_said_to_be_in_that_city(tmp_path):
+    # "Jacksonville" also finds companies in JACKSONVILLE BEACH, because the comparison is "begins with". The sentence has to say that.
+    fields = {"business_name": "Invented Air", "city": "Jacksonville", "street": "", "is_specific": True}
+    talk = Talk(["1"])
+    run(talk, tmp_path, fields=fields, companies=seven_with_one_name("JACKSONVILLE BEACH"))
+    assert "JACKSONVILLE BEACH" in talk.everything                        # the registered city is shown on each line, so the reader can see it differs
+    assert sum(1 for line in talk.said if "JACKSONVILLE BEACH, FL  ·  " in line and "; principal city on record begins with the city you gave; ACTIVE" in line) == 7
+    assert "in the city you gave" not in talk.everything and "city matches" not in talk.everything
 
 
 def test_a_possible_match_needs_a_yes_before_a_report_is_made(tmp_path):
@@ -172,36 +186,68 @@ def test_others_at_the_same_level_counts_below_the_top_level_among_the_companies
     assert len(below) >= 2 and report.others_at_the_same_level(short, below[0]) == len(below) - 1   # the other Possible companies on the list
 
 
-def test_a_failed_extraction_says_one_fixed_sentence_and_never_the_error(tmp_path):
+class ApiDown(Exception):
+    """Stands in for the Claude client's own errors, which are not ValueError."""
+
+
+@pytest.mark.parametrize("error_class", [ValueError, RuntimeError, KeyError, ConnectionError, ApiDown])
+def test_a_failed_extraction_says_two_fixed_sentences_and_never_the_errors_own_words(tmp_path, error_class):
     # extract.py used to raise ValueError("No fields returned for: <the whole note>"), and nothing caught it, so a traceback printed the note.
     def broken(text):
-        raise ValueError(f"No fields returned for: {text!r}")            # the worst case: an error that quotes the note
+        raise error_class(f"No fields returned for: {text!r}")           # the worst case: an error that quotes the note
 
     talk = Talk([])                                                      # it must not ask anything either
     assert run(talk, tmp_path, extract=broken) is None
-    assert talk.said == ["\n" + wording.SEARCH_UNAVAILABLE] and wording.SEARCH_UNAVAILABLE.startswith("The search is unavailable right now, so no company is shown.")
-    for word in PRIVATE + (NOTE, "ValueError", "No fields returned"):
+    assert talk.said == ["\nThe search is unavailable right now, so no company is shown. Try again in a few minutes.",
+                         f"The extraction step stopped with this kind of error: {error_class.__name__}."]   # the class name only: it cannot hold the note
+    for word in PRIVATE + (NOTE, "No fields returned"):
         assert word not in talk.everything
     assert list(tmp_path.iterdir()) == []
 
 
-def test_the_extraction_steps_own_error_does_not_quote_the_note():
-    # Read as text and not imported: importing extract.py loads the API key, and the offline suite needs no key.
-    source = (Path(report.__file__).parent / "extract.py").read_text()
-    raises = [line for line in source.splitlines() if line.strip().startswith("raise ")]
-    assert raises and all("{note" not in line and "note!r" not in line for line in raises)
+def test_a_reply_with_a_field_missing_is_a_failed_extraction_too(tmp_path):
+    talk = Talk([])
+    assert run(talk, tmp_path, extract=lambda text: {"business_name": "Invented Air Conditioning"}) is None   # no city, no street, no is_specific
+    assert talk.said[0].strip() == wording.SEARCH_UNAVAILABLE and "INVENTED" not in talk.everything
+
+
+def names_used(node):
+    """Every variable name read anywhere inside a piece of parsed code."""
+    return {child.id for child in ast.walk(node) if isinstance(child, ast.Name)}
+
+
+def test_no_error_raised_by_the_extraction_step_is_built_from_the_note():
+    # extract.py is parsed and not imported: importing it loads the API key, and the offline suite needs no key. Parsing sees the
+    # STRUCTURE of the code, so it catches the note joined with +, put in an f-string, or passed to format().
+    tree = ast.parse((Path(report.__file__).parent / "extract.py").read_text())
+    function = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "extract_fields")
+    raises = [node for node in ast.walk(function) if isinstance(node, ast.Raise)]
+    assert raises and all("note" not in names_used(node) for node in raises)
+    for spelling in ('raise ValueError(f"x {note!r}")', 'raise ValueError("x " + note)', 'raise ValueError("x {}".format(note))'):
+        assert "note" in names_used(ast.parse(spelling))                  # the check sees each way of quoting the note
 
 
 def test_the_note_is_read_at_a_prompt_and_never_from_the_command_line():
-    # A note typed after the command is written to the shell's history file. Rule W6: the note is never stored.
+    # A note typed after the command may be written to the shell's history file. Rule W6: the note is never stored.
     talk = Talk(["invented air conditioning boynton beach"])
     assert report.read_note(["jane", "doe", "roofing"], talk.ask, talk.say) == "invented air conditioning boynton beach"
     assert talk.said == [wording.NOTE_NOT_ON_COMMAND_LINE] and talk.asked == ["Describe the client: "]
     assert "jane" not in talk.everything                                  # what was typed after the command is neither used nor shown back
     quiet = Talk(["a note"])
     assert report.read_note([], quiet.ask, quiet.say) == "a note" and quiet.said == []
-    code_lines = [line.split("#")[0] for line in inspect.getsource(report.main).splitlines()]
-    assert not [line for line in code_lines if "argv" in line and "read_note" not in line]   # main() hands the arguments to read_note and reads them nowhere else
+
+
+def test_main_hands_the_command_line_to_read_note_and_uses_it_nowhere_else():
+    # Parsed, so that sys.argv joined into the note on the same line as a call to read_note would still be seen.
+    main = next(node for node in ast.walk(ast.parse(inspect.getsource(report))) if isinstance(node, ast.FunctionDef) and node.name == "main")
+    every_use = [node for node in ast.walk(main) if isinstance(node, ast.Attribute) and node.attr == "argv"]
+    inside_read_note = [node for call in ast.walk(main) if isinstance(call, ast.Call) and getattr(call.func, "id", "") == "read_note"
+                        for argument in call.args for node in ast.walk(argument) if isinstance(node, ast.Attribute) and node.attr == "argv"]
+    assert len(every_use) == 1 and len(inside_read_note) == 1             # one use, and it is the argument of read_note
+    bad = ast.parse('def main():\n    note = " ".join(sys.argv[1:]) or read_note([])')
+    assert len([node for node in ast.walk(bad) if isinstance(node, ast.Attribute) and node.attr == "argv"]) == 1
+    assert not [node for call in ast.walk(bad) if isinstance(call, ast.Call) and getattr(call.func, "id", "") == "read_note"
+                for argument in call.args for node in ast.walk(argument) if isinstance(node, ast.Attribute)]   # ...and the check tells the bad spelling apart
 
 
 def test_a_vague_note_shows_no_company_until_a_second_extraction_names_one(tmp_path):
@@ -234,9 +280,9 @@ def test_pressing_enter_at_the_possible_match_question_means_no(tmp_path):
 
 
 def test_a_pick_one_past_the_end_of_the_list_is_asked_again(tmp_path):
-    talk = Talk(["6", "1"])                                              # five companies are listed: 6 is not one of them
+    talk = Talk(["6", "²", "1"])                                         # five companies are listed: 6 is not one of them, and "²" is not a number to int()
     path = run(talk, tmp_path)
-    assert talk.said.count("Please type a number from 0 to 5.") == 1 and path is not None
+    assert talk.said.count("Please type a number from 0 to 5.") == 2 and path is not None
 
 
 def test_nothing_the_terminal_prints_in_a_whole_conversation_holds_a_banned_word(tmp_path):

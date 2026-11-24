@@ -73,21 +73,21 @@ def show_shortlist(short: Shortlist, say: Callable[[str], None]) -> None:
     Facts, and each line is followed by its source and fetch date (rule W1). The terminal
     states nothing about a company that it cannot cite.
     """
-    say("")
-    for number, (level, found) in enumerate(zip(short.levels, short.candidates), start=1):
-        candidate = candidate_for_page(found, level, short.city_given)
-        say(f"{number}. [{level}] {candidate.name.text}  ({candidate.document_number})")
+    def show(candidate: Candidate, lead: str) -> None:   # one company: its level and name, its place and reasons, its source
+        say(f"{lead}[{candidate.level}] {candidate.name.text}  ({candidate.document_number})")
         say("   " + "  ·  ".join(part for part in (candidate.place.text if candidate.place else "",
                                                    "; ".join(reason.text for reason in candidate.evidence)) if part))
         say("   " + source_line(candidate))
+
+    say("")
+    for number, (level, found) in enumerate(zip(short.levels, short.candidates), start=1):
+        show(candidate_for_page(found, level, short.city_given), f"{number}. ")
     if short.tied_at_top > 1:               # more than one company at the top level
         say("\n" + wording.SHORTLIST_TIE)
-    if short.not_shown:                     # same-name companies that are counted in the tie and did not fit on the list
-        say(wording.not_shown_text(short.tied_not_shown, short.city_given))
-        for found in short.not_shown:       # each one is named and cited, so the count above is never a statement with nothing behind it
-            candidate = candidate_for_page(found, "Strong", short.city_given)   # only a Strong candidate is ever in not_shown
-            say(f"   {candidate.name.text}  ({candidate.document_number})")
-            say("      " + source_line(candidate))
+    if short.not_shown:                     # Strong candidates that are counted in the tie and did not fit on the list
+        say(wording.not_shown_text(short.tied_not_shown))
+        for found in short.not_shown:       # each one is shown with its reasons and its source, so the count is never a statement with nothing behind it
+            show(candidate_for_page(found, "Strong", short.city_given), "   ")   # only a Strong candidate is ever in not_shown
 
 
 def run(note: str, extract: Callable[[str], dict], search_backend: SearchBackend, report_backend: ReportBackend,
@@ -106,11 +106,15 @@ def run(note: str, extract: Callable[[str], dict], search_backend: SearchBackend
     for _ in range(MAX_ROUNDS):             # at most 3 rounds of "tell me more"
         try:
             fields = extract(note)          # the ONLY use of the note. From here on, the code works with the extracted fields
-        except Exception:                   # any failure of the extraction step: the API is down, the key is missing, the reply is malformed
-            say("\n" + wording.SEARCH_UNAVAILABLE)   # a fixed sentence. The error itself is NOT printed: its text could hold the note
-            return None                     # and no company is shown
-        business_name, city, street = fields["business_name"], fields["city"] or "", fields["street"] or ""
-        if not fields["is_specific"]:       # a vague note: ask, and show no company (acceptance test A2)
+            business_name, city, street = fields["business_name"], fields["city"] or "", fields["street"] or ""
+            is_specific = fields["is_specific"]   # read inside the try, so a reply with a field missing is handled here too
+        except Exception as error:          # any failure of the extraction step: the API is down, the key is missing, the reply is malformed
+            say("\n" + wording.SEARCH_UNAVAILABLE)   # a fixed sentence, and no company is shown
+            say(wording.EXTRACTION_ERROR_KIND.format(kind=type(error).__name__))
+            # Only the error's class name is printed, so a wrong key does not look like a passing
+            # fault. The error's message is NOT printed: its text could quote the note.
+            return None
+        if not is_specific:                 # a vague note: ask, and show no company (acceptance test A2)
             extra = ask_for_more(wording.ASK_FOR_A_BUSINESS)
             if extra is None:
                 break
@@ -155,7 +159,7 @@ def pick(count: int, ask: Callable[[str], str], say: Callable[[str], None]) -> i
     """Ask for a number from 0 to count until the answer is valid. 0 means "add more details"."""
     while True:
         answer = ask("\n" + wording.PICK.format(count=count)).strip()
-        if answer.isdigit() and 0 <= int(answer) <= count:   # isdigit(): only digits, so int() can't fail
+        if answer.isascii() and answer.isdigit() and 0 <= int(answer) <= count:   # plain digits only, so int() can't fail ("²" is a digit to isdigit() and not to int())
             return int(answer)
         say(wording.PICK_AGAIN.format(count=count))          # anything else: ask again instead of guessing
 
