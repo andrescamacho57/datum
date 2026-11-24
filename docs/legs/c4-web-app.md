@@ -372,7 +372,7 @@ a width of 40rem:                                 1 failed
 | The terminal could search for an empty name and no test noticed. The web app's copy of that line was tested | Nit | Fixed with a test |
 | The Human review section said the city comparison "misses 12,723 companies". That is the double-space case alone, and the other cases are not counted | Nit | Fixed. It now says "at least 12,723" |
 
-The reviewer tried 33 changes to the code of this round against the whole suite. 27 failed a test. Of the 6 that survived, 3 were harmless and are still closed where that was cheap (a HEAD request to `/healthz` now needs the code). ✅ After the fixes I repeated the other 3 and that one, and each now fails a test:
+The reviewer tried 37 changes to the code of this round against the whole suite. 31 failed a test. Of the 6 that survived, 3 were harmless and are still closed where that was cheap (a HEAD request to `/healthz` now needs the code). ✅ After the fixes I repeated the other 3 and that one, and each now fails a test:
 
 ```
 the caution shown on a Likely card:                          1 failed
