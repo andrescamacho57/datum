@@ -1,6 +1,6 @@
 # Leg C4: the web app
 
-Branch `leg/c4-web-app` (stacked on `leg/c3-fact-report`) · pull request C4_PR_REF · run on Nov 24, 2026 · risk tier **High** · status: **built and reviewed, with every check passing. The Deep review ended in its third round with no finding. Nothing is merged, and the app has been shown to nobody.**
+Branch `leg/c4-web-app` (stacked on `leg/c3-fact-report`) · pull request [#22](https://github.com/andrescamacho57/datum/pull/22) · run on Nov 24, 2026 · risk tier **High** · status: **built and reviewed, with every check passing. The Deep review ended in its third round with no finding. Nothing is merged, and the app has been shown to nobody.**
 
 This is the last of the four legs of Phase C. Leg C2 made the search and leg C3 made the report. This leg puts both on pages that a contractor can open on a phone. The app runs on the Mac. Putting it on the internet is not part of this phase.
 
