@@ -16,8 +16,8 @@ import pytest                               # the test runner; pytest.raises che
 from datum.search import COMPANY_COLUMNS, Company, FakeBackend, name_key
 from datum.search import PostgresBackend
 from evals.run import (
-    ASK, DRAW_SQL, LATENCY_SEED, RETRIEVERS, Case, SnowflakeBackend, WideTableBackend, compare_backends, draw_company_names, percentile,
-    print_comparison, read_cases, run_cases, score_case, summarize,
+    ASK, DRAW_SQL, LATENCY_SEED, RETRIEVERS, Case, SnowflakeBackend, WideTableBackend, compare_backends, draw_company_names, fingerprint,
+    percentile, print_comparison, read_cases, run_cases, score_case, summarize,
 )
 
 
@@ -233,3 +233,12 @@ def test_the_random_draw_switches_synchronized_scans_off_before_it_draws():
     assert statements == ["select set_config('synchronize_seqscans', 'off', false)", DRAW_SQL]   # the setting first, then the draw, and nothing between
     assert conn.asked[1][1] == (LATENCY_SEED, 200)                         # the seed and the count travel as values
     assert "repeatable (%s) limit %s" in DRAW_SQL and "order by" not in DRAW_SQL   # no sort: the scan order IS the draw, which is why the setting matters
+
+
+def test_a_fingerprint_changes_with_any_name_or_with_the_order():
+    drawn = [("ACME ROOFING LLC", ""), ("BEST POOLS INC", "")]
+    code = fingerprint(drawn)
+    assert code == "8e70d4cdb9e0fb05e2a14af8851c9427"                     # the MD5 of "ACME ROOFING LLC|BEST POOLS INC", from the Mac's own md5 command
+    assert fingerprint(list(reversed(drawn))) != code                     # the same names in another order are another draw
+    assert fingerprint([("ACME ROOFING LLC", ""), ("BEST POOLS INC.", "")]) != code   # one character changed
+    assert fingerprint([("ACME ROOFING LLC", "TAMPA"), ("BEST POOLS INC", "")]) == code   # the city is not part of a draw: it is always empty

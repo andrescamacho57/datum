@@ -34,12 +34,14 @@ warehouse stays awake for one to three minutes in all (about 0.05 credits a run)
 as rarely as the work needs.
 
 Nothing here reads the two local files in evals/ that .gitignore names, and no company
-drawn for the latency run or the comparison is ever printed: only timings and counts are.
+drawn for the latency run or the comparison is ever printed: only timings, counts and a
+fingerprint of the draw are (a short code that gives no name away).
 """
 
 import argparse                             # reads --backend, --latency, --retrieve and --compare from the command line
 import csv                                  # reads the two seed files
-import math                                 # ceil(), for the percentile
+import hashlib                              # MD5, for the fingerprint of a draw
+import math                                # ceil(), for the percentile
 import sys                                  # the import path, and the exit code
 import time                                 # times each search
 from dataclasses import dataclass           # writes __init__ and friends for a class of plain fields
@@ -53,7 +55,7 @@ from datum.search import COMPANY_COLUMNS, CANDIDATE_POOL, SHORTLIST_SIZE, Compan
 TEST_SET = REPO_ROOT / "pipeline" / "seeds" / "test_set.csv"
 EXTRACTED = REPO_ROOT / "pipeline" / "seeds" / "extracted_inputs.csv"
 ASK = "NEEDS_MORE_INFO"                     # the expected answer of a case that names no business
-LATENCY_SEED = 42                           # the seed of the random draw. The same companies on every run also needs draw_company_names' setting
+LATENCY_SEED = 42                           # the seed of the random draw. Getting the same companies twice also needs draw_company_names' setting
 
 
 @dataclass(frozen=True)                     # frozen = fields can't change after creation
@@ -304,7 +306,11 @@ DRAW_SQL = "select entity_name, '' from company_search tablesample bernoulli (0.
 
 
 def draw_company_names(conn, count: int) -> list[tuple[str, str]]:
-    """`count` company names drawn at random, each with an empty city: the same names on every run. They are searched and never printed.
+    """`count` company names drawn at random, each with an empty city. They are searched and never printed.
+
+    The draw gives the same names on every run for as long as company_search is not loaded
+    again from different files. fingerprint() below gives a short code for a draw, and every
+    run prints it, so two runs can be seen to have searched the same names.
 
     A fixed seed is not enough to get the same names twice. Postgres lets a scan of a large
     table start wherever the last scan of that table stopped (the setting is called
@@ -312,10 +318,22 @@ def draw_company_names(conn, count: int) -> list[tuple[str, str]]:
     meets depend on what ran before it. Until Nov 24, 2026 this draw gave different names on
     every call after the first one following a restart of Postgres. Leg C2's report shows it:
     three calls in a row gave three different sets. With the setting off for this session the
-    scan always starts at the first page of the table, and the draw is the same every time.
+    scan always starts at the first page of the table. What the setting cannot fix is the
+    table itself: a load from a new export puts other rows on those pages, and the draw
+    changes with them.
     """
     conn.execute("select set_config('synchronize_seqscans', 'off', false)")   # this session only. It must come BEFORE the draw
     return [tuple(row) for row in conn.execute(DRAW_SQL, (LATENCY_SEED, count)).fetchall()]
+
+
+def fingerprint(drawn: list[tuple[str, str]]) -> str:
+    """A short code for a draw: the MD5 hash of the drawn names, in order, joined by "|".
+
+    It changes when any name changes or when the order does, and it gives no name away. Two
+    runs that print the same fingerprint searched the same names. MD5 is used as a checksum
+    here and not for security, which is what usedforsecurity=False says.
+    """
+    return hashlib.md5("|".join(name for name, _ in drawn).encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
 RETRIEVERS = {                              # --retrieve: which retrieve step to run on Postgres
@@ -344,12 +362,13 @@ def main(argv: list[str] | None = None) -> int:
             test_inputs = [(c.business_name, c.city) for c in cases if c.is_specific]
 
             def with_random_names(count: int) -> list[tuple[str, str]]:
-                """The test inputs, then `count` company names drawn at random, the same ones on every run."""
+                """The test inputs, then `count` company names drawn at random (see draw_company_names for when two draws are the same)."""
                 return test_inputs + draw_company_names(conn, count)
 
             if args.compare:
                 inputs = with_random_names(args.compare)
                 print_comparison(compare_backends(WideTableBackend(conn), PostgresBackend(conn), inputs), len(test_inputs))
+                print(f"  fingerprint of the random names: {fingerprint(inputs[len(test_inputs):])}")
             if args.latency:
                 inputs = with_random_names(args.latency)
                 random_names = inputs[len(test_inputs):]
@@ -358,6 +377,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  p50 {percentile(seconds, 0.50) * 1000:.0f} ms   p95 {percentile(seconds, 0.95) * 1000:.0f} ms   slowest {max(seconds) * 1000:.0f} ms")
                 over = sum(1 for value in seconds if value > 1.0)
                 print(f"  searches over 1 second: {over} of {len(seconds)}")
+                print(f"  fingerprint of the random names: {fingerprint(random_names)}")
     else:
         import snowflake.connector          # Snowflake's Python driver, imported only when it is used
         conn = snowflake.connector.connect(connection_name="datum")    # the driver reads the connection's settings itself
