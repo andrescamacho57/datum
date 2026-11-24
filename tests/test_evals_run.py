@@ -184,12 +184,21 @@ def test_a_comparison_names_each_way_two_answers_can_differ():
     assert difference(first).difference is None
 
 
+def test_a_comparison_sees_a_difference_below_the_five_companies_returned():
+    # shortlist() reads the pool below the fifth place to count same-name companies that are not shown, so the pool has to agree too.
+    companies = [company(f"T{n}", f"ACME ROOFING {n}") for n in range(1, 8)]
+    all_seven, without_the_last = FakeBackend(companies), FakeBackend(companies[:6])   # T7 ranks seventh, below the five returned
+    result = compare_backends(all_seven, without_the_last, [("Acme Roofing 1", "")])[0]
+    assert (result.first_count, result.second_count) == (5, 5)            # the five returned are the same five
+    assert result.difference == "the same companies returned, and a different pool behind them"
+
+
 def test_the_comparison_prints_positions_and_counts_and_never_a_name(capsys):
     companies = [company("T1", "ACME ROOFING LLC"), company("T2", "BEST POOLS INC")]
     inputs = [("Acme Roofing", ""), ("Zebra Glass", ""), ("Best Pools", "")]
     print_comparison(compare_backends(FakeBackend(companies), FakeBackend(companies[:1]), inputs), test_inputs=1)   # capsys catches what is printed
     printed = capsys.readouterr().out
-    assert "the same companies in the same order: 0 of 3" in printed and "differing: 3" in printed
+    assert "in the five returned and in the whole pool: 0 of 3" in printed and "differing: 3" in printed
     assert "input 2: different companies (2 companies against 1)" in printed
     for text in ("ACME", "Acme", "Zebra", "BEST", "Best", "T1", "T2"):    # no typed name, no company name and no document number
         assert text not in printed

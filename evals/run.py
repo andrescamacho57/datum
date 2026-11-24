@@ -48,7 +48,7 @@ from pathlib import Path                    # file paths that work on any operat
 REPO_ROOT = Path(__file__).resolve().parents[1]            # this file is evals/run.py → go up 1 folder to the repo root
 sys.path.insert(0, str(REPO_ROOT / "src"))                 # so `import datum.search` works when this is run as python -m evals.run
 
-from datum.search import COMPANY_COLUMNS, CANDIDATE_POOL, SHORTLIST_SIZE, Company,PostgresBackend, SearchBackend, company_from_row, search   # noqa: E402  (the path line above has to come first)
+from datum.search import COMPANY_COLUMNS, CANDIDATE_POOL, SHORTLIST_SIZE, Company,PostgresBackend, SearchBackend, company_from_row, search, search_pool   # noqa: E402  (the path line above has to come first)
 
 TEST_SET = REPO_ROOT / "pipeline" / "seeds" / "test_set.csv"
 EXTRACTED = REPO_ROOT / "pipeline" / "seeds" / "extracted_inputs.csv"
@@ -252,23 +252,32 @@ class Comparison:
     position: int                           # 1 for the first input, and so on
     first_count: int                        # how many companies the first backend's search returned (five at most)
     second_count: int                       # the same for the second backend
-    difference: str | None                  # None when both returned the same companies, in the same order, with the same evidence
+    difference: str | None                  # None when both returned the same companies, in the same order, with the same evidence, from the same pool
 
 
 def compare_backends(first: SearchBackend, second: SearchBackend, inputs: list[tuple[str, str]]) -> list[Comparison]:
-    """Search every input on both backends and say, for each, whether the two lists of five are the same."""
+    """Search every input on both backends and say, for each, whether the two answers are the same.
+
+    The five companies returned are compared first, because they are what the evaluation
+    scores. Then the whole reranked pool behind them is compared too (up to 200 companies),
+    because shortlist() reads the pool below the fifth place to count same-name companies
+    that are not shown (working rule W7). Two answers are the same only when both agree.
+    """
     comparisons = []
     for position, (business_name, city) in enumerate(inputs, start=1):
-        one = search(first, business_name, city)
-        two = search(second, business_name, city)
+        pool_one = search_pool(first, business_name, city)
+        pool_two = search_pool(second, business_name, city)
+        one, two = pool_one[:SHORTLIST_SIZE], pool_two[:SHORTLIST_SIZE]   # exactly what search() returns
         numbers_one = [c.company.document_number for c in one]
         numbers_two = [c.company.document_number for c in two]
-        if numbers_one == numbers_two:
-            difference = None if one == two else "the same companies in the same order, with different details"   # a field of a company, or its score
-        elif sorted(numbers_one) == sorted(numbers_two):
-            difference = "the same companies in a different order"
+        if numbers_one != numbers_two:
+            difference = "the same companies in a different order" if sorted(numbers_one) == sorted(numbers_two) else "different companies"
+        elif one != two:
+            difference = "the same companies in the same order, with different details"   # a field of a company, or its score
+        elif pool_one != pool_two:
+            difference = "the same companies returned, and a different pool behind them"   # a company below the fifth place differs
         else:
-            difference = "different companies"
+            difference = None
         comparisons.append(Comparison(position, len(one), len(two), difference))
     return comparisons
 
@@ -278,7 +287,7 @@ def print_comparison(comparisons: list[Comparison], test_inputs: int) -> None:
     differing = [c for c in comparisons if c.difference]
     print(f"\ncompared {len(comparisons)} searches ({test_inputs} test inputs, then {len(comparisons) - test_inputs} random company names): "
           "the second approach (company_search) against the app's search (company_search_names)")
-    print(f"  the same companies in the same order: {len(comparisons) - len(differing)} of {len(comparisons)}")
+    print(f"  the same companies in the same order, in the five returned and in the whole pool: {len(comparisons) - len(differing)} of {len(comparisons)}")
     print(f"  differing: {len(differing)}")
     for c in differing:                                            # a position, never a name: the random names are not printed
         print(f"    input {c.position}: {c.difference} ({c.first_count} companies against {c.second_count})")
