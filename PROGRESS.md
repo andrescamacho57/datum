@@ -369,7 +369,7 @@ went into understanding what was built and into making reviews something a perso
 - **Pull request 14:** the full Phase C brief, in four legs, with ten working rules (W1 to W10).
 
 **Phase C, run unattended on the night of Nov 20**
-- **Leg C1 (pull request 15, open):** the four tables the app reads. Every check passed.
+- **Leg C1 (pull request 15, merged Nov 24):** the four tables the app reads. Every check passed.
 - **Leg C2 (pull request 16, open):** the Postgres copy and the search. The copy matches Snowflake row for
   row, and the search scored at least as well as Snowflake on the 10-case test set. Its speed missed: a p95
   of 1,229 milliseconds against a target of 1,000. The agent recorded the numbers and stopped.
@@ -382,9 +382,10 @@ went into understanding what was built and into making reviews something a perso
   questions for 13 afterward and had one of them backwards (what R30 uses its looser key for).
 - The leg reports were too long for me to review. Pull request 17 makes every pull request start with a
   Human review section of at most 250 words.
-- Pull request 19 moved the four files that agents take their instructions from to High tier.
-- The study guide follows credit-stream again: `INTERVIEW_ANSWERS.md` is private and the other files are
-  public.
+- On Nov 24, pull request 19 moved the briefs, the review process, the rulings and the plan, which an
+  unattended agent builds from, to High tier.
+- On Nov 24 I decided the study guide follows credit-stream again: `INTERVIEW_ANSWERS.md` is to become
+  private, and the other files stay public. A separate change takes it out of git.
 - The `datum-dev` API key was due to expire on Nov 26. I made a new one and put it in `.env`.
 
 **Decisions**

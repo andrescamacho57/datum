@@ -917,29 +917,33 @@ Source: Anthropic, "Building Effective Agents" (the evaluator-optimizer workflow
 
 ## Risk Tiers for the Files Agents Obey (Nov 24)
 
-- Pull request 19 moved four files to High: `docs/prompts/` (the briefs), `docs/review_process.md`,
-  `docs/phase_b_rulings.md` and `docs/mvp_plan_nov8.md`. An unattended agent takes its instructions from
+- Pull request 19 moved four paths to High: the `docs/prompts/` folder (the briefs), `docs/review_process.md`,
+  `docs/phase_b_rulings.md` and `docs/mvp_plan_nov8.md`, plus any brief saved anywhere else. An unattended agent takes its instructions from
   them, so a wrong edit changes what every later run builds.
 - `docs/open_questions.md`, `docs/access/` and `docs/legs/` also guide agents, through their working rules,
   the terms of use and earlier reports. They stay Low for a practical reason: most legs write to them, and
-  raising them would make every leg High. A leg's own review covers what it wrote there.
-- The mistake to avoid is saying those three files "do not instruct agents". They do. They stay Low because
+  raising them would make every leg High. A leg's own review covers what it wrote to `docs/open_questions.md`
+  and `docs/access/`. Reviewers skip the text of `docs/legs/` reports, and the last review round checks the
+  Human review section against the diff instead.
+- The mistake to avoid is saying those three paths "do not instruct agents". They do. They stay Low because
   of the cost of raising them, and the review of each leg is what guards them.
 - A brief saved outside `docs/prompts/` is still High, and the reviewer reports where it was saved.
 
 ---
 
-## Where Context Lives: the Repo, Project Docs and Memory (Nov 24)
+## Where Context Lives: the Repo and Project Docs (Nov 24)
 
 - Context engineering is deciding what information a model sees, and when. Anthropic's article on it
-  recommends that an agent hold light references, such as file paths, and load a file only when it needs it.
-  This is called just-in-time retrieval.
+  ("Effective context engineering for AI agents") describes just-in-time retrieval: the agent holds light
+  references, such as file paths, and loads a file only when it needs it. The article says the best agents
+  often mix the two approaches, and Claude Code is its example: `CLAUDE.md` is loaded up front, and other
+  files are read when needed.
 - The repo is the source of truth. Claude Code reads its files from disk when it needs them, and a cloud
   session reads them from GitHub. Nothing is copied, so nothing goes stale.
 - Project docs in the Claude app are copies. Every chat in the project can search them, but a copy drifts the
   moment the repo changes, and the project instructions already say that the repo wins.
 - Being on GitHub and being readable by Claude are separate questions. A file that git ignores stays readable
   by Claude Code on the Mac, and it is invisible to cloud sessions and to the nightly Roadmap job, which read
-  GitHub. That is the cost of keeping `INTERVIEW_ANSWERS.md` private.
+  GitHub. That is the cost of making `INTERVIEW_ANSWERS.md` private, which is planned and not yet done.
 - The rule of thumb: keep files in the repo, let Claude read them when needed, and use project docs only for
   material that has no home in the repo.
