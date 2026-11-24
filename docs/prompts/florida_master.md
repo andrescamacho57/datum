@@ -1,9 +1,10 @@
 # Florida master brief (for Fable 5.2 in Claude Code)
 
 Kickoff line Andres types: `Read docs/prompts/florida_master.md. Run Phase A only.`
-Later: `Read docs/prompts/florida_master.md. Run Phase B.` then `Run Phase C.` Never start a phase you weren't told to run.
+Later: `Read docs/prompts/florida_master.md. Run Phase B.` then `Run Phase C.` then `Run Phase D.` Never start a phase you weren't told to run.
 Phase A finished Nov 12, 2026 (three legs, reports in `docs/legs/`).
 Phase B finished Nov 19, 2026 (four legs). Leg C0 followed the same day and added rulings R29 and R30.
+Phase C finished Nov 24, 2026 (legs C1 to C4: the marts the app reads, the Postgres copy and the search, the report, and the web app).
 
 ## 1. What you're building and for whom
 
@@ -328,3 +329,94 @@ Done when the leg report holds:
 - **Snowflake.** Leg C1 should use about 0.3 to 0.6 credits 🟡. That is less than leg C0's 0.64, because most of C0's credits went on running unit tests about fifty times and this phase runs them once per change. The export should use about 0.05 credits 🟡 (the plan's estimate). Each evaluation run on the Snowflake backend in leg C2 wakes the warehouse for one to three minutes, which is up to about 0.05 credits a run 🟡, so run it as few times as the leg needs and record its credits in the C2 report. A credit costs about $2 ✅ (leg C0's report). Record the credits per leg. If Phase C as a whole passes 3 credits, stop after the current leg and say so in the report.
 - **Claude API.** At most 10 extraction calls, which is about half a cent.
 - **Everything else is free.** Postgres runs on the Mac. Creating a hosted account, a hosted database or anything with a bill is a stop condition under section 3: stop and ask in the leg report.
+
+
+## 7. Phase D: search the way contractors search (only when told)
+
+On Nov 24, 2026 Andres tried the web app on a restaurant he knows, and it failed him in two ways. The data was not the problem: the company he meant is in the register, active, at the address he knew.
+
+- **"v pizza orlando" ranked the right company 13th.** V PIZZA LAKE BUENA VISTA LLC (document number L22000086098, active, principal address 8586 PALM PKWY, ORLANDO 32836) lost to an inactive V PIZZA WP LLC in Winter Park and to eleven other V Pizza companies in other cities. The cause is in `rank()` in `src/datum/search.py`: candidates are sorted by Jaro-Winkler similarity first, which favours a short name when the typed name is short, and the city only breaks an exact tie. Whether a company is active is not used.
+- **"8586 palm pwwy" found nothing.** The extraction step returns the street, and the search never reads it. The app then answers that the note names no business. Four companies have that principal address, and V Pizza Lake Buena Vista is the only active one.
+- **The report overwhelmed him.** It opens with a table of record fields, and a contractor needs the answer to their question first.
+
+The 10 cases in `pipeline/seeds/test_set.csv` are all names, so they could not catch any of this. Phase D fixes the test set first and the search second, and then puts a plain summary at the top of the report. It has two legs, both High tier: D1 changes a seed in `pipeline/seeds/` and the search, and D2 changes the wording on a report.
+
+Run unattended. Never stop to ask a question or wait for approval. When something is unclear, take the most cautious reading, which in this phase is the one that shows a contractor less and claims less, write the assumption in the leg report, and keep going. The stop conditions in section 3 still apply, and so do the Phase C working rules W1 to W10.
+
+### Before the first leg
+
+Stop if either of these fails.
+
+1. **Pull requests 21 and 22 must be merged.** Run `git fetch origin` and check that `src/datum/wording.py`, `src/datum/report_builder.py` and `src/datum/web/app.py` exist on `origin/main`. If they do not, stop and say that Phase D waits for them, because leg D2 changes those files.
+2. **Postgres must hold the data.** Check that Postgres is running and that `company_search` in `datum_dev` has 12,988,435 rows. If Postgres is stopped, start it with `brew services start postgresql@17`. If the table is missing or its count differs, stop and say so.
+
+Before the first change, read `docs/legs/c2-postgres-search.md`, `docs/legs/c3-fact-report.md`, `docs/legs/c4-web-app.md`, and questions Q34, Q35, Q41 and Q42 in `docs/open_questions.md`.
+
+### Working rules for Phase D
+
+Andres approves these rules by merging this brief, and he can overrule any of them with a ruling. Until he does, build exactly this.
+
+| # | Rule | Why |
+|---|---|---|
+| S1 | A test case enters `pipeline/seeds/test_set.csv` only when Andres has checked it. A case you draft goes into a separate file, `evals/draft_cases.csv`, with an empty `verified_on`. The evaluation scores both files and reports them in separate tables. Every pass or fail gate in this phase uses the checked cases only. You never change the search to make a draft case pass. | A case whose expected answer is wrong would teach the search the wrong thing. Andres owns the hand checks (the build split of Nov 11). |
+| S2 | Rank in this order: (1) whether every word of the typed business name appears among the words of the company's name, ignoring legal suffixes; (2) whether the company's principal city or ZIP code agrees with the one typed; (3) active before inactive; (4) Jaro-Winkler similarity; (5) the document number, as a fixed tie-break. | A long legal name such as V PIZZA LAKE BUENA VISTA LLC holds every word of "V Pizza", and a contractor names the business and the town. An active company is more likely to be the client than a closed one with a similar name. |
+| S3 | If S2 makes any checked case worse (it leaves the top five, it drops in rank, or a NEEDS_MORE_INFO case gets a company), try one variant: swap (1) and (2). If the variant also makes a checked case worse, keep the old ranking, record both results, and stop the leg. Do not invent a third ordering. | The same discipline as leg C2: two approaches, then stop and let Andres decide. Trying order after order on 14 cases is fitting the test set. |
+| S4 | The match level (Strong, Likely, Possible) keeps its current rules in `search.py`. Phase D changes the order of the candidates and not what each level means. | A level is a claim to the contractor about how sure Datum is. Changing it is a separate decision. |
+| S5 | A note with a house number and a street name is a search, even when it names no business. The search compares the house number exactly and the street name loosely: the street words after the number, without the street type (PKWY, PARKWAY, ST, STREET, AVE, RD, BLVD, DR and the like) and without a direction (N, S, E, W). It matches the principal address only. Every company at that address is a candidate, active ones first, then by document number. | That is how a contractor knows a job: the address. The type and the direction are where typing errors and abbreviations live ("pwwy", "Pkwy", "Parkway"). |
+| S6 | An address search shows inactive companies at the address too, each marked "Inactive with the state", after the active ones. | A closed company at the job's address is a fact the contractor may need. Hiding it would claim less than the record says, and it must not come first. |
+| S7 | A note with a street but no house number still asks for more ("the pool guy off race track rd" stays NEEDS_MORE_INFO). | Acceptance test A2. A street alone matches thousands of companies. |
+| S8 | The principal address can be an office, such as an accountant or a registered agent, and not the place of business. The shortlist says this once, under the results of an address search: "A company's principal address is the address it gave the state, which is not always where it does business." | The record says where the company told the state it is. Datum states what the record says and nothing more (CLAUDE.md rule 2). |
+| S9 | The summary at the top of a report is built from facts the report already shows, in this order: the company's status and entity type, the year of its date on record, and the summary line of rule W2. Example: "Active Florida limited liability company, on record since 2022. No flags found in the sources checked." The words in rule W4's list stay banned. | A contractor reads the first two lines and stops. Those two lines must answer "is it real, and is anything on the record" without a verdict. |
+| S10 | The shortlist marks an inactive company with "Inactive with the state" beside its name. | The inactive company that came first for Andres looked the same as an active one. |
+
+### Rules for every Phase D leg
+
+- **Branches.** `leg/d1-contractor-search` from `main`, then `leg/d2-report-summary` from `leg/d1-contractor-search`. One pull request per leg, each targeting `main`. Andres merges them in order.
+- **Extraction calls.** Each new case needs the fields the extraction step pulls out of it, and that is one live call to the Claude API per case. The phase may make at most 30 live calls, about 1.2 cents 🟡 (the plan's figure of $0.0004 a call). Rule W10 still holds for tests: no test calls the API. Save the extracted fields to `pipeline/seeds/extracted_inputs.csv` for a checked case and to `evals/draft_extracted.csv` for a draft case, so the evaluation never calls the API.
+- **No Snowflake.** Everything in this phase reads Postgres on the Mac. Running anything in Snowflake is a stop condition: stop and say why it seemed necessary.
+- **Public repo.** A test case may name a company, because the existing cases do. It never names a person, and its notes never say anything about a company beyond what the register says.
+- **Review.** Both legs are High. Give the three reviewers these hunts: (1) a ranking or matching change that makes a checked case worse, or that is tuned to a draft case; (2) a sentence on a page that the record does not support, that draws a conclusion or that reassures, including the new summary; (3) a test that cannot fail.
+
+### D1. Search the way contractors search
+
+- **The checked cases.** Add these four rows to `pipeline/seeds/test_set.csv`, as case group `contractor_search`, with `verified_on` 2026-11-24. Andres confirmed the restaurant and its address on Nov 24, and the document numbers are from the Oct 7 snapshot.
+
+  | input_text | expected_document_number | expected_entity_name | case_type |
+  | --- | --- | --- | --- |
+  | v pizza orlando | L22000086098 | V PIZZA LAKE BUENA VISTA LLC | trade name + city |
+  | v pizza lake buena vista | L22000086098 | V PIZZA LAKE BUENA VISTA LLC | trade name + area name |
+  | 8586 palm pwwy | L22000086098 | V PIZZA LAKE BUENA VISTA LLC | address only, with a typo |
+  | v pizza durbin | L25000541856 | V PIZZA DURBIN, LLC | trade name + area name |
+
+- **Draft cases for Andres to check.** Draft 16 more from the data in Postgres and write them to `evals/draft_cases.csv`, with the same columns as the test set and an empty `verified_on`. Draft six of a brand with several companies named "BRAND LOCATION LLC", typed as the brand and a city; five of an address alone, where at least one company there is active; and five of a name with a street. Prefer active companies in Northeast and Central Florida, because Andres can check those. Never choose a company whose name looks like a person's name. For each case, write in `notes` the query you used to pick it.
+- **Ranking (rules S2 to S4).** Change `rank()` in `src/datum/search.py`. Show the before and after on every checked case and every draft case, in one table, with the rank of the expected company.
+- **Address search (rules S5 to S8).** Add a narrow address table to the Postgres load. It holds the document number, the house number and the street words, built from `principal_address_1`, with an index on the house number and the street words. The loader checks that it holds the same document numbers as `company_search` before the swap, as it does for the narrow name table. In the web app, a note whose extraction is not specific but holds a house number and a street runs the address search in place of asking for more. Update the page wording that asks for "a street or a city" so it matches what the search now does, and answer question Q42 in `docs/open_questions.md` with what was built.
+- **Speed.** Measure as leg C2 did, with the same 208 searches, and also time the address search on 200 addresses drawn at random. The target is a p95 under 1 second for both. If the name search's p95 rises above 1 second, stop the leg and record the numbers.
+- **Tests.** One test per rule S2 to S8 that fails on the old behavior. One test proves that a draft case can never change a gate, because the gate reads `test_set.csv` only.
+
+Done when the leg report holds:
+- the evaluation before and after, on the checked cases and the draft cases in separate tables, by case group: top-1, recall at 5 and `wrong_match`;
+- the before-and-after rank of the expected company for every case;
+- the three V Pizza searches and the Durbin search run on the real app, with the top five each returned;
+- the speed numbers for both searches;
+- the 16 draft cases, listed for Andres to check, with how each was chosen;
+- `pytest` and `ruff check src tests` passing with Postgres stopped;
+- the number of live extraction calls made.
+
+### D2. A summary first, and the details below
+
+- **The summary (rule S9).** Put it at the top of the report page and of the report the command line writes, above the record table. Its sentences live in `src/datum/wording.py` with the rest.
+- **The shortlist mark (rule S10).** Add it to the shortlist template, with its words in `src/datum/wording.py`.
+- **The details below.** Keep every fact the report shows today, in the same words, and put the company record table and the source lists under a heading such as "The records behind this summary". Change no fact, caveat or citation.
+- **Tests.** The summary is built from the same facts as the page and cannot disagree with them: a test renders the five reports of leg C3 and fails if the summary's status, year or count differs from the facts below it. The banned-words test covers the summary.
+
+Done when the leg report holds:
+- the five reports of leg C3 rebuilt, with their summaries, named by document number only;
+- a screenshot of the report page and the shortlist at 390 pixels wide, or the 🟡 mark;
+- every new or changed sentence in one table, for Andres to read.
+
+### Cost
+
+- **Claude API.** At most 30 live extraction calls, about 1.2 cents 🟡.
+- **Snowflake.** None.
+- **Everything else is free.** Postgres runs on the Mac.
