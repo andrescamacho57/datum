@@ -8,12 +8,17 @@ committed ones in pipeline/seeds/.
 Run from ~/datum:  pytest
 """
 
+from dataclasses import replace             # a copy of a frozen dataclass with one field changed
 from datetime import date, datetime, timezone   # an invented company's dates and its UTC fetch time
 
 import pytest                               # the test runner; pytest.raises checks that an error IS raised
 
 from datum.search import COMPANY_COLUMNS, Company, FakeBackend, name_key
-from evals.run import ASK, Case, SnowflakeBackend, percentile, read_cases, run_cases, score_case, summarize
+from datum.search import PostgresBackend
+from evals.run import (
+    ASK, RETRIEVERS, Case, SnowflakeBackend, WideTableBackend, compare_backends, percentile, print_comparison, read_cases, run_cases,
+    score_case, summarize,
+)
 
 
 def company(document_number, entity_name):
@@ -152,3 +157,47 @@ def test_the_snowflake_backend_refuses_a_pool_that_hit_its_ceiling(monkeypatch):
     assert len(SnowflakeBackend(Connection(2)).nearest("ACME ROOFING", 200)) == 2   # under the ceiling: fine
     with pytest.raises(RuntimeError, match="hit its ceiling of 3 rows"):
         SnowflakeBackend(Connection(3)).nearest("ACME ROOFING", 200)
+
+
+def test_two_backends_that_hold_the_same_companies_give_the_same_five():
+    companies = [company(f"T{n}", f"ACME ROOFING {n}") for n in range(1, 8)]
+    same = compare_backends(FakeBackend(companies), FakeBackend(list(reversed(companies))), [("Acme Roofing", ""), ("Acme Roofing 3", "")])
+    assert [(c.position, c.first_count, c.second_count, c.difference) for c in same] == [(1, 5, 5, None), (2, 5, 5, None)]   # the pool's order does not matter: the rerank decides
+
+
+def test_a_comparison_names_each_way_two_answers_can_differ():
+    companies = [company("T1", "ACME ROOFING LLC"), company("T2", "ACME ROOFING INC"), company("T3", "ACME ROOFS LLC")]
+    first = FakeBackend(companies)
+    missing_one = FakeBackend(companies[:2])                              # T3 is not in this backend's table
+    moved = FakeBackend([replace(companies[0], principal_city="TAMPA")] + companies[1:])   # T1 sits in another city here
+    restated = FakeBackend([replace(companies[0], status_code="I")] + companies[1:])   # the same companies, one with another status
+
+    def difference(other, city=""):
+        return compare_backends(first, other, [("Acme Roofing Inc", city)])[0]
+
+    assert (difference(missing_one).difference, difference(missing_one).second_count) == ("different companies", 2)
+    # T1 and T2 score the same against "Acme Roofing". Both are in Jacksonville in the first backend, so the document number
+    # puts T1 first. In the other backend T1 is in Tampa, and so the city tie-break puts T2 first.
+    by_city = compare_backends(first, moved, [("Acme Roofing", "Jacksonville")])[0]
+    assert by_city.difference == "the same companies in a different order"
+    assert difference(restated).difference == "the same companies in the same order, with different details"
+    assert difference(first).difference is None
+
+
+def test_the_comparison_prints_positions_and_counts_and_never_a_name(capsys):
+    companies = [company("T1", "ACME ROOFING LLC"), company("T2", "BEST POOLS INC")]
+    inputs = [("Acme Roofing", ""), ("Zebra Glass", ""), ("Best Pools", "")]
+    print_comparison(compare_backends(FakeBackend(companies), FakeBackend(companies[:1]), inputs), test_inputs=1)   # capsys catches what is printed
+    printed = capsys.readouterr().out
+    assert "the same companies in the same order: 0 of 3" in printed and "differing: 3" in printed
+    assert "input 2: different companies (2 companies against 1)" in printed
+    for text in ("ACME", "Acme", "Zebra", "BEST", "Best", "T1", "T2"):    # no typed name, no company name and no document number
+        assert text not in printed
+
+
+def test_the_second_approach_reads_company_search_itself_and_the_default_is_the_apps_search():
+    sql = WideTableBackend.NEAREST_SQL
+    assert " from company_search where %(key)s <%% name_key " in sql and "company_search_names" not in sql
+    assert sql.count("%(key)s") == 2 and sql.count("%(limit)s") == 1 and "'" not in sql   # what was typed still travels as a value
+    assert RETRIEVERS["narrow"][0] is PostgresBackend and RETRIEVERS["word"][0] is WideTableBackend
+    assert list(RETRIEVERS)[0] == "narrow"                                # the first key is the one --retrieve defaults to

@@ -6,7 +6,9 @@ every change, so that "is the search better?" is a number and not an impression.
     python -m evals.run --backend postgres      # the search the web app uses
     python -m evals.run --backend snowflake     # the same rules, with Snowflake doing the retrieve step
     python -m evals.run --backend postgres --latency 200   # also time the search on 200 random company names
+    python -m evals.run --backend postgres --latency 200 --retrieve word    # time the second approach leg C2 tried
     python -m evals.run --backend postgres --latency 200 --retrieve plain   # time the first approach leg C2 tried (slow)
+    python -m evals.run --backend postgres --compare 200   # do the second approach and the app's search give the same five companies?
 
 Run from ~/datum with the project's virtual environment active.
 
@@ -32,10 +34,10 @@ warehouse stays awake for one to three minutes in all (about 0.05 credits a run)
 as rarely as the work needs.
 
 Nothing here reads the two local files in evals/ that .gitignore names, and no company
-drawn for the latency run is ever printed: only the timings are.
+drawn for the latency run or the comparison is ever printed: only timings and counts are.
 """
 
-import argparse                             # reads --backend and --latency from the command line
+import argparse                             # reads --backend, --latency, --retrieve and --compare from the command line
 import csv                                  # reads the two seed files
 import math                                 # ceil(), for the percentile
 import sys                                  # the import path, and the exit code
@@ -46,7 +48,7 @@ from pathlib import Path                    # file paths that work on any operat
 REPO_ROOT = Path(__file__).resolve().parents[1]            # this file is evals/run.py → go up 1 folder to the repo root
 sys.path.insert(0, str(REPO_ROOT / "src"))                 # so `import datum.search` works when this is run as python -m evals.run
 
-from datum.search import COMPANY_COLUMNS, CANDIDATE_POOL, Company, PostgresBackend, SearchBackend, company_from_row, search   # noqa: E402  (the path line above has to come first)
+from datum.search import COMPANY_COLUMNS, CANDIDATE_POOL, SHORTLIST_SIZE, Company,PostgresBackend, SearchBackend, company_from_row, search   # noqa: E402  (the path line above has to come first)
 
 TEST_SET = REPO_ROOT / "pipeline" / "seeds" / "test_set.csv"
 EXTRACTED = REPO_ROOT / "pipeline" / "seeds" / "extracted_inputs.csv"
@@ -181,6 +183,24 @@ class SnowflakeBackend:
         return companies
 
 
+class WideTableBackend(PostgresBackend):
+    """The SECOND retrieve step leg C2 tried, kept only so that it can be timed and compared again.
+
+    It asks the same question as the app's search (word similarity at a threshold of 0.75,
+    with the legal suffix left out of the lookup) and reads the answer from company_search
+    itself, through that table's own trigram index. The app's search, PostgresBackend, reads
+    the narrow table company_search_names. Both tables hold the same names, so the two must
+    return the same companies, and --compare checks that they do. Run it with --retrieve word.
+    """
+
+    NEAREST_SQL = (
+        f"select {', '.join(COMPANY_COLUMNS)} from company_search "
+        "where %(key)s <%% name_key "
+        "order by name_key <-> %(key)s, document_number "
+        "limit %(limit)s"
+    )
+
+
 class PlainSimilarityBackend(PostgresBackend):
     """The FIRST retrieve step leg C2 tried, kept only so that its timing can be measured again.
 
@@ -225,11 +245,62 @@ def time_searches(backend: SearchBackend, inputs: list[tuple[str, str]]) -> list
     return seconds
 
 
+@dataclass(frozen=True)
+class Comparison:
+    """What two backends returned for one input, by its position in the list of inputs. No name is kept."""
+
+    position: int                           # 1 for the first input, and so on
+    first_count: int                        # how many companies the first backend's search returned (five at most)
+    second_count: int                       # the same for the second backend
+    difference: str | None                  # None when both returned the same companies, in the same order, with the same evidence
+
+
+def compare_backends(first: SearchBackend, second: SearchBackend, inputs: list[tuple[str, str]]) -> list[Comparison]:
+    """Search every input on both backends and say, for each, whether the two lists of five are the same."""
+    comparisons = []
+    for position, (business_name, city) in enumerate(inputs, start=1):
+        one = search(first, business_name, city)
+        two = search(second, business_name, city)
+        numbers_one = [c.company.document_number for c in one]
+        numbers_two = [c.company.document_number for c in two]
+        if numbers_one == numbers_two:
+            difference = None if one == two else "the same companies in the same order, with different details"   # a field of a company, or its score
+        elif sorted(numbers_one) == sorted(numbers_two):
+            difference = "the same companies in a different order"
+        else:
+            difference = "different companies"
+        comparisons.append(Comparison(position, len(one), len(two), difference))
+    return comparisons
+
+
+def print_comparison(comparisons: list[Comparison], test_inputs: int) -> None:
+    """How many inputs differ, which ones by position, and how many companies the searches returned."""
+    differing = [c for c in comparisons if c.difference]
+    print(f"\ncompared {len(comparisons)} searches ({test_inputs} test inputs, then {len(comparisons) - test_inputs} random company names): "
+          "the second approach (company_search) against the app's search (company_search_names)")
+    print(f"  the same companies in the same order: {len(comparisons) - len(differing)} of {len(comparisons)}")
+    print(f"  differing: {len(differing)}")
+    for c in differing:                                            # a position, never a name: the random names are not printed
+        print(f"    input {c.position}: {c.difference} ({c.first_count} companies against {c.second_count})")
+    full = sum(1 for c in comparisons if c.first_count == SHORTLIST_SIZE)
+    none = sum(1 for c in comparisons if c.first_count == 0)
+    print(f"  the second approach returned {SHORTLIST_SIZE} companies for {full} searches, "
+          f"1 to {SHORTLIST_SIZE - 1} for {len(comparisons) - full - none}, and none for {none}")
+
+
+RETRIEVERS = {                              # --retrieve: which retrieve step to run on Postgres
+    "narrow": (PostgresBackend, "narrow table, word similarity"),            # the search the app uses (the third approach)
+    "word": (WideTableBackend, "company_search, word similarity"),           # the second approach
+    "plain": (PlainSimilarityBackend, "company_search, plain similarity"),   # the first approach
+}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Score the search against the hand-checked test set.")
     parser.add_argument("--backend", choices=("postgres", "snowflake"), required=True, help="which database does the retrieve step")
     parser.add_argument("--latency", type=int, default=0, metavar="N", help="also time the search on the test inputs plus N random company names (postgres only)")
-    parser.add_argument("--retrieve", choices=("word", "plain"), default="word", help="postgres only: word = word similarity, the search the app uses; plain = plain similarity, the first approach, for timing only")
+    parser.add_argument("--retrieve", choices=tuple(RETRIEVERS), default="narrow", help="postgres only: narrow = the narrow table, the search the app uses; word = the second approach and plain = the first, both for timing only")
+    parser.add_argument("--compare", type=int, default=0, metavar="N", help="postgres only: run the second approach and the app's search on the test inputs plus N random company names, and count the searches whose five companies differ")
     args = parser.parse_args(argv)
     cases = read_cases()
 
@@ -237,16 +308,27 @@ def main(argv: list[str] | None = None) -> int:
         import os                           # reads the optional DATUM_PG_DSN environment variable
         import psycopg                      # the Postgres driver, imported only when it is used
         with psycopg.connect(os.environ.get("DATUM_PG_DSN", "dbname=datum_dev")) as conn:
-            backend = PostgresBackend(conn) if args.retrieve == "word" else PlainSimilarityBackend(conn)
-            print_results(run_cases(cases, backend), f"postgres ({args.retrieve} similarity)")
-            if args.latency:
-                random_names = conn.execute(
+            backend_class, label = RETRIEVERS[args.retrieve]
+            backend = backend_class(conn)
+            print_results(run_cases(cases, backend), f"postgres ({label})")
+            test_inputs = [(c.business_name, c.city) for c in cases if c.is_specific]
+
+            def with_random_names(count: int) -> list[tuple[str, str]]:
+                """The test inputs, then `count` company names drawn at random, the same ones on every run."""
+                drawn = conn.execute(
                     "select entity_name, '' from company_search tablesample bernoulli (0.01) repeatable (%s) limit %s",
-                    (LATENCY_SEED, args.latency),
+                    (LATENCY_SEED, count),
                 ).fetchall()
                 # tablesample bernoulli (0.01) reads a random 0.01% of the rows, and repeatable (42)
                 # makes it the same sample every time. The names are searched and never printed.
-                inputs = [(c.business_name, c.city) for c in cases if c.is_specific] + [tuple(row) for row in random_names]
+                return test_inputs + [tuple(row) for row in drawn]
+
+            if args.compare:
+                inputs = with_random_names(args.compare)
+                print_comparison(compare_backends(WideTableBackend(conn), PostgresBackend(conn), inputs), len(test_inputs))
+            if args.latency:
+                inputs = with_random_names(args.latency)
+                random_names = inputs[len(test_inputs):]
                 seconds = time_searches(backend, inputs)
                 print(f"\nlatency over {len(inputs)} searches ({len(inputs) - len(random_names)} test inputs + {len(random_names)} random company names, pool of {CANDIDATE_POOL}):")
                 print(f"  p50 {percentile(seconds, 0.50) * 1000:.0f} ms   p95 {percentile(seconds, 0.95) * 1000:.0f} ms   slowest {max(seconds) * 1000:.0f} ms")
