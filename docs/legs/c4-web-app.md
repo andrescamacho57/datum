@@ -12,7 +12,7 @@ This is the last of the four legs of Phase C. Leg C2 made the search and leg C3 
 - **It is private and it fails closed** (working rule W8). Every address except `/healthz` answers 401 without the access code. The app refuses to start with no code set. Search engines are told not to index it in three places. A request from another machine is refused.
 - **The typed note goes to the extraction step and nowhere else** (working rule W6). It arrives in the body of a POST, so it is never part of an address. It is not logged, not stored and not shown back. A test captures every log line during a search and fails if the note is in one.
 - **Every page fits a phone 390 pixels wide.** Six screenshots are under `data/screens/`, which git ignores.
-- The offline tests pass: **454**, of which 86 are new in this leg. They start no server and make no network call.
+- The offline tests pass: **456**, of which 88 are new in this leg. They start no server and make no network call.
 - **A match that rests on a similar name alone says so.** A company rated Possible carries a caution on the shortlist and at the top of its report. The review found that the first version of the app had dropped the terminal's question "Make the report anyway?" without putting anything in its place.
 - The leg made **2 of the 10 live extraction calls** the phase allows, and used **no Snowflake credits**.
 
@@ -109,7 +109,7 @@ Two sentences from leg C3 changed. `SEARCH_UNAVAILABLE` now reads "The search is
 | `src/datum/web/app.py` | New |
 | `src/datum/web/templates/` (7 files) | New |
 | `src/datum/web/static/` (`pico.min.css`, `PICO_LICENSE.md`, `README.md`, `datum.css`) | New |
-| `tests/test_web.py` | New. 83 tests under 50 names |
+| `tests/test_web.py` | New. 84 tests under 50 names |
 | `src/datum/wording.py` | Changed: 18 entries added for the pages, the old tie sentence removed, and two "unavailable" sentences shortened |
 | `src/datum/models.py`, `src/datum/report_builder.py`, `src/datum/report.py` | Changed in the review: the extraction step's reply is checked in one place, a report carries a caution when its company was picked at the level Possible, the "Official record" row shows the date the state published the record, and the terminal uses the new tie line |
 | `requirements.txt` | Changed: five packages and the six they brought with them |
@@ -139,18 +139,18 @@ Six more came with them as dependencies: `starlette`, `MarkupSafe`, `click`, `ce
 
 ```
 pytest
-454 passed in 1.57s
+456 passed in 2.03s
 
 ruff check src tests
 All checks passed!
 ```
 
-✅ `tests/test_web.py` holds 83 tests. Each drives the app through FastAPI's test client, which calls the app inside the test's own process: no server starts, no port opens and nothing leaves the machine. The tests the brief asks for by name:
+✅ `tests/test_web.py` holds 84 tests. Each drives the app through FastAPI's test client, which calls the app inside the test's own process: no server starts, no port opens and nothing leaves the machine. The tests the brief asks for by name:
 
 | What the brief asks | The test | The input that makes it fail |
 |---|---|---|
 | The app will not start without the code | `test_the_app_will_not_be_built_without_an_access_code` and `test_a_start_with_no_access_code_in_the_environment_fails` | An empty or missing access code that does not raise an error |
-| Every route but `/healthz` answers 401 without it | `test_every_address_but_healthz_answers_401_without_the_access_code`, run for 22 addresses, each with no code, a wrong code, and the code typed as the name | Any address that answers anything but 401. The 22 include four other methods on `/healthz` and two paths that spell `/healthz` only once a line break or a tab is dropped. A second test fails if the app gains a route that is not on the list |
+| Every route but `/healthz` answers 401 without it | `test_every_address_but_healthz_answers_401_without_the_access_code`, run for 23 addresses, each with no code, a wrong code, and the code typed as the name | Any address that answers anything but 401. The 23 include five other methods on `/healthz` and two paths that spell `/healthz` only once a line break or a tab is dropped. A second test fails if the app gains a route that is not on the list |
 | The three no-index signals are present | `test_the_three_no_index_signals_are_present` | A page without the meta tag, an answer without the header, or a `/robots.txt` that does not say `Disallow: /` |
 | The note does not appear in the logs during a search | `test_nothing_about_a_search_is_written_to_a_log` and `test_the_note_is_on_no_page_whatever_goes_wrong` | The note, the extracted name, or the words of an error that quotes the note, in any log line, in anything the app prints, or on any of the six pages a search can end on. Every logger is captured at its most talkative level |
 | Auto-escaping stays on | `test_a_company_name_that_holds_markup_is_shown_as_text_and_never_as_markup` and `test_markup_in_any_value_a_page_shows_is_escaped_and_no_template_can_switch_that_off` | A company called `<script>alert("x")</script> & <b>INVENTED</b> CO LLC`, and markup in every other value a page prints: what the extraction step read, a city, an address, a citation, a status note, a caveat. It also fails if any template holds `|safe` |
@@ -230,8 +230,8 @@ robots.txt: User-agent: *  Disallow: /
 | `5_asks_for_a_business.png` | The page for a vague note |
 | `6_not_found.png` | The plain 404 page |
 
-- ✅ I looked at the shortlist and at the report with flags. Every line wraps inside the 390 pixels, the two-column table fits, and nothing is cut off at the right edge.
-- ✅ The six were made again after the review's fixes, and I looked at the shortlist again: the caution sits under each company rated Possible and wraps like the rest.
+- ✅ I looked at all six. Before the review's fixes I looked at the shortlist and at the report with flags. The six were then made again, and I looked at five of the new ones: the search box, the shortlist, the report with no flag, the page for a vague note and the 404 page. In each, every line wraps inside the 390 pixels, the two-column table fits, and nothing is cut off at the right edge. The caution sits under each company rated Possible and wraps like the rest.
+- 🟡 The one I did not look at again after the fixes is the report with flags. It is the same template as the report with no flag, with the flag cards I saw before the fixes.
 - **How they were made, because the first attempt misled me.** Headless Chrome (Chrome with no window) will not make its window narrower than about 500 pixels on this Mac. Asked for 390, it laid the page out at 500 and cut the picture at 390, which looked exactly like a page that overflows a phone. So each page is shown inside a frame exactly 390 pixels wide, in a wider window, and the picture is cut to the frame.
 - 🟡 A screenshot is not a phone. Tap targets, the on-screen keyboard and the sign-in box on iOS are yours to try (section 7).
 
@@ -306,7 +306,7 @@ any address, another machine→ 403, with the code or without it
 
 - **Tier:** High. The leg decides what a contractor reads on a page, and the brief names leg C4 as High.
 - **Depth:** Deep. In round 1, three `reviewer` subagents ran in parallel, each with one of the hunts the brief sets for a High leg of Phase C, and a fourth then checked every finding against the code. A security review ran alongside, because `src/` changed.
-- **Rounds:** round 1 is below. Round 2 is in progress, and it is added in a later commit.
+- **Rounds:** rounds 1 and 2 are below. Round 3 is in progress, and it is added in a later commit.
 
 **Round 1** (three reviewers, then a verifier, on the first five commits, and the security review).
 
@@ -335,7 +335,7 @@ The security review sent requests at the app inside its own process: 21 combinat
 
 | Side note | What was done |
 |---|---|
-| The door compared a re-parsed copy of the path, which drops a line break or a tab, so `/heal<line break>thz` passed as `/healthz` and reached the 404 page without the code | The door now reads the path the router reads. Both spellings are in the test of 22 addresses |
+| The door compared a re-parsed copy of the path, which drops a line break or a tab, so `/heal<line break>thz` passed as `/healthz` and reached the 404 page without the code | The door now reads the path the router reads. Both spellings are in the test of 23 addresses |
 | A reply with a number where the street belongs raised an error outside the app's own handling, and Uvicorn would have printed the value | The reply is checked inside the handled part, and any error nobody foresaw now logs only its class name |
 | A file sent in the note's field got the framework's own answer, which described the upload | It gets a plain page that describes nothing |
 | An unhandled error's answer carried no headers | It carries all five |
@@ -360,7 +360,28 @@ a sentence in a placeholder:                      1 failed
 a width of 40rem:                                 1 failed
 ```
 
-**Round 2** is in progress.
+**Round 2** (one reviewer on the fix commit, doing all three hunts on that diff, and reading the Human review section).
+
+**2 Important and 3 Nit.** The reviewer checked each new sentence against the code and found each one true, and it found no way past the door and no leak. Its findings are four guards that no test held in place, and two sentences of my own summary.
+
+| Finding | Tag | Answer |
+|---|---|---|
+| No test checked that a company rated Likely carries no caution. With the caution shown on every card that is not Strong, every test passed, and on a Likely card "nothing else confirms it" is false | Important | Fixed with a test: a shortlist with two Likely companies and three Possible ones, checked card by card |
+| The Human review section said six screenshots show the pages fit a phone. This report said I had looked at two | Important | Fixed by doing the work: I looked at the other four, and check 3 now says exactly which ones I looked at and when |
+| The line of a report that says how its company was identified could lose the class that keeps a record's spacing, and no test noticed | Nit | Fixed with a test |
+| The terminal could search for an empty name and no test noticed. The web app's copy of that line was tested | Nit | Fixed with a test |
+| The Human review section said the city comparison "misses 12,723 companies". That is the double-space case alone, and the other cases are not counted | Nit | Fixed. It now says "at least 12,723" |
+
+The reviewer tried 33 changes to the code of this round against the whole suite. 27 failed a test. Of the 6 that survived, 3 were harmless and are still closed where that was cheap (a HEAD request to `/healthz` now needs the code). ✅ After the fixes I repeated the other 3 and that one, and each now fails a test:
+
+```
+the caution shown on a Likely card:                          1 failed
+the spacing class removed from the identification line:      1 failed
+the terminal searches for an empty name:                     1 failed
+HEAD /healthz open without the code:                         1 failed
+```
+
+**Round 3** is in progress.
 
 ---
 
