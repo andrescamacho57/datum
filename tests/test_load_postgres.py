@@ -252,6 +252,7 @@ def test_a_narrow_table_that_differs_from_company_search_stops_the_run_before_th
         ((2, 3, 0, 1), "0 are only in company_search_names and 1 are only in company_search"),   # a company the search could never find
         ((3, 3, 1, 1), "1 are only in company_search_names and 1 are only in company_search"),   # a number the app could not show
         ((4, 3, 0, 0), "company_search_names has 4 rows and company_search has 3"),              # the same numbers, one of them twice
+        ((3, 3, 0, 1), "0 are only in company_search_names and 1 are only in company_search"),   # equal counts: a number twice hides a missing company
     ):
         a_full_export(tmp_path)
         conn = FakeConnection(names_check=answer)
@@ -279,7 +280,8 @@ def test_the_check_sees_every_way_the_narrow_table_can_differ_from_company_searc
     assert run_names_check(companies[:2], companies) == (2, 3, 0, 1)      # T3 is missing from the narrow table
     assert run_names_check(companies + [("T9", "DUNE GLASS")], companies) == (4, 3, 1, 0)   # T9 is in the narrow table only
     assert run_names_check(companies[:2] + [("T9", "CORAL ELECTRIC")], companies) == (3, 3, 1, 1)   # equal counts, different numbers
-    assert run_names_check(companies + [companies[0]], companies) == (4, 3, 0, 0)   # T1 twice: only the row counts can show it
+    assert run_names_check(companies + [companies[0]], companies) == (4, 3, 0, 0)   # T1 twice and nothing missing: only the row counts show it
+    assert run_names_check(companies[:2] + [companies[0]], companies) == (3, 3, 0, 1)   # T1 twice in place of T3: the counts are equal, and only the last number shows it
     assert run_names_check(companies[:2] + [("T3", "CORAL ELECTRICAL")], companies) == (3, 3, 1, 1)   # the right number under another name
 
 
