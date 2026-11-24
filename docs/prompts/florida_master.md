@@ -62,9 +62,18 @@ Datum checks a small trade contractor's commercial client before a job: is it a 
   - Medium: one pass, plus `/security-review` when `src/` changed.
   - High: three `reviewer` subagents in parallel, each told to hunt one thing (a wrong link or wrong status; a person's data past staging; a test that cannot fail). Then a fourth checks every finding against the code and drops any it cannot confirm with a file and line.
 - Fix every `Important` finding, or answer it with a one-line reason. Review again, looking only at the new diff. Three rounds at most; if `Important` findings remain after the third, stop the leg and say so in the report.
-- Open the pull request with `.github/pull_request_template.md` filled in, then the leg report below it.
+- Open the pull request with a `## Human review` section first (see below), then `.github/pull_request_template.md` filled in, then the leg report below it.
+- The last review round also checks the `## Human review` section against the diff. The reviewer reads only the diff, so paste the full text of the section into its prompt. At High tier, give the section to the fourth agent, the one that checks the findings, and not to the three reviewers that each hunt one thing. A sentence in the section that the diff does not support, or a risk it leaves out that the leg report marks 🔴 or 🟡, is an `Important` finding.
 - Add one row for the pull request to `docs/review_log.csv`.
 - Never ask a question or wait for approval during review.
+
+**Human review section**: the pull request body starts with `## Human review`. Andres reads it before anything else, in 1 to 3 minutes and never more than 5, and it has to be enough for him to explain the change back and answer the three questions. The leg report below it keeps its full detail, because later agents read that. Nothing in the leg report is shortened to make room.
+- At most 250 words. Full sentences, each technical term explained in a few words, and every number says what it counts. Bullets are fine, and so is one small diagram when a picture is clearer.
+- It says, in this order: what changed and why, in two or three sentences; what is proven, and by which check, in at most three bullets; what was assumed or could not be verified (the 🔴 and 🟡 items from section 4 of the leg report); the decisions that are his; and where to look, which is at most three files or line ranges that carry the judgment.
+- Every one of those five parts appears. When a part is empty, write one sentence that says so, for example "Nothing was assumed."
+- It states no fact that is not in the leg report, and it does not quote the three questions or their answers. The questions stay a check of his understanding.
+- The template's "What this changes" and "What a person should look at" must agree with this section. Each may be one sentence that points to it.
+- Write it once the code is final and before the last review round, which checks it. If a fix in that round changes the code, bring the section up to date and include it in the next round.
 
 **Leg report**: for every leg, write `docs/legs/<leg-name>.md` and put the same text in the pull request body:
 1. What I built (files, tables, models), in plain English a new engineer could repeat out loud
