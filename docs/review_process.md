@@ -21,10 +21,19 @@ The goal here is the article's goal, scaled to one person: most pull requests me
 ```
 agent builds the leg -> done-when checks pass -> tier set from REVIEW.md
    -> fresh-context AI review at that depth (3 rounds at most, findings answered)
-   -> pull request opens with the template filled in -> CI runs
+   -> pull request opens with a Human review section, then the template filled in -> CI runs
    -> Low: merge on green | Medium: read report + findings, skim | High: explain it back
    -> row added to docs/review_log.csv
 ```
+
+### The Human review section (added Nov 23, 2026)
+
+Every pull request body starts with a section called `## Human review`. It exists because a leg report is long on purpose, so that a later agent can see exactly what was done, and that length is too much for a person to review well. The section is the short account for Andres: at most 250 words that he can read in 1 to 3 minutes, and enough for him to explain the change back and answer the three questions.
+
+- It says what changed and why, what is proven and by which check, what was assumed, which decisions are his, and at most three places to look.
+- The author writes it, and so the AI reviewer checks it against the diff. A sentence the diff does not support is an `Important` finding, because a wrong summary is the one part of the pull request a person is sure to read.
+- It does not replace reading the diff on a High-tier change. It tells Andres where in the diff to read.
+- The full rules are in `docs/prompts/florida_master.md`, under "Human review section".
 
 ## What we measure
 
