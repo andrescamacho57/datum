@@ -147,6 +147,10 @@ PICK_AGAIN = "Please type a number from 0 to {count}."
 PRESS_ENTER = " (press Enter if you don't know): "
 SAVED_TO = "Saved to {path}"
 DESCRIBE_THE_CLIENT = "Describe the client: "
+NOTE_NOT_ON_COMMAND_LINE = (
+    "Type the note here, not after the command. What is typed after a command is kept in the shell's history, "
+    "and a note is not kept anywhere."
+)
 SEARCH_UNAVAILABLE = "The search is unavailable right now, so no company is shown. Try again in a few minutes."
 
 

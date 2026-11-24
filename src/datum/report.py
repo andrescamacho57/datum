@@ -3,7 +3,9 @@
     note ─▶ extract fields (Claude) ─▶ shortlist (Postgres) ─▶ the user picks ─▶ ReportBuilder ─▶ a Markdown file
 
 Run from ~/datum with the virtual environment active, and Postgres running:
-    python src/datum/report.py "ferguson ac boynton beach"
+    python src/datum/report.py
+and type the note when it asks ("ferguson ac boynton beach"). The note is NOT given after the
+command: the shell keeps every command line in its history file, and the note is never kept.
 Needs: ANTHROPIC_API_KEY in the environment (the extraction step is one call to the Claude
 API), and the local Postgres database datum_dev that src/datum/load_postgres.py fills.
 
@@ -19,6 +21,9 @@ Three things the version before leg C3 did, and this one does not:
   - It wrote the typed note into the saved report, and asked for an owner's name. The note
     is now used for the extraction call and nothing else: it is not printed back, not saved
     and not passed to the report (working rule W6). Nothing here asks for an owner's name.
+    Two more doors are shut. The note is read at a prompt and never from the command line,
+    and when the extraction step fails its error is not printed, because an error message
+    can quote what it was given.
   - It wrote "Strong" for a company that had tied with another. A tie is now said on the
     shortlist and on the report (working rule W7).
 """
@@ -99,7 +104,11 @@ def run(note: str, extract: Callable[[str], dict], search_backend: SearchBackend
         return None if extra.lower() in GIVE_UP else extra                 # None = stop asking
 
     for _ in range(MAX_ROUNDS):             # at most 3 rounds of "tell me more"
-        fields = extract(note)              # the ONLY use of the note. From here on, the code works with the extracted fields
+        try:
+            fields = extract(note)          # the ONLY use of the note. From here on, the code works with the extracted fields
+        except Exception:                   # any failure of the extraction step: the API is down, the key is missing, the reply is malformed
+            say("\n" + wording.SEARCH_UNAVAILABLE)   # a fixed sentence. The error itself is NOT printed: its text could hold the note
+            return None                     # and no company is shown
         business_name, city, street = fields["business_name"], fields["city"] or "", fields["street"] or ""
         if not fields["is_specific"]:       # a vague note: ask, and show no company (acceptance test A2)
             extra = ask_for_more(wording.ASK_FOR_A_BUSINESS)
@@ -151,6 +160,13 @@ def pick(count: int, ask: Callable[[str], str], say: Callable[[str], None]) -> i
         say(wording.PICK_AGAIN.format(count=count))          # anything else: ask again instead of guessing
 
 
+def read_note(arguments: list[str], ask: Callable[[str], str] = input, say: Callable[[str], None] = print) -> str:
+    """Ask for the note at a prompt. Anything typed after the command is NOT used, and the user is told why."""
+    if arguments:
+        say(wording.NOTE_NOT_ON_COMMAND_LINE)
+    return ask(wording.DESCRIBE_THE_CLIENT)
+
+
 def main() -> None:
     """Command line: build the real extraction step and the two Postgres backends, then run the conversation."""
     import os                               # reads the optional DATUM_PG_DSN environment variable
@@ -160,7 +176,7 @@ def main() -> None:
     from datum.report_builder import PostgresReportBackend
     from datum.search import PostgresBackend
 
-    note = " ".join(sys.argv[1:]) or input(wording.DESCRIBE_THE_CLIENT)   # the note from the command line, or ask
+    note = read_note(sys.argv[1:])          # typed at the prompt, never taken from the command line
     claude = anthropic.Anthropic()          # reads ANTHROPIC_API_KEY
     with psycopg.connect(os.environ.get("DATUM_PG_DSN", "dbname=datum_dev")) as conn:
         run(note, lambda text: extract_fields(claude, text), PostgresBackend(conn), PostgresReportBackend(conn))

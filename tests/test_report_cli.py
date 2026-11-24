@@ -9,6 +9,7 @@ Run from ~/datum:  pytest
 """
 
 import inspect                              # reads the source of the module under test
+from pathlib import Path                    # the path of extract.py, which one test reads as text
 from dataclasses import replace             # a copy of a frozen dataclass with one field changed
 
 import report_fixtures as fx                # tests/report_fixtures.py: the fixture rows as objects
@@ -168,3 +169,35 @@ def test_others_at_the_same_level_counts_below_the_top_level_among_the_companies
     assert short.levels[0] == "Strong" and report.others_at_the_same_level(short, 0) == 0      # one Strong company: no tie
     below = [index for index, level in enumerate(short.levels) if level == "Possible"]
     assert len(below) >= 2 and report.others_at_the_same_level(short, below[0]) == len(below) - 1   # the other Possible companies on the list
+
+
+def test_a_failed_extraction_says_one_fixed_sentence_and_never_the_error(tmp_path):
+    # extract.py used to raise ValueError("No fields returned for: <the whole note>"), and nothing caught it, so a traceback printed the note.
+    def broken(text):
+        raise ValueError(f"No fields returned for: {text!r}")            # the worst case: an error that quotes the note
+
+    talk = Talk([])                                                      # it must not ask anything either
+    assert run(talk, tmp_path, extract=broken) is None
+    assert talk.said == ["\n" + wording.SEARCH_UNAVAILABLE] and wording.SEARCH_UNAVAILABLE.startswith("The search is unavailable right now, so no company is shown.")
+    for word in PRIVATE + (NOTE, "ValueError", "No fields returned"):
+        assert word not in talk.everything
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_the_extraction_steps_own_error_does_not_quote_the_note():
+    # Read as text and not imported: importing extract.py loads the API key, and the offline suite needs no key.
+    source = (Path(report.__file__).parent / "extract.py").read_text()
+    raises = [line for line in source.splitlines() if line.strip().startswith("raise ")]
+    assert raises and all("{note" not in line and "note!r" not in line for line in raises)
+
+
+def test_the_note_is_read_at_a_prompt_and_never_from_the_command_line():
+    # A note typed after the command is written to the shell's history file. Rule W6: the note is never stored.
+    talk = Talk(["invented air conditioning boynton beach"])
+    assert report.read_note(["jane", "doe", "roofing"], talk.ask, talk.say) == "invented air conditioning boynton beach"
+    assert talk.said == [wording.NOTE_NOT_ON_COMMAND_LINE] and talk.asked == ["Describe the client: "]
+    assert "jane" not in talk.everything                                  # what was typed after the command is neither used nor shown back
+    quiet = Talk(["a note"])
+    assert report.read_note([], quiet.ask, quiet.say) == "a note" and quiet.said == []
+    code_lines = [line.split("#")[0] for line in inspect.getsource(report.main).splitlines()]
+    assert not [line for line in code_lines if "argv" in line and "read_note" not in line]   # main() hands the arguments to read_note and reads them nowhere else
