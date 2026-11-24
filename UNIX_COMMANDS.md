@@ -165,7 +165,7 @@ env -u ANTHROPIC_API_KEY claude rc
 caffeinate -is
 git switch main
 git fetch && git status
-git worktree add ~/datum-review main
+git worktree add --detach ~/datum-review origin/main
 ```
 
 - `[ -n "$VAR" ]` tests whether a variable is not empty. `&&` runs the next part if the test passed, and
@@ -173,11 +173,13 @@ git worktree add ~/datum-review main
 - `grep -l` prints only the names of the files that match, so a key never appears on screen. `grep -c`
   prints how many lines matched. `2>/dev/null` hides "no such file" errors
 - `env -u NAME command` runs one command with that variable removed
-- `caffeinate -is` keeps the Mac awake while it runs: `-i` stops idle sleep, `-s` stops system sleep on
-  power. Stop it with Ctrl+C
+- `caffeinate -is` keeps the Mac awake while it runs: `-i` stops idle sleep, and `-s` stops system sleep, but
+  only while the Mac is plugged in. Neither keeps it awake with the lid closed. Stop it with Ctrl+C
 - `git switch <branch>` changes the checked-out branch. Never run it in a folder an agent is working in
 - `git fetch && git status` says how far behind the branch is, without changing a file
-- `git worktree add <folder> <branch>` makes a second working folder for the same repo
+- `git worktree add --detach <folder> origin/main` makes a second working folder for the same repo, at the
+  newest `main` from GitHub. Git refuses a branch that another folder already has checked out, and
+  `--detach` avoids that by checking out the commit without a branch
 
 ## Habits Worth Keeping
 

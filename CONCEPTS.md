@@ -806,7 +806,9 @@ Source: Anthropic, "Building Effective Agents" (the evaluator-optimizer workflow
 - While an agent runs in `~/datum`, reading is safe (`git status`, `git log`, `git diff`). Anything that
   changes what is checked out is not (`switch`, `pull`, `merge`, `commit`, `stash`).
 - `git worktree add <folder> <branch>` makes a second folder with its own checked-out branch and the same
-  history. That is isolation: two workers, two folders, one repo.
+  history. Git refuses a branch that another folder already has checked out, so to look at `main` while
+  `~/datum` is on it, use `git worktree add --detach <folder> origin/main`. That is isolation: two workers,
+  two folders, one repo.
 
 ---
 
@@ -814,11 +816,13 @@ Source: Anthropic, "Building Effective Agents" (the evaluator-optimizer workflow
 
 - The p95 is the 95th percentile. Sort every measurement from fastest to slowest and go 95% of the way down.
   On 208 searches that is about search number 198: 197 were faster and about 10 were slower.
+  That is where the p95 sits, which is not the same as the number of searches over the 1-second target.
 - The p50 is the median. It answers "what is typical?" The p95 answers "how bad does it get?"
-- Leg C2's search had a p50 of 181 milliseconds and a p95 of 1,229. The median looked perfect and hid ten
-  slow searches, one of them 4.4 seconds.
+- Leg C2's search had a p50 of 181 milliseconds and a p95 of 1,229. The median looked perfect and hid 11
+  searches that took over 1 second, one of them 4.4 seconds.
 - It is the same idea as Value at Risk in credit risk: the median loss says little, and the tail is the risk.
-- An average is worse than either, because one very slow search is blended away.
+- An average is worse than either. It mixes the few very slow searches in with the typical ones, so it
+  describes neither the typical search nor how bad the worst ones get.
 - Report both. The p50 is the typical experience and the p95 is the pass-or-fail bar.
 
 ---
@@ -877,7 +881,8 @@ Source: Anthropic, "Building Effective Agents" (the evaluator-optimizer workflow
 
 - R29: a ZIP code that is present and unreadable can neither support a match nor contradict it, so the name
   alone is not enough. The link is AMBIGUOUS with the reason `zip_unreadable`.
-- R30: a looser key strips a leading THE and the legal suffix. It is used to **count** near-namesakes, not to
+- R30: a looser key removes a leading THE, treats AND and & as the same, and removes every trailing legal
+  suffix. It is used to **count** near-namesakes, not to
   make more matches. When two companies share the looser key, the link is AMBIGUOUS.
 - The mistake to avoid is reading R30 as a way to match more. The danger is a wrong match (a clerk typed LLC
   and meant the INC), and so the rule says less. That is precision over recall.
