@@ -126,18 +126,20 @@ def test_the_license_company_shows_the_license_line_and_the_lien_with_its_discha
 
 def test_a_tie_is_said_on_the_report_of_whichever_company_was_picked():
     # The old report.py wrote "Strong" for a company that had tied with another one (rule W7).
-    assert "2 other companies matched equally well." in build(fx.LIEN_COMPANY, PICKED.model_copy(update={"tied_others": 2})).identification
-    assert build(fx.LIEN_COMPANY, PICKED.model_copy(update={"tied_others": 1})).identification.endswith("1 other company matched equally well.")
-    assert "matched equally well" not in build(fx.LIEN_COMPANY, PICKED).identification     # no tie: nothing is said about one
+    assert "2 other companies matched equally well." in build(fx.LIEN_COMPANY, PICKED.model_copy(update={"tied_others": 2})).identification.text
+    assert build(fx.LIEN_COMPANY, PICKED.model_copy(update={"tied_others": 1})).identification.text.endswith("1 other company matched equally well.")
+    assert "matched equally well" not in build(fx.LIEN_COMPANY, PICKED).identification.text   # no tie: nothing is said about one
 
 
 def test_the_identification_line_shows_the_extracted_fields_and_no_note():
     # The old report.py wrote the raw note, owner's name included, into the saved report (rule W6).
-    line = build(fx.LIEN_COMPANY, PICKED).identification
+    identification = build(fx.LIEN_COMPANY, PICKED).identification
+    assert identification.citation == "Florida Division of Corporations (Sunbiz) record, document number T26000000001"   # it restates the status, so it cites the record
+    line = identification.text
     assert line == ('from the business name "Invented Air Conditioning", the city "Boynton Beach" · match level Strong '
                     "(name matches exactly (ignoring LLC/INC); city matches; ACTIVE) · chosen by the user from a shortlist.")
     with_street = PICKED.model_copy(update={"city": "", "street": "Race Track Rd"})
-    assert 'the business name "Invented Air Conditioning", the street "Race Track Rd"' in build(fx.LIEN_COMPANY, with_street).identification
+    assert 'the business name "Invented Air Conditioning", the street "Race Track Rd"' in build(fx.LIEN_COMPANY, with_street).identification.text
     opened = render_markdown(build(fx.LIEN_COMPANY))
     assert "**How this company was identified:** opened by its document number." in opened and "match level Strong" not in opened
 
@@ -252,12 +254,15 @@ def test_the_two_layout_functions_hold_no_sentence_of_their_own():
 def test_a_search_result_becomes_a_page_candidate_whose_name_and_place_are_facts():
     companies = {c.document_number: c for c in fx.load_companies()}
     found = SearchCandidate(company=companies[fx.LIEN_COMPANY], similarity=100, city_match=True, exact_name=True)
-    candidate = candidate_for_page(found, "Strong", ["city matches", "ACTIVE"])
-    assert (candidate.name.text, candidate.place.text, candidate.level, candidate.evidence) == \
-           ("INVENTED AIR CONDITIONING, LLC", "BOYNTON BEACH, FL", "Strong", ("city matches", "ACTIVE"))
-    assert candidate.name.source_url == companies[fx.LIEN_COMPANY].source_url and candidate.name.fetched_at_is_approximate is True
-    no_city = candidate_for_page(SearchCandidate(company=companies[fx.GAPS_COMPANY], similarity=90, city_match=False, exact_name=False), "Possible", [])
+    candidate = candidate_for_page(found, "Strong", city_given=True)
+    assert (candidate.name.text, candidate.place.text, candidate.level) == ("INVENTED AIR CONDITIONING, LLC", "BOYNTON BEACH, FL", "Strong")
+    assert [reason.text for reason in candidate.evidence] == ["name matches exactly (ignoring LLC/INC)", "city matches", "ACTIVE"]
+    for fact in (candidate.name, candidate.place) + candidate.evidence:   # rule W1: the status and the city are stated with their source, like the name
+        assert fact.source_url == companies[fx.LIEN_COMPANY].source_url and fact.fetched_at_is_approximate is True
+        assert fact.citation == "Florida Division of Corporations (Sunbiz) record, document number T26000000001"
+    no_city = candidate_for_page(SearchCandidate(company=companies[fx.GAPS_COMPANY], similarity=90, city_match=False, exact_name=False), "Possible", city_given=True)
     assert no_city.place is None                                          # no city on record: no place is shown
+    assert [reason.text for reason in no_city.evidence] == ["name is similar (90/100)", "no principal city on record for this company", "ACTIVE"]
 
 
 def test_a_name_with_a_table_mark_in_it_does_not_break_the_table():

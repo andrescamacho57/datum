@@ -89,7 +89,7 @@ def a_report(flags=()):
         document_number="T26000000001", built_on=date(2026, 11, 24), name="INVENTED ROOFING CORP",
         company=((wording.LABEL_STATUS, a_fact()),), company_source=a_fact(), flags=tuple(flags),
         sources_checked=(a_fact(text="source one"), a_fact(text="source two")), sources_not_checked=("Court cases",),
-        identification=wording.IDENTIFIED_BY_NUMBER,
+        identification=a_fact(text=wording.IDENTIFIED_BY_NUMBER),
     )
 
 
@@ -108,8 +108,17 @@ def test_every_report_carries_the_same_two_sentences():
         assert report.confirmed_only == wording.CONFIRMED_ONLY and report.disclaimer == wording.DISCLAIMER
 
 
-def test_a_candidate_states_its_name_and_place_as_facts():
-    candidate = Candidate(document_number="T26000000001", name=a_fact(text="INVENTED ROOFING CORP"), place=None, level="Likely", evidence=("city matches",))
-    assert candidate.name.source_url == SUNBIZ and candidate.place is None
+def test_a_report_cannot_take_its_identification_line_as_bare_text():
+    with pytest.raises(ValidationError, match="identification"):
+        Report(**{**a_report().model_dump(), "identification": "match level Strong (ACTIVE)"})   # the line restates the company's status, so it is a Fact
+
+
+def test_a_candidate_states_its_name_its_place_and_its_evidence_as_facts():
+    candidate = Candidate(document_number="T26000000001", name=a_fact(text="INVENTED ROOFING CORP"), place=None, level="Likely",
+                          evidence=(a_fact(text="city matches"), a_fact(text="ACTIVE")))
+    assert candidate.name.source_url == SUNBIZ and candidate.place is None and candidate.source is candidate.name
     with pytest.raises(ValidationError, match="name"):
         Candidate(document_number="T26000000001", name="INVENTED ROOFING CORP", place=None, level="Likely", evidence=())   # a bare text is not a fact
+    with pytest.raises(ValidationError, match="evidence"):
+        # Rule W1 names a company's status. "ACTIVE" as a bare text would be a statement with no source and no fetch time.
+        Candidate(document_number="T26000000001", name=a_fact(text="INVENTED ROOFING CORP"), place=None, level="Likely", evidence=("ACTIVE",))

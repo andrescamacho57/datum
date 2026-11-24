@@ -32,8 +32,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]            # this file is src/da
 sys.path.insert(0, str(REPO_ROOT / "src"))                 # so `import datum.search` works when this file is run as a script
 
 from datum import wording                                   # noqa: E402  (the path line above has to come first)
-from datum.models import Identification                     # noqa: E402
-from datum.report_builder import ReportBackend, ReportBuilder, render_markdown   # noqa: E402
+from datum.models import Candidate, Identification          # noqa: E402
+from datum.report_builder import ReportBackend, ReportBuilder, candidate_for_page, render_markdown   # noqa: E402
 from datum.search import SearchBackend, Shortlist, evidence, search_pool, shortlist   # noqa: E402
 
 REPORTS_DIR = REPO_ROOT / "data" / "reports"               # under data/, which git ignores
@@ -55,20 +55,34 @@ def others_at_the_same_level(short: Shortlist, picked: int) -> int:
     return same - 1
 
 
+def source_line(candidate: Candidate) -> str:
+    """Where a shortlist line can be checked, and when it was fetched: the citation, the address and "fetched (about) <date>"."""
+    source = candidate.source
+    return f"{wording.LABEL_SOURCE}: {source.citation} ({source.source_url}) · {source.fetched_text}"
+
+
 def show_shortlist(short: Shortlist, say: Callable[[str], None]) -> None:
-    """Print the shortlist, and say so when the top answers tie or when a same-name company did not fit on it."""
+    """Print the shortlist, and say so when the top answers tie or when a same-name company did not fit on it.
+
+    Each company is turned into a page Candidate first, whose name, place and reasons are
+    Facts, and each line is followed by its source and fetch date (rule W1). The terminal
+    states nothing about a company that it cannot cite.
+    """
     say("")
-    for number, (level, candidate) in enumerate(zip(short.levels, short.candidates), start=1):
-        company = candidate.company
-        place = ", ".join(part for part in (company.principal_city, company.principal_state) if part)
-        say(f"{number}. [{level}] {company.entity_name}  ({company.document_number})")
-        say("   " + "  ·  ".join(part for part in (place, "; ".join(evidence(candidate, short.city_given))) if part))
+    for number, (level, found) in enumerate(zip(short.levels, short.candidates), start=1):
+        candidate = candidate_for_page(found, level, short.city_given)
+        say(f"{number}. [{level}] {candidate.name.text}  ({candidate.document_number})")
+        say("   " + "  ·  ".join(part for part in (candidate.place.text if candidate.place else "",
+                                                   "; ".join(reason.text for reason in candidate.evidence)) if part))
+        say("   " + source_line(candidate))
     if short.tied_at_top > 1:               # more than one company at the top level
         say("\n" + wording.SHORTLIST_TIE)
     if short.not_shown:                     # same-name companies that are counted in the tie and did not fit on the list
         say(wording.not_shown_text(short.tied_not_shown, short.city_given))
-        for candidate in short.not_shown:   # each one is named, so the count above is never a statement with nothing behind it
-            say(f"   {candidate.company.entity_name}  ({candidate.company.document_number})")
+        for found in short.not_shown:       # each one is named and cited, so the count above is never a statement with nothing behind it
+            candidate = candidate_for_page(found, "Strong", short.city_given)   # only a Strong candidate is ever in not_shown
+            say(f"   {candidate.name.text}  ({candidate.document_number})")
+            say("      " + source_line(candidate))
 
 
 def run(note: str, extract: Callable[[str], dict], search_backend: SearchBackend, report_backend: ReportBackend,

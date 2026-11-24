@@ -88,13 +88,22 @@ class Flag(Frozen):
 
 
 class Candidate(Frozen):
-    """One company on the shortlist, as a page shows it. The name and the place are facts, so they carry their source."""
+    """One company on the shortlist, as a page shows it. Everything it says about the company is a Fact, so it carries its source."""
 
     document_number: str
     name: Fact                              # the legal name as filed
     place: Fact | None                      # "BOYNTON BEACH, FL". None when the state has no principal city for the company
     level: Level
-    evidence: tuple[str, ...]               # the reasons behind the level, from search.evidence()
+    evidence: tuple[Fact, ...]              # the reasons behind the level, from search.evidence()
+    # The reasons are Facts too. "ACTIVE" and "registered in TAMPA, not the city you gave" are
+    # statements about the company, and "name is similar (93/100)" is worked out from its name,
+    # so each carries the company record's source address and fetch time (rule W1, and CLAUDE.md
+    # rule 3: a derived value carries its inputs' provenance).
+
+    @property
+    def source(self) -> Fact:
+        """The fact whose citation, address and fetch time stand for the whole line. Every fact here has the same ones."""
+        return self.name
 
 
 class Identification(Frozen):
@@ -126,7 +135,8 @@ class Report(Frozen):
     flags: tuple[Flag, ...]                 # the company-record flags first, then the linked records, newest first
     sources_checked: tuple[Fact, ...]       # one line per source whose flags may be shown (rule W5)
     sources_not_checked: tuple[str, ...]    # what Datum did not look at, so that nobody reads silence as "nothing found"
-    identification: str                     # the line that says how this company was picked (rules W6 and W7)
+    identification: Fact                    # the line that says how this company was picked (rules W6 and W7). It restates
+                                            # the company's status and city as evidence, so it is a Fact with the company record's source
 
     # The next three are not fields. They are worked out from the fields above each time they
     # are read, so no code path can store a summary that disagrees with the flags (rule W2).

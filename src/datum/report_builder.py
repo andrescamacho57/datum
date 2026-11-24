@@ -31,7 +31,7 @@ from typing import Protocol                 # a Protocol describes an interface:
 
 from datum import wording                   # every fixed sentence and label
 from datum.models import Candidate, Fact, Flag, Identification, Report
-from datum.search import COMPANY_COLUMNS, Company, company_from_row
+from datum.search import COMPANY_COLUMNS, Company, company_from_row, evidence
 from datum.search import Candidate as SearchCandidate           # the search's own candidate: a company with its scores
 
 DOCUMENT_NUMBER = re.compile(r"[A-Z0-9]{5,12}")
@@ -122,8 +122,12 @@ def in_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc) if value.tzinfo is not None else value
 
 
-def candidate_for_page(candidate: SearchCandidate, level: str, reasons: list[str]) -> Candidate:
-    """A search result as a page shows it: the name and the place become Facts, with the company's source and fetch time."""
+def candidate_for_page(candidate: SearchCandidate, level: str, city_given: bool) -> Candidate:
+    """A search result as a page or the terminal shows it: the name, the place and every reason become Facts.
+
+    Nothing about the company is handed on as bare text, so a shortlist cannot state a
+    company's status or city without the address to check it on and the date it was fetched.
+    """
     company = candidate.company
 
     def fact(text: str) -> Fact:
@@ -137,7 +141,7 @@ def candidate_for_page(candidate: SearchCandidate, level: str, reasons: list[str
     return Candidate(
         document_number=company.document_number, name=fact(company.entity_name),
         place=fact(place) if company.principal_city else None,   # no city on record: no place is shown, and none is made up
-        level=level, evidence=tuple(reasons),
+        level=level, evidence=tuple(fact(reason) for reason in evidence(candidate, city_given)),
     )
 
 
@@ -197,12 +201,12 @@ class ReportBuilder:
         not_checked = tuple(row.label for row in sources if not row.is_shown) + wording.NOT_CHECKED_ALWAYS
 
         if identification is None:
-            identified = wording.IDENTIFIED_BY_NUMBER
+            identified = fact(wording.IDENTIFIED_BY_NUMBER)
         else:
-            identified = wording.identified_text(
+            identified = fact(wording.identified_text(
                 identification.business_name, identification.city, identification.street,
                 identification.level, identification.evidence, identification.tied_others,
-            )
+            ))
         return Report(
             document_number=company.document_number, built_on=built_on, name=company.entity_name,
             company=rows, company_source=company_source, flags=flags,
@@ -287,7 +291,7 @@ def render_markdown(report: Report) -> str:
     lines += [f"- {fact.text} {wording.LABEL_SOURCE}: {cited(fact)}" for fact in report.sources_checked]
     lines += ["", f"## {wording.HEADING_NOT_CHECKED}", ""]
     lines += [f"- {item}" for item in report.sources_not_checked]
-    lines += ["", f"**{wording.LABEL_IDENTIFIED}:** {report.identification}", "", f"*{report.disclaimer}*", ""]
+    lines += ["", f"**{wording.LABEL_IDENTIFIED}:** {report.identification.text}", "", f"*{report.disclaimer}*", ""]
     return "\n".join(lines)
 
 

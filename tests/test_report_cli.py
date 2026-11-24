@@ -112,6 +112,11 @@ def test_a_same_name_company_that_did_not_fit_on_the_list_is_named_and_counted(t
     assert "2 more companies have this name (ignoring LLC/INC) and are not on this list." in talk.everything
     assert "INVENTED AIR LTD  (T26000000105)" in talk.everything and "INVENTED AIR CORP  (T26000000103)" in talk.everything   # each is named with its number
     assert "6 other companies matched equally well." in path.read_text() # seven share the name: the one picked and six others, two of them off the list
+    # Rule W1: every company the shortlist names, on the list or under it, is followed by where to check it and when it was fetched.
+    sources = [line for line in talk.said if line.strip().startswith("Source: ")]
+    assert len(sources) == 7 and all(line.endswith("· fetched about 2026-10-22") for line in sources)
+    for number in range(101, 108):
+        assert any(f"record, document number T26000000{number} (https://search.sunbiz.org/Inquiry/CorporationSearch/ByDocumentNumber)" in line for line in sources)
 
 
 def seven_with_one_name(city):
