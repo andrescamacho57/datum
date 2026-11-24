@@ -35,7 +35,7 @@ as rarely as the work needs.
 
 Nothing here reads the two local files in evals/ that .gitignore names, and no company
 drawn for the latency run or the comparison is ever printed: only timings, counts and a
-fingerprint of the draw are (a short code that gives no name away).
+fingerprint of the draw are (a short code for the whole list of names, see fingerprint()).
 """
 
 import argparse                             # reads --backend, --latency, --retrieve and --compare from the command line
@@ -329,9 +329,11 @@ def draw_company_names(conn, count: int) -> list[tuple[str, str]]:
 def fingerprint(drawn: list[tuple[str, str]]) -> str:
     """A short code for a draw: the MD5 hash of the drawn names, in order, joined by "|".
 
-    It changes when any name changes or when the order does, and it gives no name away. Two
-    runs that print the same fingerprint searched the same names. MD5 is used as a checksum
-    here and not for security, which is what usedforsecurity=False says.
+    It changes when any name changes or when the order does. Two runs that print the same
+    fingerprint searched the same names. For a draw of 200 names the code cannot be turned
+    back into names. For a draw of one or two it could be, by hashing every company name in
+    the state's public file and looking for a match, so it hides nothing then. MD5 is used
+    as a checksum here and not for security, which is what usedforsecurity=False says.
     """
     return hashlib.md5("|".join(name for name, _ in drawn).encode("utf-8"), usedforsecurity=False).hexdigest()
 
