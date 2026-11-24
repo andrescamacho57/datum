@@ -33,7 +33,7 @@ Every pull request body starts with a section called `## Human review`. It exist
 - It says what changed and why, what is proven and by which check, what was assumed, which decisions are his, and at most three places to look.
 - The author writes it, and so the AI reviewer checks it against the diff in the last review round. A sentence the diff does not support is an `Important` finding, because a wrong summary is the one part of the pull request a person is sure to read.
 - It does not replace reading the diff on a High-tier change. It tells Andres where in the diff to read.
-- For a pull request with no leg report, the section draws its facts from the diff and the template, and it leaves out the three questions.
+- For a pull request with no leg report, the section draws its facts from the diff and the template. At High tier the author adds a `## Three questions` section at the end of the pull request body, with the questions and not their answers, because `REVIEW.md` asks Andres to answer three questions and there is no leg report to hold them.
 - The full rules are in `docs/prompts/florida_master.md`, under "Human review section".
 
 ## What we measure
