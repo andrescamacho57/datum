@@ -146,7 +146,7 @@ def test_a_start_with_no_access_code_in_the_environment_fails(monkeypatch):
 EVERY_ADDRESS = [("GET", "/"), ("POST", "/search"), ("GET", "/search"), ("GET", "/company/T26000000001"), ("GET", "/company/nonsense"),
                  ("GET", "/robots.txt"), ("GET", "/static/pico.min.css"), ("GET", "/static/datum.css"), ("GET", "/static/README.md"),
                  ("GET", "/no-such-page"), ("GET", "/docs"), ("GET", "/openapi.json"), ("GET", "/healthz/extra"),
-                 ("POST", "/healthz"), ("PUT", "/healthz"), ("OPTIONS", "/healthz"), ("DELETE", "/healthz"),   # only a plain GET of /healthz is open
+                 ("POST", "/healthz"), ("PUT", "/healthz"), ("OPTIONS", "/healthz"), ("DELETE", "/healthz"), ("HEAD", "/healthz"),   # only a plain GET of /healthz is open
                  ("GET", "/heal%0Athz"), ("GET", "/heal%09thz"), ("GET", "/healthz/"), ("GET", "//healthz"), ("GET", "/HEALTHZ")]
 # The two with %0A and %09 hold a line break and a tab. Read one way they spell /healthz, and the router does not read them that way.
 
@@ -440,6 +440,13 @@ def test_a_possible_match_carries_a_caution_on_the_shortlist_and_on_its_report()
     assert "<strong>Strong</strong>" in first_card and caution not in first_card      # a Strong company carries none
     assert caution not in browser.get(re.search(r'href="(/company/T26000000001[^"]+)"', shortlist.text).group(1)).text
     assert caution not in browser.get("/company/" + fx.LIEN_COMPANY).text             # and a report opened by its number claims no level at all
+    # A Likely company has the same name, or is in the city given. "Nothing else confirms it" would be false there, so it carries no caution.
+    mixed, _ = make(extract=lambda note: {**FIELDS, "city": "Tampa"})   # the air-conditioning company has the name and another city. The roofing company is in Tampa
+    cards = {re.search(r"T\d{11}", card).group(0): card for card in client_for(mixed).post("/search", data={"note": NOTE}).text.split("<article>")[1:]}
+    levels = {number: re.search(r"<strong>(Strong|Likely|Possible)</strong>", card).group(1) for number, card in cards.items()}
+    assert levels[fx.LIEN_COMPANY] == "Likely" and levels[fx.INACTIVE_COMPANY] == "Likely" and list(levels.values()).count("Possible") == 3
+    for number, card in cards.items():
+        assert (caution in card) == (levels[number] == "Possible"), number   # on every Possible card, and on no other
 
 
 def test_a_value_is_shown_with_the_spaces_the_record_holds():
@@ -451,6 +458,11 @@ def test_a_value_is_shown_with_the_spaces_the_record_holds():
     assert '<span class="as-recorded">FORT  LAUDERDALE, FL</span>' in answer.text
     assert '<li class="as-recorded">principal city on record is FORT  LAUDERDALE, and that spelling does not begin with the city you gave</li>' in answer.text
     assert re.search(r"\.as-recorded\s*\{\s*white-space:\s*pre-wrap;", (WEB / "static" / "datum.css").read_text())
+    # The report repeats that reason in the line that says how the company was identified, so that line keeps the spacing too.
+    report = client_for(app).get(re.search(r'href="(/company/[^"]+)"', client_for(app).post("/search", data={"note": NOTE}).text).group(1))
+    line = re.search(r'<p class="as-recorded"><strong>How this company was identified:</strong>([^<]+)</p>', report.text)
+    assert line and "principal city on record is FORT  LAUDERDALE, and that spelling" in line.group(1)
+    assert '<td class="as-recorded">1 INVENTED WAY, FORT  LAUDERDALE, FL 33426</td>' in report.text
     blank_city, _ = make(extract=lambda note: {**FIELDS, "city": "   "})  # a city of only spaces is no city: the exact-name company stays Strong
     assert "<strong>Strong</strong>" in client_for(blank_city).post("/search", data={"note": NOTE}).text.split("<article>")[1]
 

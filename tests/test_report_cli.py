@@ -312,6 +312,14 @@ def test_a_vague_note_shows_no_company_until_a_second_extraction_names_one(tmp_p
     assert path is not None and "INVENTED AIR CONDITIONING, LLC" in talk.everything
 
 
+def test_a_reply_that_calls_the_note_specific_and_gives_no_name_is_treated_as_naming_no_business(tmp_path):
+    # Without this, the terminal would print: I read that as: the business name "" - and then search for nothing.
+    talk = Talk([""])
+    assert run(talk, tmp_path, fields={"business_name": "   ", "city": "Tampa", "street": "", "is_specific": True}) is None
+    assert talk.asked == ["That describes a business but doesn't name one. Add its name, a street or a city (press Enter if you don't know): "]
+    assert not [line for line in talk.said if "I read that as" in line] and "INVENTED" not in talk.everything
+
+
 def test_pressing_enter_at_the_possible_match_question_means_no(tmp_path):
     # The prompt ends in (y/N). A report for a Possible match that nobody confirmed would point at a company on a guess.
     fields = {"business_name": "Invented Air Cooling", "city": "", "street": "", "is_specific": True}
