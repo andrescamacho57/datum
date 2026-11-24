@@ -67,11 +67,20 @@ Datum checks a small trade contractor's commercial client before a job: is it a 
 - Add one row for the pull request to `docs/review_log.csv`.
 - Never ask a question or wait for approval during review.
 
-**Human review section**: the pull request body starts with `## Human review`. Andres reads it before anything else, in 1 to 3 minutes and never more than 5, and it has to be enough for him to explain the change back and answer the three questions. The leg report below it keeps its full detail, because later agents read that. Nothing in the leg report is shortened to make room.
-- At most 250 words. Full sentences, each technical term explained in a few words, and every number says what it counts. Bullets are fine, and so is one small diagram when a picture is clearer.
-- It says, in this order: what changed and why, in two or three sentences; what is proven, and by which check, in at most three bullets; what was assumed or could not be verified (the 🔴 and 🟡 items from section 4 of the leg report); the decisions that are his; and where to look, which is at most three files or line ranges that carry the judgment.
-- Every one of those five parts appears. When a part is empty, write one sentence that says so, for example "Nothing was assumed."
-- It states no fact that is not in the leg report, and it does not quote the three questions or their answers. The questions stay a check of his understanding.
+**Human review section**: the pull request body starts with `## Human review`. Andres reads it before anything else, in under 5 minutes, and it has to tell him everything he needs without opening anything else in the pull request: enough to explain the change back, answer the three questions and make his decisions. The leg report below it keeps its full detail, because later agents read that. Nothing in the leg report is shortened to make room.
+- Write it the way a colleague would explain the change out loud to someone who was not there. Use full sentences with a subject and a verb. Do not write a bold label followed by clipped fragments, such as "**Your decisions.** Dropping the old index, and a host for 5.5 GB." Write "The decisions that are yours", and then a numbered list in which each decision is a full sentence or a question, followed by the facts he needs to decide it.
+- It is as long as the essentials need, which is usually 300 to 600 words, and never more than 700. The limit is on what goes in, not on how it is said: leave a detail out before you shorten a sentence into a fragment.
+- It has these parts, in this order, each under a short bold heading on its own line:
+    1. An opening with no heading: what the leg does and why, the risk tier and what that tier asks of him, and which pull requests to merge first.
+    2. "What was built": a small diagram of the pieces and how data moves between them, as a `mermaid` code block, which GitHub draws as a picture. Under it, the two or three ideas the change rests on, each explained in plain words. A pull request that only changes documents has no diagram.
+    3. "What is proven": the results, each with its number and what the number counts.
+    4. "What is not proven": the 🔴 and 🟡 items from section 4 of the leg report that matter to his decisions, and any commit that no review round covered.
+    5. "The decisions that are yours": the numbered list described above. Each item says what he is deciding, what happens today, and what the other choice would change. Name an open question by its number only after saying what it asks.
+    6. "If you open the code": at most three places that carry the judgment.
+- Every part appears. When a part is empty, write one sentence that says so, for example "Nothing was assumed."
+- It stands alone. Do not point at "check 3", "section 4" or "Q36" as if he had read them: say what the check showed or what the question asks, and then give the reference.
+- Each technical term is explained in a few words the first time, and every number says what it counts.
+- It states no fact that is not in the leg report. It explains the ideas he needs for the three questions, and it does not quote the questions or their answers. The questions stay a check of his understanding.
 - The template's "What this changes" and "What a person should look at" must agree with this section. Each may be one sentence that points to it.
 - Write it once the code is final and before the last review round, which checks it. If a fix in that round changes the code, bring the section up to date and include it in the next round.
 
