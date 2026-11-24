@@ -88,6 +88,10 @@ class CompanyNotFound(LookupError):
     """No company has this document number. The web app answers it with a plain 404 page."""
 
 
+class NoSourceChecked(RuntimeError):
+    """source_coverage lists no source whose flags may be shown, so there is nothing a report could truthfully say it checked."""
+
+
 class ReportBackend(Protocol):
     """Anything that can hand over a company, its flag rows and the list of sources."""
 
@@ -152,8 +156,13 @@ class ReportBuilder:
         self.backend = backend
         self.today = today                  # passed in so that a test can fix the date. "New company" depends on it
 
-    def build(self, document_number: str, identification: Identification | None = None) -> Report:
-        """The report for one company. `identification` says how it was picked. None means it was opened by its number."""
+    def build(self, document_number: str, identification: Identification | None) -> Report:
+        """The report for one company. `identification` says how it was picked, and it has no default on purpose.
+
+        A caller that knows of no search passes None in so many words, and the report then
+        says it was opened by its document number. A caller cannot leave the argument out by
+        accident and get that sentence for a company that WAS found by a search.
+        """
         if not looks_like_a_document_number(document_number):
             raise CompanyNotFound(document_number)
         company = self.backend.company(document_number)
@@ -199,6 +208,8 @@ class ReportBuilder:
             for row in sources if row.is_shown   # rule W5: a source is "checked" only when its flags may be shown
         )
         not_checked = tuple(row.label for row in sources if not row.is_shown) + wording.NOT_CHECKED_ALWAYS
+        if not checked:                     # nothing may be shown from any source: refuse, and never print "No flags found" about nothing
+            raise NoSourceChecked(document_number)
 
         if identification is None:
             identified = fact(wording.IDENTIFIED_BY_NUMBER)

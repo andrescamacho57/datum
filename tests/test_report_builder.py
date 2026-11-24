@@ -20,7 +20,7 @@ import report_fixtures as fx                # tests/report_fixtures.py: the fixt
 from datum import wording
 from datum.models import Identification
 from datum.report_builder import (
-    CompanyNotFound, FakeReportBackend, PostgresReportBackend, ReportBuilder, candidate_for_page, looks_like_a_document_number,
+    CompanyNotFound, FakeReportBackend, NoSourceChecked, PostgresReportBackend, ReportBuilder, candidate_for_page, looks_like_a_document_number,
     one_year_before, render_markdown,
 )
 from datum.search import Candidate as SearchCandidate
@@ -78,7 +78,7 @@ def test_a_company_on_record_within_twelve_months_is_flagged_as_new_and_one_outs
         (None, False),                                                    # no date on record: nothing is assumed
     ):
         backend = FakeReportBackend([replace(company, file_date=on_record)], [], fx.load_sources())
-        flags = ReportBuilder(backend, today=lambda: fx.BUILT_ON).build(fx.NEW_COMPANY).flags
+        flags = ReportBuilder(backend, today=lambda: fx.BUILT_ON).build(fx.NEW_COMPANY, None).flags
         assert [flag.flag_type for flag in flags] == (["new_company"] if flagged else []), on_record
     assert one_year_before(date(2024, 2, 29)) == date(2023, 2, 28)        # the year before a leap day has no Feb 29
 
@@ -141,7 +141,7 @@ def test_the_identification_line_shows_the_extracted_fields_and_no_note():
     with_street = PICKED.model_copy(update={"city": "", "street": "Race Track Rd"})
     assert 'the business name "Invented Air Conditioning", the street "Race Track Rd"' in build(fx.LIEN_COMPANY, with_street).identification.text
     opened = render_markdown(build(fx.LIEN_COMPANY))
-    assert "**How this company was identified:** opened by its document number." in opened and "match level Strong" not in opened
+    assert "**How this company was identified:** opened by its document number, so no match level applies." in opened and "match level Strong" not in opened
 
 
 @pytest.mark.parametrize("document_number", ALL_COMPANIES)
@@ -178,9 +178,26 @@ def test_the_sources_lists_say_what_was_checked_through_which_date_and_what_was_
     assert "Court cases" in report.sources_not_checked and "UCC (Uniform Commercial Code) filings" in report.sources_not_checked
     text = render_markdown(report)
     assert text.index("## Sources checked") < text.index("## Not checked") < text.index("How this company was identified")
+
+
+def test_a_report_is_refused_when_no_source_may_be_shown():
+    # "No flags found in the sources checked." under an empty list of sources would be an all-clear about nothing.
     hidden_everything = [replace(row, is_shown=False) for row in fx.load_sources()]
-    nothing_checked = ReportBuilder(FakeReportBackend(fx.load_companies(), [], hidden_everything), today=lambda: fx.BUILT_ON).build(fx.NO_FLAG_COMPANY)
-    assert nothing_checked.sources_checked == () and len(nothing_checked.sources_not_checked) == 5 + len(wording.NOT_CHECKED_ALWAYS)
+    for sources in (hidden_everything, []):
+        for document_number in (fx.NO_FLAG_COMPANY, fx.INACTIVE_COMPANY):  # with a flag or without one
+            with pytest.raises(NoSourceChecked):
+                ReportBuilder(FakeReportBackend(fx.load_companies(), [], sources), today=lambda: fx.BUILT_ON).build(document_number, None)
+    with pytest.raises(ValueError, match="at least one source checked"):
+        wording.summary_line(0, 0)
+    with pytest.raises(ValueError, match="at least one source checked"):
+        wording.summary_line(2, 0)
+
+
+def test_the_identification_has_no_default_so_no_caller_can_drop_it_by_accident():
+    with pytest.raises(TypeError, match="identification"):
+        fx.builder().build(fx.NO_FLAG_COMPANY)                            # a caller must say None in so many words
+    by_number = fx.builder().build(fx.NO_FLAG_COMPANY, None).identification.text
+    assert by_number == "opened by its document number, so no match level applies." and "search" not in by_number   # it claims nothing about a search
 
 
 def test_everything_stated_about_the_company_is_a_fact_with_the_company_records_source():
@@ -204,7 +221,7 @@ def test_a_gap_in_the_states_record_is_said_and_never_filled_in():
     text = render_markdown(build(fx.GAPS_COMPANY))
     assert "None" not in text
     no_status = replace(next(c for c in fx.load_companies() if c.document_number == fx.GAPS_COMPANY), status_code=None, filing_type=None)
-    report = ReportBuilder(FakeReportBackend([no_status], [], fx.load_sources()), today=lambda: fx.BUILT_ON).build(fx.GAPS_COMPANY)
+    report = ReportBuilder(FakeReportBackend([no_status], [], fx.load_sources()), today=lambda: fx.BUILT_ON).build(fx.GAPS_COMPANY, None)
     values = {label: fact.text for label, fact in report.company}
     assert (values["Status with the state"], values["Entity type"]) == ("Not on record", "Not on record")
     assert report.flags == ()                                             # no status on record is not "inactive"
@@ -214,11 +231,11 @@ def test_a_fetch_time_in_another_zone_is_converted_and_one_with_no_zone_is_refus
     company = next(c for c in fx.load_companies() if c.document_number == fx.NO_FLAG_COMPANY)
     lien = next(row for row in fx.load_flags() if row.document_number == fx.LIEN_COMPANY)
     eastern = replace(lien, document_number=fx.NO_FLAG_COMPANY, fetched_at=lien.fetched_at.astimezone(timezone(timedelta(hours=-5))))
-    report = ReportBuilder(FakeReportBackend([company], [eastern], fx.load_sources()), today=lambda: fx.BUILT_ON).build(fx.NO_FLAG_COMPANY)
+    report = ReportBuilder(FakeReportBackend([company], [eastern], fx.load_sources()), today=lambda: fx.BUILT_ON).build(fx.NO_FLAG_COMPANY, None)
     assert report.flags[0].fact.fetched_at == lien.fetched_at and report.flags[0].fact.fetched_at.utcoffset() == timedelta(0)
     naive = replace(eastern, fetched_at=lien.fetched_at.replace(tzinfo=None))
     with pytest.raises(ValueError, match="needs a time zone"):
-        ReportBuilder(FakeReportBackend([company], [naive], fx.load_sources()), today=lambda: fx.BUILT_ON).build(fx.NO_FLAG_COMPANY)
+        ReportBuilder(FakeReportBackend([company], [naive], fx.load_sources()), today=lambda: fx.BUILT_ON).build(fx.NO_FLAG_COMPANY, None)
 
 
 def test_a_number_that_names_no_company_or_is_not_a_number_at_all_is_not_found():
@@ -229,7 +246,7 @@ def test_a_number_that_names_no_company_or_is_not_a_number_at_all_is_not_found()
     for text in ("", "T2600000000X!", "../../etc", "t26000000001", "T260000000012345", "T26 000000001", "' or 1=1 --"):
         assert not looks_like_a_document_number(text)
         with pytest.raises(CompanyNotFound):
-            ReportBuilder(NeverAsked()).build(text)                       # refused before any query is made
+            ReportBuilder(NeverAsked()).build(text, None)                       # refused before any query is made
     assert looks_like_a_document_number("T26000000001") and looks_like_a_document_number("688030")
     with pytest.raises(CompanyNotFound):
         build("T26000000099")                                             # the right shape, and no such company
@@ -267,7 +284,7 @@ def test_a_search_result_becomes_a_page_candidate_whose_name_and_place_are_facts
 
 def test_a_name_with_a_table_mark_in_it_does_not_break_the_table():
     company = replace(next(c for c in fx.load_companies() if c.document_number == fx.NO_FLAG_COMPANY), entity_name="INVENTED A|B LLC")
-    text = render_markdown(ReportBuilder(FakeReportBackend([company], [], fx.load_sources()), today=lambda: fx.BUILT_ON).build(fx.NO_FLAG_COMPANY))
+    text = render_markdown(ReportBuilder(FakeReportBackend([company], [], fx.load_sources()), today=lambda: fx.BUILT_ON).build(fx.NO_FLAG_COMPANY, None))
     assert "| Legal name | INVENTED A\\|B LLC |" in text
 
 

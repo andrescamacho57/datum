@@ -103,6 +103,11 @@ def test_the_summary_line_is_worked_out_from_the_flags_and_cannot_be_stored():
         Report(**{**a_report([a_flag()]).model_dump(), "summary": wording.NO_FLAGS})
 
 
+def test_a_report_with_no_source_checked_cannot_be_built():
+    with pytest.raises(ValidationError, match="at least one source checked"):
+        Report(**{**a_report().model_dump(), "sources_checked": ()})
+
+
 def test_every_report_carries_the_same_two_sentences():
     for report in (a_report(), a_report([a_flag()])):
         assert report.confirmed_only == wording.CONFIRMED_ONLY and report.disclaimer == wording.DISCLAIMER

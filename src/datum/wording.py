@@ -96,7 +96,9 @@ NOT_CHECKED_ALWAYS = (                      # what no table lists, because Datum
 # --- How the company was identified (rules W6 and W7) -------------------------------------
 LABEL_IDENTIFIED = "How this company was identified"
 IDENTIFIED_BY_SEARCH = "from {fields} · match level {level} ({evidence}) · chosen by the user from a shortlist."
-IDENTIFIED_BY_NUMBER = "opened by its document number. No search was made, so no match level applies."
+IDENTIFIED_BY_NUMBER = "opened by its document number, so no match level applies."
+# It does not say "no search was made". The builder cannot know that: it only knows that it
+# was handed no identification.
 FIELD_BUSINESS_NAME = 'the business name "{value}"'
 FIELD_CITY = 'the city "{value}"'
 FIELD_STREET = 'the street "{value}"'
@@ -155,6 +157,8 @@ def day_text(value: date | datetime) -> str:
 
 def summary_line(flag_count: int, sources_checked: int) -> str:
     """The summary line (rule W2). With no flag it is exactly NO_FLAGS, and with a flag it never is."""
+    if sources_checked < 1:                 # "No flags found in the sources checked" with nothing checked would be an all-clear about nothing
+        raise ValueError("a summary line needs at least one source checked")
     if flag_count == 0:
         return NO_FLAGS
     flags = "1 flag found" if flag_count == 1 else f"{flag_count} flags found"

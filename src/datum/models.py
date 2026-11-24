@@ -138,6 +138,13 @@ class Report(Frozen):
     identification: Fact                    # the line that says how this company was picked (rules W6 and W7). It restates
                                             # the company's status and city as evidence, so it is a Fact with the company record's source
 
+    @field_validator("sources_checked")
+    @classmethod
+    def at_least_one_source(cls, value: tuple[Fact, ...]) -> tuple[Fact, ...]:
+        if not value:                       # a report whose summary speaks of "the sources checked" must have checked one
+            raise ValueError("a report needs at least one source checked: with none, it has nothing to say")
+        return value
+
     # The next three are not fields. They are worked out from the fields above each time they
     # are read, so no code path can store a summary that disagrees with the flags (rule W2).
 
