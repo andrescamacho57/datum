@@ -380,3 +380,56 @@ nothing wrong had been shown, but the next damaged file would have done it silen
 that case, and I had to decide its wording. I accepted a slightly more complicated note in exchange for never
 showing a released lien as open.
 
+
+---
+
+## "Why does your project use two databases?"
+
+**Decision:** the pipeline builds in Snowflake, and the app reads a copy in Postgres.
+
+**Why:** they are two different jobs. Building is OLAP (online analytical processing): joins over millions of
+rows, run in batches. Serving is OLTP (online transaction processing): one company at a time, in
+milliseconds, all day. A warehouse that suspends itself takes seconds to wake, and keeping it awake for an
+app would cost about 720 credits a month.
+
+**Tradeoff:** a copy step that has to keep the two in step. I swap every table in one transaction so the app
+never reads half a load, I check row counts against Snowflake, and records that are hidden never leave the
+warehouse.
+
+---
+
+## "How did you set a performance target, and what did you do when you missed it?"
+
+**Decision:** I kept the target, a 95th-percentile search time under 1 second, and changed the design.
+
+**Why:** the miss was small, 1.23 seconds, but the median was 0.18. The tail showed the cause: names made of
+common words fetched thousands of wide rows from a table too big for memory. My laptop is the best machine
+the search will ever run on, so a miss there means no headroom on a real host. I use the 95th percentile and
+not the median because one contractor runs many searches, and with ten searches there is a 40% chance of
+meeting a slow one.
+
+**Tradeoff:** the fix is a narrow table holding only the name and the key, which costs disk and a second
+table to keep in step. I also said plainly that the 1-second number was an assumption of mine and not
+something a user had told me.
+
+---
+
+## "How do you handle API keys and other secrets?"
+
+**Decision:** secrets live in a `.env` file that git ignores, each key is scoped to one workspace, and keys
+expire and are replaced on a schedule.
+
+**Why:** a key is a static secret, so the question is how much a leak can cost. Expiry limits how long,
+scope limits how much, and hooks stop a coding agent from reading the file at all. The repository is public,
+which makes one bad commit expensive.
+
+**Tradeoff:** rotation is a manual step every time a key expires. When the app is deployed I would move to identity
+federation, where the platform vouches for the code and there is no stored key, which a laptop cannot do.
+
+---
+
+## "What is the difference between `git fetch` and `git pull`?"
+
+**Answer:** fetch downloads the remote's changes and touches no file. Pull is a fetch followed by a merge
+into the branch I am on. I fetch when I want to look first, and I learned the difference when a pull on an
+old branch said "Already up to date" while `main` was 20 files behind.

@@ -740,3 +740,156 @@ Source: Anthropic, "Building Effective Agents" (the evaluator-optimizer workflow
 - A full ordering matters for repeatable results: `row_number()` or `min_by` over rows that tie picks one
   arbitrarily, so add columns to the `order by` until two rows can only tie when they are identical.
 
+
+---
+
+## Where a Claude Code Session Runs: the Cloud or Your Mac (Nov 20)
+
+- A **cloud session** runs on Anthropic's servers. The Mac can be off. It can reach the GitHub repo, and it
+  cannot reach `.env`, `~/.snowflake/` or anything else that lives only on the Mac.
+- A **local session** runs on the Mac. Remote Control (`/rc` inside the session) lets the phone steer it, and
+  the Mac must stay awake, online and with the session's window open.
+- The rule of thumb: work that needs credentials (dbt, Snowflake, Postgres) runs on the Mac. Work that needs
+  only the repo (briefs, reviews, docs) can run in the cloud.
+- One prompt never reaches the phone: the question about using usage credits when a model's cap is hit.
+
+---
+
+## API Keys: Static Secrets, Expiry, Rotation and Scope (Nov 20)
+
+- An API (application programming interface) key is a **static secret**: a password that never changes on
+  its own. Whoever holds it gets in.
+- **Expiry** puts a ceiling on the damage from a leak nobody noticed. The lifetime is chosen when the key is
+  made and cannot be changed afterward. An expired key cannot be revived.
+- **Rotation** is replacing a secret on a schedule. For Datum the plan is a new key about every 90 days, in `.env`.
+- **Blast radius** is how much one leaked secret can damage. **Least privilege** shrinks it: the key is scoped
+  to one workspace (Default), not the whole organization. An organization-scoped key also has to name a
+  workspace on every request, which Datum's code does not do.
+- **Authentication** proves who is calling. **Authorization** decides what they may do.
+- **Identity federation** replaces the stored key with a short-lived token. The platform the code runs on
+  (a cloud provider, or GitHub Actions) vouches for it with a signed badge, a JWT (JSON Web Token), under the
+  OIDC (OpenID Connect) standard. A laptop has nobody to vouch for it, so local work still uses a key.
+  Revisit when the app is deployed.
+
+---
+
+## Environment Variables: `.env` and `.zshrc` (Nov 20)
+
+- An environment variable is a named value a program can read while it runs, such as `ANTHROPIC_API_KEY`.
+- `.env` is a plain file of `NAME=value` lines inside the project. Only a program that asks for it reads it
+  (Datum calls `load_dotenv()`). It is in `.gitignore` and never goes to GitHub.
+- `~/.zshrc` is a script the Mac's shell runs every time a terminal opens. A variable exported there reaches
+  every command in every terminal.
+- The trap: `load_dotenv()` does not overwrite a variable that is already set. An old key exported in the
+  shell silently wins over the new key in `.env`.
+
+---
+
+## Two Copies of a Repo: Fetch, Pull and Push (Nov 20)
+
+- Git is a distributed version control system. GitHub holds one complete copy and the Mac holds another, and
+  nothing syncs them automatically. A merge on GitHub changes only GitHub.
+- `git fetch` downloads the news and changes no files. `git pull` is a fetch followed by a merge into the
+  branch you are on. `git push` sends your commits the other way.
+- "Already up to date" describes only the current branch. A pull on an old branch does not update `main`.
+- The habit: before any session on the Mac, `git switch main`, then `git pull`.
+- A **commit** saves changes on a branch. A **merge** brings one branch's commits into another, and on GitHub
+  that is what the green button on a pull request does.
+
+---
+
+## One Folder, One Checked-Out Branch (Nov 21)
+
+- A folder can have only one branch checked out. Switching branches rewrites the files in it.
+- During the Phase C run, something checked out `main` in `~/datum` while the agent was working, and four of
+  its commits landed on local `main`. Nothing had been pushed, so the agent moved them back.
+- While an agent runs in `~/datum`, reading is safe (`git status`, `git log`, `git diff`). Anything that
+  changes what is checked out is not (`switch`, `pull`, `merge`, `commit`, `stash`).
+- `git worktree add <folder> <branch>` makes a second folder with its own checked-out branch and the same
+  history. That is isolation: two workers, two folders, one repo.
+
+---
+
+## Percentiles: p50, p95 and Why Not the Median (Nov 23)
+
+- The p95 is the 95th percentile. Sort every measurement from fastest to slowest and go 95% of the way down.
+  On 208 searches that is about search number 198: 197 were faster and about 10 were slower.
+- The p50 is the median. It answers "what is typical?" The p95 answers "how bad does it get?"
+- Leg C2's search had a p50 of 181 milliseconds and a p95 of 1,229. The median looked perfect and hid ten
+  slow searches, one of them 4.4 seconds.
+- It is the same idea as Value at Risk in credit risk: the median loss says little, and the tail is the risk.
+- An average is worse than either, because one very slow search is blended away.
+- Report both. The p50 is the typical experience and the p95 is the pass-or-fail bar.
+
+---
+
+## The Complement Rule: "At Least One" (Nov 23)
+
+- For several things all to happen, multiply their chances. Ten searches all in the faster 95% is
+  0.95 multiplied by itself ten times, which is about 0.60.
+- "At least one slow search" can happen in many ways, and its opposite, "every search was fast", in one.
+  So work out the opposite and subtract it from 1: 1 - 0.60 = 0.40.
+- "1 in 20 searches is slow" therefore becomes "4 in 10 contractors who search ten times meet a slow one".
+- It assumes each search's speed does not depend on the others, which is close enough for a rule of thumb.
+
+---
+
+## Trigram Index (Nov 23)
+
+- A trigram is three characters in a row. `SMITH` breaks into `smi`, `mit`, `ith`, plus padded pieces for the
+  start and the end of the word.
+- A trigram index is like the index at the back of a book: for each trigram, the list of rows whose name
+  contains it. Postgres provides it through the `pg_trgm` extension.
+- A search breaks the typed name into trigrams, looks each one up, and keeps the names that share most of
+  them. Small typos still match, and the table is never read from end to end.
+- Common trigrams such as `ing` point at hundreds of thousands of rows, which is why names made of common
+  words are the slow searches.
+
+---
+
+## OLAP and OLTP: Build in Snowflake, Serve from Postgres (Nov 23)
+
+- OLAP (online analytical processing) is big questions over many rows, in batches. That is Snowflake and dbt.
+- OLTP (online transaction processing) is many small, fast lookups. That is what an app needs, and Postgres,
+  a free open-source database, is built for it.
+- Decision d18: builds run in Snowflake, and lookups read a copy in Postgres. A suspended warehouse takes
+  seconds to wake, and keeping one awake all month costs about 720 credits.
+- The cost of the split is a copy step. The loader swaps all the tables in one transaction, so the app never
+  reads half a load, and hidden records never leave Snowflake (rule W9).
+
+---
+
+## Vertical Partitioning: the Narrow Search Table (Nov 23)
+
+- The slow searches spent their time fetching thousands of wide rows scattered through a 3 GB table that
+  does not fit in memory.
+- Vertical partitioning moves the columns a hot query needs (document number and name) into their own small
+  table, about 0.9 GB. The search reads the small table and then fetches the 200 full rows it wants by key.
+- It should change no answer, because the names, the index and the reranking are the same. That is checked,
+  not assumed: every search must return the same five companies as before.
+- The costs are more disk and two tables that must always agree.
+- A miss on a target is information. The search missed by 0.23 seconds on the best machine it will ever run
+  on, which says the design has no headroom.
+
+---
+
+## A Near-Namesake Withholds a Link (rulings R29 and R30, Nov 20)
+
+- R29: a ZIP code that is present and unreadable can neither support a match nor contradict it, so the name
+  alone is not enough. The link is AMBIGUOUS with the reason `zip_unreadable`.
+- R30: a looser key strips a leading THE and the legal suffix. It is used to **count** near-namesakes, not to
+  make more matches. When two companies share the looser key, the link is AMBIGUOUS.
+- The mistake to avoid is reading R30 as a way to match more. The danger is a wrong match (a clerk typed LLC
+  and meant the INC), and so the rule says less. That is precision over recall.
+- The two rulings moved 625 links from CONFIRMED to AMBIGUOUS and none the other way.
+
+---
+
+## A Short Account for the Person, the Full Account for the Agent (Nov 23)
+
+- A leg report is long on purpose, so that a later agent can see exactly what was done. That length is too
+  much for a person to review well.
+- Every pull request now starts with a Human review section of at most 250 words: what changed and why, what
+  is proven, what was assumed, the decisions that are mine, and at most three places to look.
+- The author writes its own summary, so the AI reviewer checks the summary against the diff.
+- The summary treats a symptom. The cause is the size of the pull request, and smaller legs are the real fix.
