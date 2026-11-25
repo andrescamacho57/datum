@@ -313,6 +313,25 @@ def test_the_address_table_is_built_from_the_loaded_companies_checked_and_swappe
     assert "principal_address_1" in ADDRESSES_FILL_SQL and "mail" not in ADDRESSES_FILL_SQL.lower()   # only the principal address is searched (working rule S5)
 
 
+def test_the_statement_that_cuts_an_address_is_pinned_word_for_word():
+    # No offline test can RUN this statement, because it uses functions only Postgres has. So its text is pinned here, and a change
+    # to the cut has to change this test too. The cut must stay the one search.street_parts makes: the simplified address, the
+    # first word as the house number when it begins with a digit and is not a numbered street (4TH), the words after it as the street.
+    assert ADDRESSES_FILL_SQL == (
+        "insert into company_search_addresses_new (document_number, house_number, street_words) "
+        "select document_number, house_number, street_words from ("
+        "select document_number, "
+        "case when words[1] ~ '^[0-9]' and words[1] !~ '^[0-9]+(ST|ND|RD|TH)$' then words[1] end as house_number, "
+        "case when words[1] ~ '^[0-9]' and words[1] !~ '^[0-9]+(ST|ND|RD|TH)$' then array_to_string(words[2:], ' ') else '' end as street_words "
+        "from (select document_number, "
+        "string_to_array(trim(regexp_replace(upper(coalesce(principal_address_1, '')), '[^A-Z0-9]+', ' ', 'g')), ' ') as words "
+        "from company_search_new) as simplified) as cut "
+        'order by house_number collate "C" nulls last, street_words collate "C", document_number'
+    )
+    from datum.search import ORDINAL                                      # the Python side of the same rule
+    assert ORDINAL.pattern == "[0-9]+(ST|ND|RD|TH)" and "'^" + ORDINAL.pattern + "$'" in ADDRESSES_FILL_SQL
+
+
 def test_an_address_table_that_differs_from_company_search_stops_the_run_before_the_swap(tmp_path):
     # Each answer is (address rows, company rows, only in the address table, only in company_search).
     for answer, message in (

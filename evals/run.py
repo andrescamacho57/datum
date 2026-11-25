@@ -10,6 +10,7 @@ every change, so that "is the search better?" is a number and not an impression.
     python -m evals.run --backend postgres --latency 200 --retrieve plain   # time the first approach leg C2 tried (slow)
     python -m evals.run --backend postgres --compare 200   # do the second approach and the app's search give the same five companies?
     python -m evals.run --backend postgres --before        # also score the search as it was before Phase D, and say which cases moved
+    python -m evals.run --backend postgres --try-order s2  # also score another order of the candidates beside the app's, and say which cases it moves
     python -m evals.run --backend postgres --address-latency 200   # also time the search by address on 200 random principal addresses
 
 Run from ~/datum with the project's virtual environment active.
@@ -38,14 +39,27 @@ begins with a house number) or "ask" (no company is shown). An address search an
 the active companies at the address in document-number order, so its first five are scored
 the way the name search's best five are.
 
---before scores every case twice: with the search as it is, and with the search as it was
-before Phase D (search version 1's order: similarity first, and the city only to break an
-exact tie, and no search by address: a note that named no business was always asked for
-more). It then says, case by case for the checked cases and by count for the drafts,
-whether the expected company moved up, moved down or stayed. A checked case that moved down
-is the one thing that makes the command fail (exit code 1). That is working rule S3's test:
-a case is worse when its company leaves the top five, drops in rank, or when a note that
-should be asked about gets a company.
+Two options score every case twice and compare the two runs:
+    --before          the search as it was before Phase D, against the search as it is. Before
+                      Phase D there was no search by address: a note that named no business
+                      was always asked for more. The order of the candidates is the same in
+                      both runs, because leg D1 did not change the order the app uses.
+    --try-order NAME  the search as it is, against the same search with ANOTHER ORDER of the
+                      name search's candidates: s2 is Phase D working rule S2 (every typed
+                      word, then the city, then similarity), and s2-city-first is the one
+                      variant rule S3 allows. Neither is used by the app.
+Each says, case by case for the checked cases and by count for the drafts, whether the
+expected company moved up, moved down or stayed. A checked case that moved down is the one
+thing that makes the command fail (exit code 1). That is working rule S3's test: a case is
+worse when its company leaves the top five, drops in rank, or when a note that should be
+asked about gets a company.
+
+A company has TWO places, and both are compared. Its place BY RANK is where rank() puts it
+among all the candidates. Its place ON THE PAGE is where a contractor sees it: the page
+shows the best five by rank, put in order of match level (Strong, then Likely, then
+Possible), so the first company on a page is not always the first by rank. A case is worse
+when either place got worse. Leg D1 found why both are needed: rule S2 left every checked
+case's rank alone and moved one case's company from first to second on the page.
 
 What it measures, per case group and in total. The first two are defined exactly as in
 snowflake/11_score_search_v1.sql:
@@ -84,8 +98,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]            # this file is evals/
 sys.path.insert(0, str(REPO_ROOT / "src"))                 # so `import datum.search` works when this is run as python -m evals.run
 
 from datum.search import (  # noqa: E402  (the path line above has to come first)
-    COMPANY_COLUMNS, CANDIDATE_POOL, SHORTLIST_SIZE, AddressBackend, Candidate, Company, PostgresBackend, SearchBackend, address_search, by_words_then_city,
-    company_from_row, search, search_kind, search_pool,
+    COMPANY_COLUMNS, CANDIDATE_POOL, RANK_ORDER, SHORTLIST_SIZE, AddressBackend, Candidate, Company, PostgresBackend, SearchBackend, address_search,
+    by_city_then_words, by_words_then_city, company_from_row, search, search_kind, search_pool, shortlist,
 )
 
 TEST_SET = REPO_ROOT / "pipeline" / "seeds" / "test_set.csv"
@@ -122,6 +136,7 @@ class CaseResult:
                                             # None when it is not among them, when the search asked for more, or when no company is expected
     candidates: int = 0                     # how many candidates the search ranked for this case
     searched: str = "name"                  # which path the case took: "name", "address" or "ask" (datum.search.search_kind)
+    page_place: int | None = None           # where the expected company stands ON THE PAGE a contractor sees: 1 is the top. None when it is not shown
 
 
 def read_case_files(cases_file: Path, extracted: Path, checked: bool) -> list[Case]:
@@ -162,7 +177,8 @@ def read_draft_cases(cases_file: Path = DRAFT_CASES, extracted: Path = DRAFT_EXT
     return read_case_files(cases_file, extracted, checked=False)
 
 
-def score_case(case: Case, answered: list[str], place: int | None = None, candidates: int = 0, searched: str | None = None) -> CaseResult:
+def score_case(case: Case, answered: list[str], place: int | None = None, candidates: int = 0, searched: str | None = None,
+               page_place: int | None = None) -> CaseResult:
     """Score one case from the document numbers the search returned (none when it asked for more).
 
     `searched` is the path the case took. Left out, it is worked out from the case the way
@@ -178,20 +194,17 @@ def score_case(case: Case, answered: list[str], place: int | None = None, candid
         top1_correct=answered[:1] == [case.expected_document_number],
         in_top5=case.expected_document_number in answered[:5],
         wrong_match=bool(answered) and answered[0] != case.expected_document_number,
-        place=place, candidates=candidates, searched=searched,
+        place=place, candidates=candidates, searched=searched, page_place=page_place,
     )
 
 
-def version_1_order(candidate: Candidate) -> tuple:
-    """The sort key rank() used until leg D1: the highest similarity first, then a company in the city given, then the document number.
-
-    It is kept here, and not in the app's module, for one use: --before sorts the same pool
-    this way, so that the old order and the new one can be shown side by side at any time.
-    """
-    return (-candidate.similarity, not candidate.city_match, candidate.company.document_number)
+ORDERS = {                                  # --try-order: another order of the name search's candidates, scored beside the app's
+    "s2": by_words_then_city,               # Phase D working rule S2
+    "s2-city-first": by_city_then_words,    # the one variant rule S3 allows: S2 with its first two parts swapped
+}
 
 
-def run_cases(cases: list[Case], backend: SearchBackend, order: Callable[[Candidate], tuple] = by_words_then_city,
+def run_cases(cases: list[Case], backend: SearchBackend, order: Callable[[Candidate], tuple] = RANK_ORDER,
               address_backend: AddressBackend | None = None) -> list[CaseResult]:
     """Send every case down the path the app would send its note, and score it.
 
@@ -203,9 +216,14 @@ def run_cases(cases: list[Case], backend: SearchBackend, order: Callable[[Candid
       "address"  the search by address. It answers with the active companies at the address
                  in document-number order, and the first five of those are scored.
       "ask"      no search runs and no company is shown.
-    `order` is the app's own order unless --before asks for version 1's. With no
+    `order` is the app's own order unless --try-order asks for another. With no
     address_backend there is no search by address, and a note that names no business is
     asked about, as every such note was before Phase D.
+
+    Two places are kept for the expected company. `place` is its place by rank among all
+    the candidates. `page_place` is its place on the page: the name search's page shows the
+    best five by rank in order of match level (search.shortlist), and the address page
+    lists the active companies in document-number order.
     """
     results = []
     for case in cases:
@@ -217,10 +235,18 @@ def run_cases(cases: list[Case], backend: SearchBackend, order: Callable[[Candid
             continue
         if kind == "address":
             numbers = [company.document_number for company in address_search(address_backend, case.street, case.city).active]
+            on_page = numbers               # the address page lists every active company it found, in this order
         else:
-            numbers = [c.company.document_number for c in search_pool(backend, case.business_name, case.city, order=order)]
-        place = numbers.index(case.expected_document_number) + 1 if case.expected_document_number in numbers else None
-        results.append(score_case(case, numbers[:SHORTLIST_SIZE], place, len(numbers), searched=kind))   # the first five are exactly what the app shows first
+            pool = search_pool(backend, case.business_name, case.city, order=order)
+            numbers = [c.company.document_number for c in pool]
+            on_page = [c.company.document_number for c in shortlist(pool, city_given=bool(case.city)).candidates]   # exactly what the app's page shows, top to bottom
+        expected = case.expected_document_number
+        place = numbers.index(expected) + 1 if expected in numbers else None
+        page_place = on_page.index(expected) + 1 if expected in on_page else None
+        results.append(score_case(case, numbers[:SHORTLIST_SIZE], place, len(numbers), searched=kind, page_place=page_place))
+        # Top-1, recall at 5 and wrong_match are scored on the first five BY RANK, as snowflake/11_score_search_v1.sql defines
+        # them. Whether top-1 should mean first on the page is question Q51. Under the app's order the two agree on every
+        # checked case. They can differ under another order, which is why moved() below compares both places.
     return results
 
 
@@ -247,10 +273,24 @@ def standing(result: CaseResult) -> float:
     return float(result.place) if result.place else math.inf
 
 
+def page_standing(result: CaseResult) -> float:
+    """The same as standing(), for the place ON THE PAGE: lower is better, and a company that is not shown stands at infinity."""
+    if result.case.expected_document_number == ASK:
+        return 1.0 if result.answered else 0.0
+    return float(result.page_place) if result.page_place else math.inf
+
+
 def moved(before: CaseResult, after: CaseResult) -> str:
-    """ "up", "down" or "stayed": how one case's standing changed between two runs."""
-    was, now = standing(before), standing(after)
-    return "up" if now < was else "down" if now > was else "stayed"
+    """ "up", "down" or "stayed": how one case changed between two runs, by rank AND on the page.
+
+    "down" when either place got worse, whatever the other did. That is the cautious
+    reading: a company that keeps its rank and drops on the page is worse for the person
+    looking at the page. "up" when neither got worse and at least one got better.
+    """
+    rank_was, rank_now, page_was, page_now = standing(before), standing(after), page_standing(before), page_standing(after)
+    if rank_now > rank_was or page_now > page_was:
+        return "down"
+    return "up" if rank_now < rank_was or page_now < page_was else "stayed"
 
 
 def made_worse(before: list[CaseResult], after: list[CaseResult]) -> list[int]:
@@ -259,7 +299,9 @@ def made_worse(before: list[CaseResult], after: list[CaseResult]) -> list[int]:
     Rule S3 names three ways a case gets worse: its company leaves the top five, its company
     drops in rank, or a note that should be asked about gets a company. All three are a
     standing that went up, so "moved down" covers them: a company that leaves the top five
-    has dropped, and so has one that falls out of the candidates altogether.
+    has dropped, and so has one that falls out of the candidates altogether. A drop on the
+    page counts as a drop too (see moved), which the rule does not spell out: it is the
+    reading that calls more changes worse.
     """
     return [a.case.case_id for b, a in zip(before, after, strict=True) if moved(b, a) == "down"]
 
@@ -494,25 +536,37 @@ def print_movement(rows: list[tuple[str, int, int, int, int]]) -> None:
         print(f"{group:<24}{cases:>6}{up:>10}{down:>12}{stayed:>8}")
 
 
-def print_before_and_after(checked_before: list[CaseResult], checked_after: list[CaseResult],
-                           drafts_before: list[CaseResult] | None, drafts_after: list[CaseResult] | None) -> int:
-    """Both runs side by side, and the exit code: 1 when a CHECKED case was made worse, otherwise 0.
+def page_text(result: CaseResult) -> str:
+    """Where the expected company stands on the page a contractor sees, in words a table can hold."""
+    if result.searched == "ask":
+        return "asked"
+    if result.case.expected_document_number == ASK:
+        return "none expected"
+    return str(result.page_place) if result.page_place else "not shown"
 
-    The checked cases get a line each. The draft cases get counts by case group and nothing
-    else. The exit code is worked out from the checked cases alone: the drafts are printed
-    after it is decided and are not an input to made_worse(), so no draft can change it
-    (working rule S1).
+
+def print_before_and_after(checked_before: list[CaseResult], checked_after: list[CaseResult],
+                           drafts_before: list[CaseResult] | None, drafts_after: list[CaseResult] | None,
+                           first: str = "before Phase D", second: str = "now") -> int:
+    """Two runs side by side, and the exit code: 1 when a CHECKED case was made worse, otherwise 0.
+
+    `first` and `second` name the two runs in the headings. The checked cases get a line
+    each, with the expected company's place by rank and on the page in both runs. The draft
+    cases get counts by case group and nothing else. The exit code is worked out from the
+    checked cases alone: the drafts are printed after it is decided and are not an input to
+    made_worse(), so no draft can change it (working rule S1).
     """
     worse = made_worse(checked_before, checked_after)
-    print("\nbefore Phase D and now, checked cases (the place of the expected company among the candidates)")
-    print(f"{'case':>4}  {'group':<22}{'before':<18}{'now':<18}{'moved'}")
+    print(f"\n{first}, and {second}: checked cases (the place of the expected company by rank among the candidates, and on the page)")
+    width = max(len("by rank, " + first), len("by rank, " + second), 24) + 2   # wide enough for the longer of the two headings
+    print(f"{'case':>4}  {'group':<22}{'by rank, ' + first:<{width}}{'by rank, ' + second:<{width}}{'on the page':<26}{'moved'}")
     for b, a in zip(checked_before, checked_after, strict=True):
-        print(f"{a.case.case_id:>4}  {a.case.case_group:<22}{place_text(b):<18}{place_text(a):<18}{moved(b, a)}")
+        print(f"{a.case.case_id:>4}  {a.case.case_group:<22}{place_text(b):<{width}}{place_text(a):<{width}}{page_text(b) + ' -> ' + page_text(a):<26}{moved(b, a)}")
     print()
     print_movement(movement(checked_before, checked_after))
     print("checked cases made worse: " + (", ".join(str(case_id) for case_id in worse) if worse else "none"))
     if drafts_before is not None and drafts_after is not None:
-        print("\nbefore Phase D and now, draft cases (counts only: not checked by Andres, and so counted in no pass or fail decision)")
+        print(f"\n{first}, and {second}: draft cases (counts only: not checked by Andres, and so counted in no pass or fail decision)")
         print_movement(movement(drafts_before, drafts_after))
     return 1 if worse else 0
 
@@ -563,6 +617,35 @@ def fingerprint(drawn: list[tuple[str, str]]) -> str:
     return hashlib.md5("|".join(name for name, _ in drawn).encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
+def evaluate(cases: list[Case], drafts: list[Case] | None, backend: SearchBackend, backend_name: str,
+             address_backend: AddressBackend | None = None, before: bool = False, try_order: str | None = None) -> int:
+    """Score the checked cases and the draft cases, print the tables, and return the command's exit code.
+
+    This is the whole of what decides pass or fail, kept apart from main() so that a test
+    can run it with a stand-in backend. The exit code is 0 unless a comparison was asked
+    for and it found a CHECKED case made worse, and then it is 1:
+      before     the search before Phase D (no search by address) against the search as it is;
+      try_order  the search as it is against the same search with the candidates in the
+                 order ORDERS[try_order].
+    The drafts are scored and printed, and never decide anything (working rule S1).
+    """
+    checked_now = run_cases(cases, backend, address_backend=address_backend)
+    drafts_now = run_cases(drafts, backend, address_backend=address_backend) if drafts is not None else None
+    print_results(checked_now, backend_name)
+    print_draft_results(drafts_now)
+    exit_code = 0
+    if before:
+        checked_before = run_cases(cases, backend)                         # no address_backend: before Phase D there was no search by address
+        drafts_before = run_cases(drafts, backend) if drafts is not None else None
+        exit_code |= print_before_and_after(checked_before, checked_now, drafts_before, drafts_now)
+    if try_order:
+        order = ORDERS[try_order]
+        checked_tried = run_cases(cases, backend, order=order, address_backend=address_backend)
+        drafts_tried = run_cases(drafts, backend, order=order, address_backend=address_backend) if drafts is not None else None
+        exit_code |= print_before_and_after(checked_now, checked_tried, drafts_now, drafts_tried, first="the app's order", second=f"the order {try_order}")
+    return exit_code
+
+
 RETRIEVERS = {                              # --retrieve: which retrieve step to run on Postgres
     "narrow": (PostgresBackend, "narrow table, word similarity"),            # the search the app uses (the third approach)
     "word": (WideTableBackend, "company_search, word similarity"),           # the second approach
@@ -578,6 +661,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--compare", type=int, default=0, metavar="N", help="postgres only: run the second approach and the app's search on the test inputs plus N random company names, and count the searches whose five companies differ")
     parser.add_argument("--address-latency", type=int, default=0, metavar="N", help="postgres only: also time the search by address on N principal addresses drawn at random")
     parser.add_argument("--before", action="store_true", help="postgres only: also score the search as it was before Phase D, say which cases moved, and fail when a checked case was made worse")
+    parser.add_argument("--try-order", choices=tuple(ORDERS), default=None, help="postgres only: also score another order of the name search's candidates beside the app's (s2 = working rule S2, s2-city-first = its variant), and fail when it makes a checked case worse")
     args = parser.parse_args(argv)
     exit_code = 0
     cases = read_cases()
@@ -589,15 +673,7 @@ def main(argv: list[str] | None = None) -> int:
         with psycopg.connect(os.environ.get("DATUM_PG_DSN", "dbname=datum_dev")) as conn:
             backend_class, label = RETRIEVERS[args.retrieve]
             backend = backend_class(conn)
-            checked_now = run_cases(cases, backend, address_backend=backend)
-            drafts_now = run_cases(drafts, backend, address_backend=backend) if drafts is not None else None
-            print_results(checked_now, f"postgres ({label})")
-            print_draft_results(drafts_now)
-            if args.before:                 # before Phase D: version 1's order, and no address_backend, so no search by address
-                exit_code = print_before_and_after(
-                    run_cases(cases, backend, order=version_1_order), checked_now,
-                    run_cases(drafts, backend, order=version_1_order) if drafts is not None else None, drafts_now,
-                )
+            exit_code = evaluate(cases, drafts, backend, f"postgres ({label})", address_backend=backend, before=args.before, try_order=args.try_order)
             test_inputs = [(c.business_name, c.city) for c in cases if c.is_specific]
 
             def with_random_names(count: int) -> list[tuple[str, str]]:
@@ -629,7 +705,8 @@ def main(argv: list[str] | None = None) -> int:
         import snowflake.connector          # Snowflake's Python driver, imported only when it is used
         conn = snowflake.connector.connect(connection_name="datum")    # the driver reads the connection's settings itself
         try:
-            print_results(run_cases(cases, SnowflakeBackend(conn)), "snowflake")   # no address_backend: Snowflake has no address table, so an address-only note is scored as asked
+            evaluate(cases, None, SnowflakeBackend(conn), "snowflake")   # no address_backend: Snowflake has no address table, so an address-only note is scored as asked.
+                                                                         # No drafts either: each case costs a scan of 13 million names, and the drafts decide nothing
         finally:
             conn.close()                    # always release the session, even after an error
     return exit_code

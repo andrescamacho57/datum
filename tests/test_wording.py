@@ -99,24 +99,24 @@ def test_the_sentences_of_an_address_search_are_held_here_as_literal_text():
     # Phase D, leg D1. Rule S8's sentence is typed out word for word, and so is every sentence that counts companies.
     assert wording.PRINCIPAL_ADDRESS_NOTE == "A company's principal address is the address it gave the state, which is not always where it does business."
     assert wording.count_text(0, wording.ADDRESS_INACTIVE_ONE, wording.ADDRESS_INACTIVE_MANY) == ""   # no sentence about no companies
-    assert wording.count_text(1, wording.ADDRESS_INACTIVE_ONE, wording.ADDRESS_INACTIVE_MANY) == "1 inactive company also has this principal address on record and is not listed."
-    assert wording.count_text(2, wording.ADDRESS_INACTIVE_ONE, wording.ADDRESS_INACTIVE_MANY) == "2 inactive companies also have this principal address on record and are not listed."
-    assert wording.count_text(1, wording.ADDRESS_ACTIVE_ONE, wording.ADDRESS_ACTIVE_MANY) == "1 active company has this principal address on record."
-    assert wording.count_text(3, wording.ADDRESS_NO_STATUS_ONE, wording.ADDRESS_NO_STATUS_MANY) == "3 companies with no status on record also have this principal address and are not listed."
+    assert wording.count_text(1, wording.ADDRESS_INACTIVE_ONE, wording.ADDRESS_INACTIVE_MANY) == "1 inactive company also matches and is not listed."
+    assert wording.count_text(2, wording.ADDRESS_INACTIVE_ONE, wording.ADDRESS_INACTIVE_MANY) == "2 inactive companies also match and are not listed."
+    assert wording.count_text(1, wording.ADDRESS_ACTIVE_ONE, wording.ADDRESS_ACTIVE_MANY) == "1 active company matches."
+    assert wording.count_text(3, wording.ADDRESS_NO_STATUS_ONE, wording.ADDRESS_NO_STATUS_MANY) == "3 companies with no status on record also match and are not listed."
     assert "inactive" not in wording.ADDRESS_NO_STATUS_ONE + wording.ADDRESS_NO_STATUS_MANY   # no status on record is never called inactive
-    assert wording.ADDRESS_TOO_MANY.format(limit=50) == "More than 50 companies have that principal address on record, which is too many to list. Add the business's name."
-    assert wording.address_compared_text("8586", city_given=False).endswith("are not compared.")
+    assert wording.ADDRESS_TOO_MANY == "That house number and street name are on the records of too many companies to list them. Add the business's name."
+    assert wording.address_compared_text("8586", city_given=False).endswith("are not compared. You gave no city, so a match can be in any city.")
     assert wording.address_compared_text("8586", city_given=True).endswith("are not compared. Its principal city on record also begins with the city you gave.")
 
 
 def test_the_identification_line_of_an_address_search_names_the_street_and_no_match_level():
     line = wording.identified_by_address_text("8586 palm pwwy", "", 0)
-    assert line == ('from the street "8586 palm pwwy" · found by its principal address on record (the same house number, and a street name whose words '
-                    "were all typed) · chosen by the user from the active companies listed for that address.")
+    assert line == ('from the street "8586 palm pwwy" · found by its principal address on record (the same house number, and a street name made only of '
+                    "words that were typed) · chosen by the user from the active companies listed.")
     assert "level" not in line                                            # rule S4 keeps the three levels for the name search
     with_city = wording.identified_by_address_text("8586 palm pwwy", "Orlando", 1)
-    assert 'from the street "8586 palm pwwy", the city "Orlando" ·' in with_city and with_city.endswith(" 1 other active company was listed for that address.")
-    assert wording.identified_by_address_text("12 made up rd", "", 4).endswith(" 4 other active companies were listed for that address.")
+    assert 'from the street "8586 palm pwwy", the city "Orlando" ·' in with_city and with_city.endswith(" 1 other active company was listed with it.")
+    assert wording.identified_by_address_text("12 made up rd", "", 4).endswith(" 4 other active companies were listed with it.")
 
 
 def test_the_pages_ask_for_what_the_two_searches_use_and_no_longer_for_a_street_beside_a_name():

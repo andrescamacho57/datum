@@ -376,7 +376,7 @@ def test_a_company_found_by_its_address_says_so_on_its_report_and_claims_no_matc
     report = fx.builder().build(fx.LIEN_COMPANY, how)
     assert report.identification.text == (
         'from the street "1 invented wy", the city "Boynton Beach" · found by its principal address on record (the same house number, and a street name '
-        "whose words were all typed) · chosen by the user from the active companies listed for that address. 1 other active company was listed for that address.")
+        "made only of words that were typed) · chosen by the user from the active companies listed. 1 other active company was listed with it.")
     assert report.identification.citation == "Florida Division of Corporations (Sunbiz) record, document number T26000000001"
     assert report.caution == "" and "match level" not in render_markdown(report)   # no level was claimed, so there is nothing to caution about
 
@@ -394,7 +394,7 @@ def test_a_count_of_companies_cites_the_records_it_was_made_from_and_is_as_fresh
     # CLAUDE.md rule 3: a derived value carries its inputs' provenance. "2 inactive companies ..." is derived from two company records.
     base = next(c for c in fx.load_companies() if c.document_number == fx.INACTIVE_COMPANY)
     older = replace(base, fetched_at=base.fetched_at - timedelta(days=30), fetched_at_is_approximate=False)
-    counted = count_fact("2 inactive companies also have this principal address on record and are not listed.", (base, older))
+    counted = count_fact("2 inactive companies also match and are not listed.", (base, older))
     assert counted.text.startswith("2 inactive companies") and counted.citation == "Florida Division of Corporations (Sunbiz) company records"
     assert counted.source_url == base.source_url and counted.fetched_at == older.fetched_at   # the OLDEST fetch time of the two
     assert counted.fetched_at_is_approximate is True                      # one of the two times is an estimate, so the count's is

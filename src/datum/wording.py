@@ -205,40 +205,51 @@ REPORT_UNAVAILABLE = "The report is unavailable right now."
 REQUEST_NOT_READ = "That could not be read as a search. Type the business's name in the box."   # a form that was not sent by the search box
 
 # --- The search by address (Phase D, leg D1; working rules S5 to S8) ------------------------
-ADDRESS_HEADING = "Companies at this address"
+ADDRESS_HEADING = "Companies by principal address"
 ADDRESS_COMPARED = (
-    "A company is listed here when its principal address on record has the house number {house_number} "
-    "and a street name whose words you all typed. The kind of street, such as ST or PKWY, and a direction, N, S, E or W, are not compared."
+    "A company matches when its principal address on record has the house number {house_number} "
+    "and a street name made only of words you typed. The kind of street, such as ST or PKWY, and a direction, N, S, E or W, are not compared."
 )
-# Exactly the comparison of search.street_matches(), so that "this principal address" in the
-# lines below claims no more than was checked: 8586 PALM AVE would be listed for "8586 palm pkwy".
-# Each company is shown with its own address as the state has it, so the reader can see that.
+# Exactly the comparison of search.street_matches(). Every line below says "matches" and never
+# "has this address", because the comparison is looser than that: 8586 PALM AVE matches
+# "8586 palm pkwy", and so does a street made of fewer words than were typed. Round 1 of leg
+# D1's review found that the first wording, "has this principal address", claimed more than was
+# checked, above all for the companies that are counted and not shown. Each LISTED company is
+# shown with its own address as the state has it, so the reader can compare.
 ADDRESS_COMPARED_CITY = "Its principal city on record also begins with the city you gave."
-ADDRESS_ACTIVE_ONE = "1 active company has this principal address on record."
-ADDRESS_ACTIVE_MANY = "{count} active companies have this principal address on record. They are in document-number order, which says nothing about which one you mean."
-ADDRESS_NO_ACTIVE = "No active company has this principal address on record."
-ADDRESS_INACTIVE_ONE = "1 inactive company also has this principal address on record and is not listed."
-ADDRESS_INACTIVE_MANY = "{count} inactive companies also have this principal address on record and are not listed."
+ADDRESS_COMPARED_NO_CITY = "You gave no city, so a match can be in any city."
+ADDRESS_ACTIVE_ONE = "1 active company matches."
+ADDRESS_ACTIVE_MANY = "{count} active companies match. They are in document-number order, which says nothing about which one you mean."
+ADDRESS_NO_ACTIVE = "No active company matches."
+ADDRESS_INACTIVE_ONE = "1 inactive company also matches and is not listed."
+ADDRESS_INACTIVE_MANY = "{count} inactive companies also match and are not listed."
 # Rule S6: an address search lists only the active companies and says how many inactive ones
-# there are, in one sentence. Whether they should be listed is Andres's call (an open question).
-ADDRESS_NO_STATUS_ONE = "1 company with no status on record also has this principal address and is not listed."
-ADDRESS_NO_STATUS_MANY = "{count} companies with no status on record also have this principal address and are not listed."
+# there are, in one sentence. Whether they should be listed is Andres's call (question Q45).
+ADDRESS_NO_STATUS_ONE = "1 company with no status on record also matches and is not listed."
+ADDRESS_NO_STATUS_MANY = "{count} companies with no status on record also match and are not listed."
 # A company with no status on record is not called inactive (CLAUDE.md rule 3). Every company has a status today.
 PRINCIPAL_ADDRESS_NOTE = "A company's principal address is the address it gave the state, which is not always where it does business."
 # Rule S8, word for word: once, under the results of every address search.
-ADDRESS_NOT_FOUND = "No company with that principal address on record was found. Check the house number and the spelling of the street's name."
-ADDRESS_TOO_MANY = "More than {limit} companies have that principal address on record, which is too many to list. Add the business's name."
+ADDRESS_NOT_FOUND = (
+    "No company matches: none has a principal address on record with that house number and a street name made only of words you typed. "
+    "Check the house number and the spelling of the street's name, and add the suite or unit if the address has one."
+)
+# It says what was compared, so that it does not read as "no company is at this address". A
+# record that holds a suite only matches when the suite was typed too (question Q47).
+ADDRESS_TOO_MANY = "That house number and street name are on the records of too many companies to list them. Add the business's name."
+# It gives no count. The search stops reading at a limit, before the city is compared, so it
+# cannot say how many companies there are, and a sentence with a number would need a source.
 COMPANY_RECORDS_CITATION = "Florida Division of Corporations (Sunbiz) company records"
 # What a count of companies cites. One company cites its own record, with its document number.
 IDENTIFIED_BY_ADDRESS = (
-    "from {fields} · found by its principal address on record (the same house number, and a street name whose words were all typed) "
-    "· chosen by the user from the active companies listed for that address."
+    "from {fields} · found by its principal address on record (the same house number, and a street name made only of words that were typed) "
+    "· chosen by the user from the active companies listed."
 )
-ADDRESS_OTHERS_ONE = "1 other active company was listed for that address."
-ADDRESS_OTHERS_MANY = "{count} other active companies were listed for that address."
-# Rule W7 for an address: every company on the list matched the address equally, so the report
-# of whichever one was picked says how many others were on it. No match level is given, because
-# rule S4 keeps the three levels for the name search.
+ADDRESS_OTHERS_ONE = "1 other active company was listed with it."
+ADDRESS_OTHERS_MANY = "{count} other active companies were listed with it."
+# Rule W7 for an address: every company on the list matched equally, so the report of whichever
+# one was picked says how many others were on it. No match level is given, because rule S4
+# keeps the three levels for the name search.
 
 NOT_FOUND_HEADING = "Not found"
 NOT_FOUND = "Nothing was found at this address."
@@ -302,9 +313,8 @@ def count_text(count: int, one: str, many: str) -> str:
 
 
 def address_compared_text(house_number: str, city_given: bool) -> str:
-    """The sentence that says what an address search compared, and the second one when a city was given."""
-    line = ADDRESS_COMPARED.format(house_number=house_number)
-    return f"{line} {ADDRESS_COMPARED_CITY}" if city_given else line
+    """The sentence that says what an address search compared, and a second one about the city: compared, or not given."""
+    return f"{ADDRESS_COMPARED.format(house_number=house_number)} {ADDRESS_COMPARED_CITY if city_given else ADDRESS_COMPARED_NO_CITY}"
 
 
 def identified_by_address_text(street: str, city: str, others_listed: int) -> str:

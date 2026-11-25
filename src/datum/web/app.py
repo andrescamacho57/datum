@@ -59,7 +59,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException   # wha
 from datum import wording
 from datum.models import Identification, read_extracted
 from datum.report_builder import CompanyNotFound, ReportBackend, ReportBuilder, address_candidate_for_page, candidate_for_page, count_fact
-from datum.search import MOST_AT_AN_ADDRESS, SearchBackend, address_search, evidence, search_kind, search_pool, shortlist
+from datum.search import SearchBackend, address_search, evidence, search_kind, search_pool, shortlist
 
 HERE = Path(__file__).resolve().parent                     # src/datum/web/
 MAX_NOTE = 500                                              # a note longer than this is not sent to the extraction step
@@ -222,7 +222,7 @@ def create_app(access_code: str, extract: Callable[[str], dict], open_backends: 
     def by_address(request: Request, street: str, city: str) -> Response:
         """The page for a note that names no business and gives a street with a house number (working rules S5, S6 and S8).
 
-        It lists the ACTIVE companies whose principal address that is, says how many inactive
+        It lists the ACTIVE companies whose principal address matches, says how many inactive
         ones it does not list, and says once that a principal address is not always where a
         company does business. Whatever the extraction step put in the business name is not
         shown: the note named no business.
@@ -236,8 +236,7 @@ def create_app(access_code: str, extract: Callable[[str], dict], open_backends: 
         read_as = wording.READ_AS.format(fields=", ".join(
             part for part in (wording.FIELD_STREET.format(value=street), wording.FIELD_CITY.format(value=city) if city else "") if part))
         if found.too_many:                  # an office tower, a mail drop or an agent's office: no list of fifty would help
-            return page(request, "message.html", heading=wording.SEARCH_HEADING, read_as=read_as, form=True,
-                        message=wording.ADDRESS_TOO_MANY.format(limit=MOST_AT_AN_ADDRESS))
+            return page(request, "message.html", heading=wording.SEARCH_HEADING, message=wording.ADDRESS_TOO_MANY, read_as=read_as, form=True)
         if not (found.active or found.inactive or found.no_status):
             return page(request, "message.html", heading=wording.SEARCH_HEADING, message=wording.ADDRESS_NOT_FOUND, read_as=read_as, form=True)
         identifications = {

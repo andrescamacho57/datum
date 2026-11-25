@@ -222,8 +222,8 @@ ADDRESSES_FILL_SQL = (
     f"insert into {ADDRESSES.name}{NEW} (document_number, house_number, street_words) "
     "select document_number, house_number, street_words from ("
     "select document_number, "
-    "case when words[1] ~ '^[0-9]' then words[1] end as house_number, "
-    "case when words[1] ~ '^[0-9]' then array_to_string(words[2:], ' ') else '' end as street_words "
+    "case when words[1] ~ '^[0-9]' and words[1] !~ '^[0-9]+(ST|ND|RD|TH)$' then words[1] end as house_number, "
+    "case when words[1] ~ '^[0-9]' and words[1] !~ '^[0-9]+(ST|ND|RD|TH)$' then array_to_string(words[2:], ' ') else '' end as street_words "
     "from (select document_number, "
     "string_to_array(trim(regexp_replace(upper(coalesce(principal_address_1, '')), '[^A-Z0-9]+', ' ', 'g')), ' ') as words "
     f"from company_search{NEW}) as simplified) as cut "
@@ -233,7 +233,9 @@ ADDRESSES_FILL_SQL = (
 # and every run of characters that are not A to Z or 0 to 9 becomes one space. So
 # "8586 Palm Pkwy., Ste. 2" becomes the words 8586, PALM, PKWY, STE and 2. The select around it
 # keeps the first word as the house number when it begins with a digit ("8586", and also
-# "123A"), and the words after it as the street. An address that begins with a letter, such
+# "123A"), and the words after it as the street. A first word that is a numbered street, such
+# as 4TH in "4TH ST SOUTH", is not a house number: that is the second test, and it is the
+# pattern search.ORDINAL. An address that begins with a letter, such
 # as "PO BOX 12" or "ONE MAIN ST", has no house number here and cannot be found by address.
 # No word is removed: the search itself decides which words to ignore (street types and
 # directions), so that list lives in one place, search.py.
