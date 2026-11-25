@@ -102,7 +102,7 @@ def extract_fields(client: anthropic.Anthropic, note: str) -> dict:  # 1. Define
     for block in response.content:                       # the reply is a list of content blocks
         if block.type == "tool_use":                     # find the tool call...This asks: “Is this block a tool call?”
             return block.input                           # ...its input IS our structured fields
-    raise ValueError(f"No fields returned for: {note!r}")  # should never happen with tool_choice forced
+    raise ValueError("The model returned no fields for the note")  # should never happen with tool_choice forced. The note is NOT in the message: an error message ends up on a screen or in a log, and the note must not (Phase C working rule W6)
 
 
 # This function takes a written note, sends it to Claude, 

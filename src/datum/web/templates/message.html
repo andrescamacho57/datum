@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ heading }}</h1>
+{% if read_as %}<p>{{ read_as }}</p>{% endif %}
+<p><strong>{{ message }}</strong></p>
+{% if form %}{% include "_form.html" %}{% else %}<p><a href="/">{{ w.SEARCH_AGAIN }}</a></p>{% endif %}
+{% endblock %}
