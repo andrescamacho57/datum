@@ -1,22 +1,37 @@
 """extract.py: step 1 of Datum search.
 
+Prompt v3 (2026-11-25, Phase D, leg D1): the street line now asks for the house number and the
+street exactly as typed, without correcting the spelling. The search by address reads the house
+number from the start of that field, and it compares the street's words itself, so a corrected
+spelling would hide what the contractor typed. Nothing else in the prompt changed.
+
 Prompt v2 (2026-10-27): v1 dropped "really good" from "really good beer" and invented the city
 "Surfside" from "surfside luxery homes". v2 adds two general rules: keep ordinary words that
 could be part of a name, and never take a city from inside the name.
 
 (Original summary:) Turn messy contractor text into structured fields.
 
-What it does: reads each test input from pipeline/seeds/test_set.csv, asks Claude to pull out
-the business name, city, and street, and writes the results to
-pipeline/seeds/extracted_inputs.csv. dbt then loads that CSV into Snowflake as a seed, and
-the scoring script searches on the CLEAN fields instead of the raw text.
+What the command does: it reads the test cases whose ids it is given from a file of cases, asks
+Claude to pull the business name, the city and the street out of each, and APPENDS one row per
+case to the output file. A row that is already in the output file is never written again. That
+is on purpose: the rows of cases 1 to 10 in pipeline/seeds/extracted_inputs.csv were made by
+prompt v2 and stay as they are, so the evaluation's history can be compared across legs. Until
+Phase D the command extracted the whole test set and overwrote the file, which would have
+replaced those ten rows with whatever prompt v3 returns today.
 
 Run from ~/datum with the project's virtual environment active:
-    python src/datum/extract.py
-Needs the environment variable ANTHROPIC_API_KEY (the SDK reads it automatically).
+    python src/datum/extract.py --cases 11 12 13
+The checked cases are read from pipeline/seeds/test_set.csv and written to
+pipeline/seeds/extracted_inputs.csv. For the draft cases, which git ignores (working rule S1):
+    python src/datum/extract.py --test-set evals/draft_cases.csv --output evals/draft_extracted.csv --cases 101 102
+Needs the environment variable ANTHROPIC_API_KEY (the SDK reads it automatically). Each case is
+one paid call to the Claude API, about $0.0004 (the plan's figure, not read off a bill).
 """
 
+import argparse                 # reads --cases, --test-set and --output from the command line
 import csv                      # read and write CSV files (built into Python)
+import sys                      # the exit code
+from collections.abc import Callable   # the type of "a function that turns a note into fields"
 from pathlib import Path        # build file paths that work on any operating system
 
 import anthropic                # Anthropic's SDK: wraps the HTTPS (REST) calls to the Claude API
@@ -26,8 +41,9 @@ load_dotenv()                    # look for a .env file, starting in this file's
 
 # --- Settings -------------------------------------------------------------------------
 REPO_ROOT = Path(__file__).resolve().parents[2]          # this file is src/datum/extract.py → go up 2 folders to ~/datum
-TEST_SET = REPO_ROOT / "pipeline" / "seeds" / "test_set.csv"            # input: the 10 test cases
-OUTPUT = REPO_ROOT / "pipeline" / "seeds" / "extracted_inputs.csv"      # output: one row of fields per case
+TEST_SET = REPO_ROOT / "pipeline" / "seeds" / "test_set.csv"            # the default input: the hand-checked test cases
+OUTPUT = REPO_ROOT / "pipeline" / "seeds" / "extracted_inputs.csv"      # the default output: one row of fields per case
+COLUMNS = ("case_id", "input_text", "business_name", "city", "street", "is_specific", "model")   # the output's columns, in file order
 MODEL = "claude-haiku-5-5"      # the smallest, cheapest Claude model: extraction is a simple task
 
 # The instructions the model follows on every call. Kept short and specific.
@@ -41,7 +57,7 @@ Return ONLY what the note says or clearly implies. Never invent a legal company 
   Leave out city names, street names, and filler words like "the guy" or "off".
 - city: ONLY if the note contains a city name or a common nickname for one (jax -> Jacksonville).
   Never take a city from a word inside the business name. Otherwise empty.
-- street: a street or road if named, else empty.
+- street: the house number and the street exactly as typed (for example "8586 palm pwwy"), without correcting the spelling, else empty.
 - is_specific: true if the note names a specific business; false if it only describes one
   (e.g. "the pool guy") and more details are needed to identify it."""
 
@@ -127,33 +143,74 @@ def extract_fields(client: anthropic.Anthropic, note: str) -> dict:  # 1. Define
 
 
 
-def main() -> None:
+def read_rows(path: Path) -> list[dict]:
+    """Every row of a CSV file, each as a dict keyed by column name. A file that does not exist yet has no rows."""
+    if not path.exists():
+        return []
+    with path.open(newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def extract_cases(case_ids: list[str], test_set: Path, output: Path, extract: Callable[[str], dict],
+                  say: Callable[[str], None] = print) -> int:
+    """Extract ONLY the cases whose ids are given, and append one row for each to the output file. Returns how many rows were added.
+
+    Everything is checked before the first call is made, so a mistake costs nothing: an id
+    that is not in the file of cases, an id given twice, or an id that already has a row in
+    the output. That last check is what keeps a row from ever being extracted twice. The
+    rows already in the output file are not rewritten: the file is opened for appending.
+    """
+    cases = {row["case_id"]: row for row in read_rows(test_set)}
+    already = {row["case_id"] for row in read_rows(output)}
+    unknown = [case_id for case_id in case_ids if case_id not in cases]
+    done = [case_id for case_id in case_ids if case_id in already]
+    twice = sorted({case_id for case_id in case_ids if case_ids.count(case_id) > 1})
+    if unknown:
+        raise ValueError(f"no case with id {', '.join(unknown)} in {test_set.name}, so nothing was extracted")
+    if done:
+        raise ValueError(f"case {', '.join(done)} already has a row in {output.name}. A case is never extracted twice, so nothing was extracted")
+    if twice:
+        raise ValueError(f"case {', '.join(twice)} was given more than once, so nothing was extracted")
+    # None of these messages holds a note: an error message ends up on a screen or in a log (working rule W6).
+
+    new_file = not output.exists()
+    with output.open("a", newline="") as f:              # "a" = append: what is already in the file stays byte for byte
+        writer = csv.DictWriter(f, fieldnames=COLUMNS)
+        if new_file:
+            writer.writeheader()                         # a new file starts with the column names
+        for case_id in case_ids:
+            case = cases[case_id]
+            fields = extract(case["input_text"])         # one paid call
+            writer.writerow({
+                "case_id": case_id,                      # the join key back to the file of cases
+                "input_text": case["input_text"],
+                "business_name": fields["business_name"],
+                "city": fields["city"],
+                "street": fields["street"],
+                "is_specific": fields["is_specific"],
+                "model": MODEL,                          # provenance: which model produced this row
+            })
+            say(f'{case_id:>3}  {case["input_text"]:<35} -> {fields}')   # show progress as it runs
+    return len(case_ids)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Extract the search fields of the test cases whose ids are given, and append them to the output file.")
+    parser.add_argument("--cases", nargs="+", required=True, metavar="ID",
+                        help="the case ids to extract. Required: there is no way to extract a whole file, because that would extract old cases again")
+    parser.add_argument("--test-set", type=Path, default=TEST_SET, help="the file of cases to read (default: the hand-checked test set)")
+    parser.add_argument("--output", type=Path, default=OUTPUT, help="the file to append the extracted rows to (default: the committed seed)")
+    args = parser.parse_args(argv)
+
     client = anthropic.Anthropic()                       # reads ANTHROPIC_API_KEY from the environment
-
-    with TEST_SET.open(newline="") as f:                 # open the test set for reading
-        cases = list(csv.DictReader(f))                  # each row becomes a dict keyed by column name
-
-    rows = []
-    for case in cases:
-        fields = extract_fields(client, case["input_text"])
-        rows.append({
-            "case_id": case["case_id"],                  # the join key back to test_set
-            "input_text": case["input_text"],
-            "business_name": fields["business_name"],
-            "city": fields["city"],
-            "street": fields["street"],
-            "is_specific": fields["is_specific"],
-            "model": MODEL,                              # provenance: which model produced this row
-        })
-        print(f'{case["case_id"]:>2}  {case["input_text"]:<35} -> {fields}')  # show progress as it runs
-
-    with OUTPUT.open("w", newline="") as f:              # "w" = write (overwrite) the output file
-        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-        writer.writeheader()                             # first line: column names
-        writer.writerows(rows)                           # one line per case
-
-    print(f"\nWrote {len(rows)} rows to {OUTPUT}")
+    try:
+        added = extract_cases(args.cases, args.test_set, args.output, lambda note: extract_fields(client, note))
+    except ValueError as error:                          # one of the three checks above. Its message names ids and files, never a note
+        print(f"NOT EXTRACTED: {error}")
+        return 1
+    print(f"\nAppended {added} rows to {args.output}")
+    return 0
 
 
 if __name__ == "__main__":                               # run main() only when executed directly, not when imported
-    main()
+    sys.exit(main())                                     # run main and pass its result to the shell
