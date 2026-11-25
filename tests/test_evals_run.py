@@ -18,25 +18,25 @@ import pytest                               # the test runner; pytest.raises che
 from datum.search import COMPANY_COLUMNS, Company, FakeBackend, name_key
 from datum.search import PostgresBackend
 from evals.run import (
-    ASK, DRAW_SQL, LATENCY_SEED, NO_DRAFTS, RETRIEVERS, Case, SnowflakeBackend, WideTableBackend, compare_backends, draw_company_names, fingerprint,
-    made_worse, moved, movement, percentile, place_text, print_before_and_after, print_comparison, print_draft_results, print_results, read_cases,
-    read_draft_cases, run_cases, score_case, summarize, version_1_order,
+    ASK, DRAW_ADDRESS_SQL, DRAW_SQL, LATENCY_SEED, NO_DRAFTS, RETRIEVERS, Case, SnowflakeBackend, WideTableBackend, compare_backends, draw_company_names,
+    fingerprint, made_worse, moved, movement, percentile, place_text, print_before_and_after, print_comparison, print_draft_results, print_results,
+    read_cases, read_draft_cases, run_cases, score_case, summarize, time_address_searches, version_1_order,
 )
 
 
-def company(document_number, entity_name):
+def company(document_number, entity_name, address="1 INVENTED WAY", status="A"):
     """An invented company. The document numbers use a prefix (T) the state does not."""
     return Company(
         document_number=document_number, entity_name=entity_name, name_key=name_key(entity_name),
-        status_code="A", filing_type="FLAL", file_date=date(2020, 1, 15),
-        principal_address_1="1 INVENTED WAY", principal_city="JACKSONVILLE", principal_state="FL", principal_zip="32256",
+        status_code=status, filing_type="FLAL", file_date=date(2020, 1, 15),
+        principal_address_1=address, principal_city="JACKSONVILLE", principal_state="FL", principal_zip="32256",
         published_on=date(2026, 10, 7), source_url="https://search.sunbiz.org/Inquiry/CorporationSearch/ByDocumentNumber",
         fetched_at=datetime(2026, 10, 22, 19, 31, 31, tzinfo=timezone.utc), fetched_at_is_approximate=True,
     )
 
 
-def a_case(expected, is_specific=True, name="Acme Roofing", group="g", case_id=1):
-    return Case(case_id=case_id, case_group=group, expected_document_number=expected, business_name=name, city="", street="", is_specific=is_specific)
+def a_case(expected, is_specific=True, name="Acme Roofing", group="g", case_id=1, street=""):
+    return Case(case_id=case_id, case_group=group, expected_document_number=expected, business_name=name, city="", street=street, is_specific=is_specific)
 
 
 def test_the_committed_test_set_is_read_and_joined_to_its_extractions():
@@ -369,3 +369,55 @@ def test_a_draft_case_can_never_change_the_pass_or_fail_decision(tmp_path, capsy
     dropped = [score_case(checked[0], ["T9", "T1"], 2, 3)]
     assert print_before_and_after(steady, dropped, drafts_bad, drafts_good) == 1     # a CHECKED case dropped: fail, however well the drafts did
     assert "checked cases made worse: 1" in capsys.readouterr().out
+
+
+def test_each_case_goes_down_the_path_the_app_would_send_its_note():
+    # The evaluation follows the app (working rule S5). Before leg D1 a case that named no business was never searched, whatever its street.
+    backend = FakeBackend([
+        company("T2", "ZEBRA GLASS LLC", address="77 QUARTZ PKWY"), company("T1", "ACME ROOFING LLC", address="77 Quartz Parkway"),
+        company("T3", "BEST POOLS INC", address="77 QUARTZ PKWY", status="I"), company("T4", "CORAL ELECTRIC LLC", address="78 QUARTZ PKWY"),
+    ])
+    by_address = a_case("T1", is_specific=False, name="<UNKNOWN>", street="77 quartz pwwy", case_id=1)
+    no_number = a_case(ASK, is_specific=False, name="Pool", street="Race Track Rd", case_id=2)
+    named = a_case("T1", is_specific=True, name="Acme Roofing", street="77 quartz pwwy", case_id=3)
+    found, asked, by_name = run_cases([by_address, no_number, named], backend, address_backend=backend)
+    assert (found.searched, found.answered, found.place, found.candidates) == ("address", ("T1", "T2"), 1, 2)   # the two ACTIVE companies there, by document number
+    assert (found.top1_correct, found.in_top5, found.wrong_match, place_text(found)) == (True, True, False, "1 of 2")
+    assert (asked.searched, asked.answered, asked.top1_correct, place_text(asked)) == ("ask", (), True, "asked")   # rule S7: no house number, so it asks
+    assert by_name.searched == "name" and by_name.answered[0] == "T1" and by_name.candidates == 4   # a named business gets the name search, house number or not
+    assert backend.address_calls == [("77", ("QUARTZ", "PWWY"), 1000)] and len(backend.calls) == 1
+    # With no address backend there is no search by address: that is the search as it was before Phase D, and the Snowflake backend's case.
+    (before,) = run_cases([by_address], backend)
+    assert (before.searched, before.answered, place_text(before)) == ("ask", (), "asked") and moved(before, found) == "up"
+    nobody_there = run_cases([a_case("T1", is_specific=False, name="", street="5 nowhere ln")], backend, address_backend=backend)[0]
+    assert (nobody_there.searched, nobody_there.answered, place_text(nobody_there), nobody_there.wrong_match) == ("address", (), "no candidates", False)
+
+
+def test_a_note_that_should_be_asked_about_and_gets_a_company_from_the_address_search_is_a_wrong_match():
+    # Working rule S3's third test. The extraction calls this note not specific, and its street has a house number, so the address search answers.
+    backend = FakeBackend([company("T1", "ACME ROOFING LLC", address="12 RACE TRACK RD")])
+    before, now = (run_cases([a_case(ASK, is_specific=False, name="Pool", street="12 race track rd")], backend, address_backend=chosen)[0] for chosen in (None, backend))
+    assert (before.top1_correct, before.wrong_match) == (True, False) and (now.top1_correct, now.in_top5, now.wrong_match) == (False, False, True)
+    assert moved(before, now) == "down" and made_worse([before], [now]) == [1]
+
+
+def test_the_address_timing_draws_addresses_that_begin_with_a_digit_and_counts_the_too_many_answers():
+    assert "principal_address_1 ~ '^[0-9]'" in DRAW_ADDRESS_SQL and "repeatable (%s)" in DRAW_ADDRESS_SQL and "order by" not in DRAW_ADDRESS_SQL
+
+    class DrawConnection:
+        def __init__(self):
+            self.asked = []
+
+        def execute(self, sql, params=None):
+            self.asked.append((sql, params))
+            return self
+
+        def fetchall(self):
+            return [("12 MADE UP RD", ""), ("7 MAIL DROP WAY", "")]
+
+    conn = DrawConnection()
+    assert draw_company_names(conn, 200, DRAW_ADDRESS_SQL) == [("12 MADE UP RD", ""), ("7 MAIL DROP WAY", "")]
+    assert [sql for sql, _ in conn.asked] == ["select set_config('synchronize_seqscans', 'off', false)", DRAW_ADDRESS_SQL]   # the same setting as the draw of names
+    crowded = FakeBackend([company("T0", "INVENTED CO LLC", address="12 MADE UP RD")] + [company(f"T{n}", f"INVENTED CO {n} LLC", address="7 MAIL DROP WAY") for n in range(1, 52)])
+    seconds, too_many = time_address_searches(crowded, [("12 MADE UP RD", ""), ("7 MAIL DROP WAY", "")])
+    assert len(seconds) == 2 and all(value >= 0 for value in seconds) and too_many == 1   # 51 companies at the second address: too many to list

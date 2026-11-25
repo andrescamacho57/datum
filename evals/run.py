@@ -10,6 +10,7 @@ every change, so that "is the search better?" is a number and not an impression.
     python -m evals.run --backend postgres --latency 200 --retrieve plain   # time the first approach leg C2 tried (slow)
     python -m evals.run --backend postgres --compare 200   # do the second approach and the app's search give the same five companies?
     python -m evals.run --backend postgres --before        # also score the search as it was before Phase D, and say which cases moved
+    python -m evals.run --backend postgres --address-latency 200   # also time the search by address on 200 random principal addresses
 
 Run from ~/datum with the project's virtual environment active.
 
@@ -30,9 +31,17 @@ they stay on the Mac until Andres checks them. Both kinds are scored, in SEPARAT
 When the draft files are absent, as they are on GitHub, one sentence says so and only the
 checked cases are scored. Every pass or fail decision is taken from the checked cases alone.
 
+The evaluation follows the app. Each case goes down the path the web app would send its
+note: datum.search.search_kind() reads the extracted fields and answers "name" (the name
+search), "address" (the search by address, when the note names no business and its street
+begins with a house number) or "ask" (no company is shown). An address search answers with
+the active companies at the address in document-number order, so its first five are scored
+the way the name search's best five are.
+
 --before scores every case twice: with the search as it is, and with the search as it was
 before Phase D (search version 1's order: similarity first, and the city only to break an
-exact tie). It then says, case by case for the checked cases and by count for the drafts,
+exact tie, and no search by address: a note that named no business was always asked for
+more). It then says, case by case for the checked cases and by count for the drafts,
 whether the expected company moved up, moved down or stayed. A checked case that moved down
 is the one thing that makes the command fail (exit code 1). That is working rule S3's test:
 a case is worse when its company leaves the top five, drops in rank, or when a note that
@@ -74,7 +83,10 @@ from pathlib import Path                    # file paths that work on any operat
 REPO_ROOT = Path(__file__).resolve().parents[1]            # this file is evals/run.py → go up 1 folder to the repo root
 sys.path.insert(0, str(REPO_ROOT / "src"))                 # so `import datum.search` works when this is run as python -m evals.run
 
-from datum.search import COMPANY_COLUMNS, CANDIDATE_POOL, SHORTLIST_SIZE, Candidate, Company, PostgresBackend, SearchBackend, by_words_then_city, company_from_row, search, search_pool   # noqa: E402  (the path line above has to come first)
+from datum.search import (  # noqa: E402  (the path line above has to come first)
+    COMPANY_COLUMNS, CANDIDATE_POOL, SHORTLIST_SIZE, AddressBackend, Candidate, Company, PostgresBackend, SearchBackend, address_search, by_words_then_city,
+    company_from_row, search, search_kind, search_pool,
+)
 
 TEST_SET = REPO_ROOT / "pipeline" / "seeds" / "test_set.csv"
 EXTRACTED = REPO_ROOT / "pipeline" / "seeds" / "extracted_inputs.csv"
@@ -109,6 +121,7 @@ class CaseResult:
     place: int | None = None                # where the expected company stands among ALL the candidates the search ranked: 1 is first.
                                             # None when it is not among them, when the search asked for more, or when no company is expected
     candidates: int = 0                     # how many candidates the search ranked for this case
+    searched: str = "name"                  # which path the case took: "name", "address" or "ask" (datum.search.search_kind)
 
 
 def read_case_files(cases_file: Path, extracted: Path, checked: bool) -> list[Case]:
@@ -149,17 +162,23 @@ def read_draft_cases(cases_file: Path = DRAFT_CASES, extracted: Path = DRAFT_EXT
     return read_case_files(cases_file, extracted, checked=False)
 
 
-def score_case(case: Case, answered: list[str], place: int | None = None, candidates: int = 0) -> CaseResult:
-    """Score one case from the document numbers the search returned (none when it asked for more)."""
-    if case.expected_document_number == ASK:                       # the right behavior is to ask
-        correct = not case.is_specific
-        return CaseResult(case, tuple(answered), top1_correct=correct, in_top5=correct, wrong_match=bool(answered), candidates=candidates)
+def score_case(case: Case, answered: list[str], place: int | None = None, candidates: int = 0, searched: str | None = None) -> CaseResult:
+    """Score one case from the document numbers the search returned (none when it asked for more).
+
+    `searched` is the path the case took. Left out, it is worked out from the case the way
+    the evaluation did before there was a search by address: a specific case was searched
+    by name, and any other was asked about.
+    """
+    searched = searched or ("name" if case.is_specific else "ask")
+    if case.expected_document_number == ASK:                       # the right behavior is to ask: no search runs and no company is shown
+        correct = searched == "ask"
+        return CaseResult(case, tuple(answered), top1_correct=correct, in_top5=correct, wrong_match=bool(answered), candidates=candidates, searched=searched)
     return CaseResult(
         case, tuple(answered),
         top1_correct=answered[:1] == [case.expected_document_number],
         in_top5=case.expected_document_number in answered[:5],
         wrong_match=bool(answered) and answered[0] != case.expected_document_number,
-        place=place, candidates=candidates,
+        place=place, candidates=candidates, searched=searched,
     )
 
 
@@ -172,22 +191,36 @@ def version_1_order(candidate: Candidate) -> tuple:
     return (-candidate.similarity, not candidate.city_match, candidate.company.document_number)
 
 
-def run_cases(cases: list[Case], backend: SearchBackend, order: Callable[[Candidate], tuple] = by_words_then_city) -> list[CaseResult]:
-    """Search for every specific case and score all of them. A case that names no business is never searched.
+def run_cases(cases: list[Case], backend: SearchBackend, order: Callable[[Candidate], tuple] = by_words_then_city,
+              address_backend: AddressBackend | None = None) -> list[CaseResult]:
+    """Send every case down the path the app would send its note, and score it.
 
-    The search ranks a whole pool of candidates and answers with the best five. The five are
-    what is scored. The expected company's place in the whole pool is kept as well, because
-    "it is 6th" and "the search never saw it" are different faults with different fixes.
-    `order` is the app's own order unless --before asks for version 1's.
+    search_kind() picks the path from the extracted fields, exactly as the web app does:
+      "name"     the name search. It ranks a whole pool of candidates and answers with the
+                 best five. The five are what is scored. The expected company's place in the
+                 whole pool is kept as well, because "it is 6th" and "the search never saw
+                 it" are different faults with different fixes.
+      "address"  the search by address. It answers with the active companies at the address
+                 in document-number order, and the first five of those are scored.
+      "ask"      no search runs and no company is shown.
+    `order` is the app's own order unless --before asks for version 1's. With no
+    address_backend there is no search by address, and a note that names no business is
+    asked about, as every such note was before Phase D.
     """
     results = []
     for case in cases:
-        if not case.is_specific:
-            results.append(score_case(case, []))
+        kind = search_kind(case.business_name, case.street, case.is_specific)
+        if kind == "address" and address_backend is None:
+            kind = "ask"
+        if kind == "ask":
+            results.append(score_case(case, [], searched="ask"))
             continue
-        numbers = [c.company.document_number for c in search_pool(backend, case.business_name, case.city, order=order)]
+        if kind == "address":
+            numbers = [company.document_number for company in address_search(address_backend, case.street, case.city).active]
+        else:
+            numbers = [c.company.document_number for c in search_pool(backend, case.business_name, case.city, order=order)]
         place = numbers.index(case.expected_document_number) + 1 if case.expected_document_number in numbers else None
-        results.append(score_case(case, numbers[:SHORTLIST_SIZE], place, len(numbers)))   # the first five are exactly what search() returns
+        results.append(score_case(case, numbers[:SHORTLIST_SIZE], place, len(numbers), searched=kind))   # the first five are exactly what the app shows first
     return results
 
 
@@ -337,8 +370,10 @@ class PlainSimilarityBackend(PostgresBackend):
 
 def place_text(result: CaseResult) -> str:
     """Where the expected company stands among the candidates the search ranked, in words a table can hold."""
-    if not result.answered and not result.candidates:
-        return "asked" if not result.case.is_specific else "no candidates"
+    if result.searched == "ask":
+        return "asked"
+    if not result.candidates:
+        return "no candidates"
     if result.case.expected_document_number == ASK:
         return "none expected"
     return f"{result.place} of {result.candidates}" if result.place else f"not among {result.candidates}"
@@ -378,6 +413,17 @@ def print_draft_results(results: list[CaseResult] | None) -> None:
         return
     print("\ndraft cases (evals/draft_cases.csv: not checked by Andres, and so counted in no pass or fail decision)")
     print_summary(results)
+
+
+def time_address_searches(backend: AddressBackend, inputs: list[tuple[str, str]]) -> tuple[list[float], int]:
+    """(seconds taken by each search by address, how many of them answered "too many to list")."""
+    seconds, too_many = [], 0
+    for street, city in inputs:
+        started = time.perf_counter()
+        found = address_search(backend, street, city)
+        seconds.append(time.perf_counter() - started)
+        too_many += found.too_many
+    return seconds, too_many
 
 
 def time_searches(backend: SearchBackend, inputs: list[tuple[str, str]]) -> list[float]:
@@ -477,7 +523,14 @@ DRAW_SQL = "select entity_name, '' from company_search tablesample bernoulli (0.
 # the scan MEETS, and that is the catch: see draw_company_names below.
 
 
-def draw_company_names(conn, count: int) -> list[tuple[str, str]]:
+DRAW_ADDRESS_SQL = ("select principal_address_1, '' from company_search tablesample bernoulli (0.01) repeatable (%s) "
+                    "where principal_address_1 ~ '^[0-9]' limit %s")
+# The same draw as DRAW_SQL, for the search by address: the principal address of sampled
+# companies, keeping only an address that begins with a digit, because no other can be found
+# by address. A drawn address may be somebody's home. It is searched and never printed.
+
+
+def draw_company_names(conn, count: int, sql: str = DRAW_SQL) -> list[tuple[str, str]]:
     """`count` company names drawn at random, each with an empty city. They are searched and never printed.
 
     The draw gives the same names on every run for as long as company_search is not loaded
@@ -495,7 +548,7 @@ def draw_company_names(conn, count: int) -> list[tuple[str, str]]:
     changes with them.
     """
     conn.execute("select set_config('synchronize_seqscans', 'off', false)")   # this session only. It must come BEFORE the draw
-    return [tuple(row) for row in conn.execute(DRAW_SQL, (LATENCY_SEED, count)).fetchall()]
+    return [tuple(row) for row in conn.execute(sql, (LATENCY_SEED, count)).fetchall()]
 
 
 def fingerprint(drawn: list[tuple[str, str]]) -> str:
@@ -523,6 +576,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--latency", type=int, default=0, metavar="N", help="also time the search on the test inputs plus N random company names (postgres only)")
     parser.add_argument("--retrieve", choices=tuple(RETRIEVERS), default="narrow", help="postgres only: narrow = the narrow table, the search the app uses; word = the second approach and plain = the first, both for timing only")
     parser.add_argument("--compare", type=int, default=0, metavar="N", help="postgres only: run the second approach and the app's search on the test inputs plus N random company names, and count the searches whose five companies differ")
+    parser.add_argument("--address-latency", type=int, default=0, metavar="N", help="postgres only: also time the search by address on N principal addresses drawn at random")
     parser.add_argument("--before", action="store_true", help="postgres only: also score the search as it was before Phase D, say which cases moved, and fail when a checked case was made worse")
     args = parser.parse_args(argv)
     exit_code = 0
@@ -535,11 +589,11 @@ def main(argv: list[str] | None = None) -> int:
         with psycopg.connect(os.environ.get("DATUM_PG_DSN", "dbname=datum_dev")) as conn:
             backend_class, label = RETRIEVERS[args.retrieve]
             backend = backend_class(conn)
-            checked_now = run_cases(cases, backend)
-            drafts_now = run_cases(drafts, backend) if drafts is not None else None
+            checked_now = run_cases(cases, backend, address_backend=backend)
+            drafts_now = run_cases(drafts, backend, address_backend=backend) if drafts is not None else None
             print_results(checked_now, f"postgres ({label})")
             print_draft_results(drafts_now)
-            if args.before:
+            if args.before:                 # before Phase D: version 1's order, and no address_backend, so no search by address
                 exit_code = print_before_and_after(
                     run_cases(cases, backend, order=version_1_order), checked_now,
                     run_cases(drafts, backend, order=version_1_order) if drafts is not None else None, drafts_now,
@@ -563,11 +617,19 @@ def main(argv: list[str] | None = None) -> int:
                 over = sum(1 for value in seconds if value > 1.0)
                 print(f"  searches over 1 second: {over} of {len(seconds)}")
                 print(f"  fingerprint of the random names: {fingerprint(random_names)}")
+            if args.address_latency:
+                addresses = draw_company_names(conn, args.address_latency, DRAW_ADDRESS_SQL)
+                seconds, too_many = time_address_searches(backend, addresses)
+                print(f"\nlatency of the search by address over {len(addresses)} principal addresses drawn at random:")
+                print(f"  p50 {percentile(seconds, 0.50) * 1000:.0f} ms   p95 {percentile(seconds, 0.95) * 1000:.0f} ms   slowest {max(seconds) * 1000:.0f} ms")
+                print(f"  searches over 1 second: {sum(1 for value in seconds if value > 1.0)} of {len(seconds)}")
+                print(f"  searches answered with \"too many to list\": {too_many} of {len(seconds)}")
+                print(f"  fingerprint of the random addresses: {fingerprint(addresses)}")
     else:
         import snowflake.connector          # Snowflake's Python driver, imported only when it is used
         conn = snowflake.connector.connect(connection_name="datum")    # the driver reads the connection's settings itself
         try:
-            print_results(run_cases(cases, SnowflakeBackend(conn)), "snowflake")
+            print_results(run_cases(cases, SnowflakeBackend(conn)), "snowflake")   # no address_backend: Snowflake has no address table, so an address-only note is scored as asked
         finally:
             conn.close()                    # always release the session, even after an error
     return exit_code
