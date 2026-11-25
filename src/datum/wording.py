@@ -187,17 +187,59 @@ SEARCH_UNAVAILABLE = "The search is unavailable right now, so no company is show
 APP_NAME = "Datum"
 SEARCH_HEADING = "Check a company"
 SEARCH_LABEL = "Describe the client"
-SEARCH_HINT = "A business name, and a street or a city if you have one."
-# Rule W6: the app asks for a business name, a street or a city, and never for an owner's name.
+SEARCH_HINT = "A business name and its city, or a street address that begins with its house number."
+# Rule W6: the app never asks for an owner's name. Until leg D1 this line asked for "a street or
+# a city", and the search used no street (question Q42). It now says what the two searches use:
+# the name search reads the name and the city, and the address search reads a street that
+# begins with a house number, when the note names no business.
 SEARCH_BUTTON = "Search"
 SEARCH_AGAIN = "Search again"
 SHORTLIST_HEADING = "Which company do you mean?"
-NOTE_EMPTY = "Nothing was typed. Type the business's name, and a street or a city if you have one."
-NOTE_TOO_LONG = "That is too long to search for. Type the business's name, and a street or a city if you have one."
-ASK_FOR_A_BUSINESS_ON_A_PAGE = ASK_FOR_A_BUSINESS + "."      # the terminal's question, as a sentence on a page (acceptance test A2)
+NOTE_EMPTY = "Nothing was typed. Type the business's name and its city, or a street address that begins with its house number."
+NOTE_TOO_LONG = "That is too long to search for. Type the business's name and its city, or a street address that begins with its house number."
+ASK_FOR_A_BUSINESS_ON_A_PAGE = "That describes a business but doesn't name one. Add its name, or its street address beginning with the house number."
+# Acceptance test A2. The terminal's question, ASK_FOR_A_BUSINESS above, still ends "a street or
+# a city": the terminal has no search by address, so its words are left as they were.
 NO_COMPANY_FOUND = "No company with a name close to that was found. Check the spelling of the business's name."
 REPORT_UNAVAILABLE = "The report is unavailable right now."
 REQUEST_NOT_READ = "That could not be read as a search. Type the business's name in the box."   # a form that was not sent by the search box
+
+# --- The search by address (Phase D, leg D1; working rules S5 to S8) ------------------------
+ADDRESS_HEADING = "Companies at this address"
+ADDRESS_COMPARED = (
+    "A company is listed here when its principal address on record has the house number {house_number} "
+    "and a street name whose words you all typed. The kind of street, such as ST or PKWY, and a direction, N, S, E or W, are not compared."
+)
+# Exactly the comparison of search.street_matches(), so that "this principal address" in the
+# lines below claims no more than was checked: 8586 PALM AVE would be listed for "8586 palm pkwy".
+# Each company is shown with its own address as the state has it, so the reader can see that.
+ADDRESS_COMPARED_CITY = "Its principal city on record also begins with the city you gave."
+ADDRESS_ACTIVE_ONE = "1 active company has this principal address on record."
+ADDRESS_ACTIVE_MANY = "{count} active companies have this principal address on record. They are in document-number order, which says nothing about which one you mean."
+ADDRESS_NO_ACTIVE = "No active company has this principal address on record."
+ADDRESS_INACTIVE_ONE = "1 inactive company also has this principal address on record and is not listed."
+ADDRESS_INACTIVE_MANY = "{count} inactive companies also have this principal address on record and are not listed."
+# Rule S6: an address search lists only the active companies and says how many inactive ones
+# there are, in one sentence. Whether they should be listed is Andres's call (an open question).
+ADDRESS_NO_STATUS_ONE = "1 company with no status on record also has this principal address and is not listed."
+ADDRESS_NO_STATUS_MANY = "{count} companies with no status on record also have this principal address and are not listed."
+# A company with no status on record is not called inactive (CLAUDE.md rule 3). Every company has a status today.
+PRINCIPAL_ADDRESS_NOTE = "A company's principal address is the address it gave the state, which is not always where it does business."
+# Rule S8, word for word: once, under the results of every address search.
+ADDRESS_NOT_FOUND = "No company with that principal address on record was found. Check the house number and the spelling of the street's name."
+ADDRESS_TOO_MANY = "More than {limit} companies have that principal address on record, which is too many to list. Add the business's name."
+COMPANY_RECORDS_CITATION = "Florida Division of Corporations (Sunbiz) company records"
+# What a count of companies cites. One company cites its own record, with its document number.
+IDENTIFIED_BY_ADDRESS = (
+    "from {fields} · found by its principal address on record (the same house number, and a street name whose words were all typed) "
+    "· chosen by the user from the active companies listed for that address."
+)
+ADDRESS_OTHERS_ONE = "1 other active company was listed for that address."
+ADDRESS_OTHERS_MANY = "{count} other active companies were listed for that address."
+# Rule W7 for an address: every company on the list matched the address equally, so the report
+# of whichever one was picked says how many others were on it. No match level is given, because
+# rule S4 keeps the three levels for the name search.
+
 NOT_FOUND_HEADING = "Not found"
 NOT_FOUND = "Nothing was found at this address."
 # One sentence for every 404, whether the address is unknown, the document number has the
@@ -250,6 +292,29 @@ def not_shown_text(count: int) -> str:
     if count <= 0:
         return ""
     return SHORTLIST_NOT_SHOWN_ONE if count == 1 else SHORTLIST_NOT_SHOWN_MANY.format(count=count)
+
+
+def count_text(count: int, one: str, many: str) -> str:
+    """One of two sentences about a count of companies: `one` for 1, `many` with the number filled in for more. Empty for none."""
+    if count <= 0:
+        return ""
+    return one if count == 1 else many.format(count=count)
+
+
+def address_compared_text(house_number: str, city_given: bool) -> str:
+    """The sentence that says what an address search compared, and the second one when a city was given."""
+    line = ADDRESS_COMPARED.format(house_number=house_number)
+    return f"{line} {ADDRESS_COMPARED_CITY}" if city_given else line
+
+
+def identified_by_address_text(street: str, city: str, others_listed: int) -> str:
+    """The identification line of a company picked from an address search, built from the EXTRACTED street and city only (rule W6)."""
+    fields = [FIELD_STREET.format(value=street)]
+    if city:
+        fields.append(FIELD_CITY.format(value=city))
+    line = IDENTIFIED_BY_ADDRESS.format(fields=", ".join(fields))
+    others = count_text(others_listed, ADDRESS_OTHERS_ONE, ADDRESS_OTHERS_MANY)
+    return f"{line} {others}" if others else line
 
 
 def identified_text(business_name: str, city: str, street: str, level: str, evidence: tuple[str, ...], tied_others: int) -> str:

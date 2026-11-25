@@ -93,3 +93,38 @@ def test_the_two_company_record_flags_use_the_plans_wording_word_for_word():
     assert wording.FLAG_INACTIVE_CAVEAT == "Data as of the snapshot date; changes since then aren't covered until the events file is loaded"
     assert wording.FLAG_NEW_TEXT.format(day="2026-03-14") == "On record since 2026-03-14" and wording.FLAG_NEW_CAVEAT == "May be an effective date"
     assert wording.DISCLAIMER == "Sourced public-record facts, not advice. Verify on the official record before relying on them."
+
+
+def test_the_sentences_of_an_address_search_are_held_here_as_literal_text():
+    # Phase D, leg D1. Rule S8's sentence is typed out word for word, and so is every sentence that counts companies.
+    assert wording.PRINCIPAL_ADDRESS_NOTE == "A company's principal address is the address it gave the state, which is not always where it does business."
+    assert wording.count_text(0, wording.ADDRESS_INACTIVE_ONE, wording.ADDRESS_INACTIVE_MANY) == ""   # no sentence about no companies
+    assert wording.count_text(1, wording.ADDRESS_INACTIVE_ONE, wording.ADDRESS_INACTIVE_MANY) == "1 inactive company also has this principal address on record and is not listed."
+    assert wording.count_text(2, wording.ADDRESS_INACTIVE_ONE, wording.ADDRESS_INACTIVE_MANY) == "2 inactive companies also have this principal address on record and are not listed."
+    assert wording.count_text(1, wording.ADDRESS_ACTIVE_ONE, wording.ADDRESS_ACTIVE_MANY) == "1 active company has this principal address on record."
+    assert wording.count_text(3, wording.ADDRESS_NO_STATUS_ONE, wording.ADDRESS_NO_STATUS_MANY) == "3 companies with no status on record also have this principal address and are not listed."
+    assert "inactive" not in wording.ADDRESS_NO_STATUS_ONE + wording.ADDRESS_NO_STATUS_MANY   # no status on record is never called inactive
+    assert wording.ADDRESS_TOO_MANY.format(limit=50) == "More than 50 companies have that principal address on record, which is too many to list. Add the business's name."
+    assert wording.address_compared_text("8586", city_given=False).endswith("are not compared.")
+    assert wording.address_compared_text("8586", city_given=True).endswith("are not compared. Its principal city on record also begins with the city you gave.")
+
+
+def test_the_identification_line_of_an_address_search_names_the_street_and_no_match_level():
+    line = wording.identified_by_address_text("8586 palm pwwy", "", 0)
+    assert line == ('from the street "8586 palm pwwy" · found by its principal address on record (the same house number, and a street name whose words '
+                    "were all typed) · chosen by the user from the active companies listed for that address.")
+    assert "level" not in line                                            # rule S4 keeps the three levels for the name search
+    with_city = wording.identified_by_address_text("8586 palm pwwy", "Orlando", 1)
+    assert 'from the street "8586 palm pwwy", the city "Orlando" ·' in with_city and with_city.endswith(" 1 other active company was listed for that address.")
+    assert wording.identified_by_address_text("12 made up rd", "", 4).endswith(" 4 other active companies were listed for that address.")
+
+
+def test_the_pages_ask_for_what_the_two_searches_use_and_no_longer_for_a_street_beside_a_name():
+    # Question Q42: until leg D1 the pages asked for "a street or a city", and the search used no street.
+    asked = "the business's name and its city, or a street address that begins with its house number."
+    assert wording.SEARCH_HINT == "A business name and its city, or a street address that begins with its house number."
+    assert wording.NOTE_EMPTY == "Nothing was typed. Type " + asked and wording.NOTE_TOO_LONG == "That is too long to search for. Type " + asked
+    assert wording.ASK_FOR_A_BUSINESS_ON_A_PAGE == "That describes a business but doesn't name one. Add its name, or its street address beginning with the house number."
+    for page_sentence in (wording.SEARCH_HINT, wording.NOTE_EMPTY, wording.NOTE_TOO_LONG, wording.ASK_FOR_A_BUSINESS_ON_A_PAGE):
+        assert "a street or a city" not in page_sentence
+    assert wording.ASK_FOR_A_BUSINESS.endswith("a street or a city")      # the terminal has no search by address, so its question is unchanged

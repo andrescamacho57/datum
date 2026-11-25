@@ -1,0 +1,5 @@
+<article>
+<h2><a href="/company/{{ candidate.document_number }}?from={{ token }}">{{ candidate.name.text }}</a></h2>
+<p>{{ w.LABEL_DOCUMENT_NUMBER }} {{ candidate.document_number }} · {{ w.LABEL_ADDRESS }} <span class="as-recorded">{{ candidate.address.text }}</span></p>
+<p><small>{{ w.LABEL_SOURCE }}: <a href="{{ candidate.source.source_url }}" rel="noopener noreferrer">{{ candidate.source.citation }}</a> · {{ candidate.source.fetched_text }}</small></p>
+</article>

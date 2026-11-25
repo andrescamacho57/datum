@@ -24,7 +24,7 @@ from datetime import date, datetime         # a fact's fetch time, and the dates
 from typing import Literal                  # Literal["a", "b"] = the value must be one of these exact texts
 from urllib.parse import urlsplit           # cuts an address into scheme, host and path, to check that it is a full one
 
-from pydantic import BaseModel, ConfigDict, field_validator   # the base class, its settings, and a hook that checks one field
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator   # the base class, its settings, and hooks that check one field or the whole object
 
 from datum import wording                   # the summary line is built from the flags, with the words of wording.py
 
@@ -106,14 +106,34 @@ class Candidate(Frozen):
         return self.name
 
 
-class Identification(Frozen):
-    """How a company was picked, from the EXTRACTED fields. There is no field for the typed note (rule W6)."""
+class AddressCandidate(Frozen):
+    """One company on the list an address search shows. It has no match level: working rule S4 keeps the three levels for the name search."""
 
-    business_name: str                      # what the extraction step read as the business's name
+    document_number: str
+    name: Fact                              # the legal name as filed
+    address: Fact                           # the principal address as the state has it, so the reader can compare it with what was typed
+
+    @property
+    def source(self) -> Fact:
+        """The fact whose citation, address and fetch time stand for the whole line. Both facts here have the same ones."""
+        return self.name
+
+
+class Identification(Frozen):
+    """How a company was picked, from the EXTRACTED fields. There is no field for the typed note (rule W6).
+
+    A company is found by its NAME (a business name, a match level and the evidence behind
+    it) or by its ADDRESS (a street, and no level and no business name: the note named none).
+    The object refuses a mix of the two, so a report can never print a match level for a
+    company that was found by its address.
+    """
+
+    found_by: Literal["name", "address"] = "name"
+    business_name: str = ""                 # what the extraction step read as the business's name. Empty when found by address
     city: str = ""
     street: str = ""
-    level: Level
-    evidence: tuple[str, ...]
+    level: Level | None = None              # the match level of the name search. None when found by address
+    evidence: tuple[str, ...] = ()
     tied_others: int = 0                    # how many OTHER companies matched equally well (rule W7)
 
     @field_validator("tied_others")
@@ -122,6 +142,14 @@ class Identification(Frozen):
         if value < 0:
             raise ValueError("tied_others counts companies, so it cannot be below 0")
         return value
+
+    @model_validator(mode="after")
+    def one_kind_or_the_other(self) -> "Identification":
+        if self.found_by == "name" and (not self.business_name or self.level is None):
+            raise ValueError("a company found by its name needs the business name and a match level")
+        if self.found_by == "address" and (not self.street or self.business_name or self.level is not None or self.evidence):
+            raise ValueError("a company found by its address needs the street, and takes no business name, no match level and no evidence")
+        return self
 
 
 class Extracted(Frozen):

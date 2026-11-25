@@ -22,8 +22,8 @@ from datum import report_builder as builder_module
 from datum import wording
 from datum.models import Identification
 from datum.report_builder import (
-    CompanyNotFound, FakeReportBackend, NoSourceChecked, PostgresReportBackend, ReportBuilder, candidate_for_page, looks_like_a_document_number,
-    one_year_before, render_markdown,
+    CompanyNotFound, FakeReportBackend, NoSourceChecked, PostgresReportBackend, ReportBuilder, address_candidate_for_page, address_text, candidate_for_page,
+    count_fact, looks_like_a_document_number, one_year_before, render_markdown,
 )
 from datum.search import Candidate as SearchCandidate
 
@@ -305,6 +305,7 @@ def test_the_functions_that_lay_out_a_report_or_talk_in_the_terminal_hold_no_sen
 
     a_sentence = re.compile(r"[A-Za-z]{2,}\s+[A-Za-z]{2,}")                # two words with a space between
     functions = (render_markdown, ReportBuilder.build, ReportBuilder.company_record_flags, ReportBuilder.linked_flags, candidate_for_page,
+                 address_candidate_for_page, address_text, count_fact,
                  terminal.run, terminal.show_shortlist, terminal.source_line, terminal.pick, terminal.read_note, terminal.others_at_the_same_level)
     for function in functions:
         written = [text for text in texts(function.__code__) if text != function.__doc__ and a_sentence.search(text)]
@@ -367,3 +368,34 @@ def test_the_postgres_backend_sends_the_document_number_as_a_value_and_asks_for_
     assert backend.flags("T1'; drop table company_flags; --") == [lien]   # the columns map onto FlagRow's fields in order
     assert conn.asked[-1][1] == {"document_number": "T1'; drop table company_flags; --"} and "drop table" not in conn.asked[-1][0]
     assert PostgresReportBackend(RecordingConnection([])).company("T26000000001") is None
+
+
+def test_a_company_found_by_its_address_says_so_on_its_report_and_claims_no_match_level():
+    # Phase D, leg D1. The identification line is built from the extracted street and city, and it carries the company record's source.
+    how = Identification(found_by="address", street="1 invented wy", city="Boynton Beach", tied_others=1)
+    report = fx.builder().build(fx.LIEN_COMPANY, how)
+    assert report.identification.text == (
+        'from the street "1 invented wy", the city "Boynton Beach" · found by its principal address on record (the same house number, and a street name '
+        "whose words were all typed) · chosen by the user from the active companies listed for that address. 1 other active company was listed for that address.")
+    assert report.identification.citation == "Florida Division of Corporations (Sunbiz) record, document number T26000000001"
+    assert report.caution == "" and "match level" not in render_markdown(report)   # no level was claimed, so there is nothing to caution about
+
+
+def test_a_company_on_an_address_list_shows_its_address_as_the_state_has_it():
+    companies = {c.document_number: c for c in fx.load_companies()}
+    shown = address_candidate_for_page(companies[fx.NO_FLAG_COMPANY])
+    assert (shown.name.text, shown.address.text) == ("INVENTED ELECTRIC LLC", "5 INVENTED WAY, MIAMI, FL 33130")
+    assert shown.address.source_url == companies[fx.NO_FLAG_COMPANY].source_url and shown.address.fetched_at_is_approximate is True   # rule W1: the address is a Fact
+    assert shown.address.citation == "Florida Division of Corporations (Sunbiz) record, document number T26000000005"
+    assert address_text(companies[fx.GAPS_COMPANY]) == ""                 # no address on record: nothing is made up, and the report says "Not on record"
+
+
+def test_a_count_of_companies_cites_the_records_it_was_made_from_and_is_as_fresh_as_its_oldest_input():
+    # CLAUDE.md rule 3: a derived value carries its inputs' provenance. "2 inactive companies ..." is derived from two company records.
+    base = next(c for c in fx.load_companies() if c.document_number == fx.INACTIVE_COMPANY)
+    older = replace(base, fetched_at=base.fetched_at - timedelta(days=30), fetched_at_is_approximate=False)
+    counted = count_fact("2 inactive companies also have this principal address on record and are not listed.", (base, older))
+    assert counted.text.startswith("2 inactive companies") and counted.citation == "Florida Division of Corporations (Sunbiz) company records"
+    assert counted.source_url == base.source_url and counted.fetched_at == older.fetched_at   # the OLDEST fetch time of the two
+    assert counted.fetched_at_is_approximate is True                      # one of the two times is an estimate, so the count's is
+    assert count_fact("x", (older,)).fetched_at_is_approximate is False and count_fact("", ()) is None   # no companies: no sentence and no fact

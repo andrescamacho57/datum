@@ -75,13 +75,16 @@ def make(extract=None, companies=None, flags=None, sources=None, failing_databas
         handed.append(note)
         return extract(note)
 
+    search_backend = FakeBackend(companies)                               # one for the app's whole life, so a test can read what it was asked
+
     @contextmanager
     def open_backends():
         if failing_database:
             raise ConnectionError("could not connect to the database")
-        yield FakeBackend(companies), FakeReportBackend(companies, fx.load_flags() if flags is None else flags, fx.load_sources() if sources is None else sources)
+        yield search_backend, FakeReportBackend(companies, fx.load_flags() if flags is None else flags, fx.load_sources() if sources is None else sources)
 
     app = create_app(CODE, wrapped if extract else default_extract, open_backends, today=lambda: fx.BUILT_ON, **settings)
+    app.state.search_backend = search_backend
     return app, handed
 
 
@@ -326,11 +329,15 @@ def test_nothing_about_a_search_is_written_to_a_log(caplog):
 
 
 def test_a_vague_note_asks_for_a_business_and_shows_no_company():
-    # Acceptance test A2: "the pool guy off race track rd" names no business.
-    app, _ = make(extract=lambda note: {"business_name": "pool service", "city": "", "street": "Race Track Rd", "is_specific": False})
+    # Acceptance test A2: "the pool guy off race track rd" names no business. Working rule S7: its street has no house number, so it
+    # still asks for more. The app holds a company whose street IS Race Track Rd, and a search by address would list it.
+    on_that_road = replace(next(c for c in fx.load_companies() if c.document_number == fx.NO_FLAG_COMPANY), principal_address_1="12 RACE TRACK RD")
+    app, _ = make(companies=fx.load_companies() + [replace(on_that_road, document_number="T26000000099")],
+                  extract=lambda note: {"business_name": "pool service", "city": "", "street": "Race Track Rd", "is_specific": False})
     answer = client_for(app).post("/search", data={"note": "the pool guy off race track rd"})
     text = seen(answer.text)
-    assert answer.status_code == 200 and "That describes a business but doesn't name one. Add its name, a street or a city." in text
+    assert answer.status_code == 200 and "That describes a business but doesn't name one. Add its name, or its street address beginning with the house number." in text
+    assert app.state.search_backend.address_calls == [] and app.state.search_backend.calls == []   # neither search ran: a street alone matches thousands of companies
     assert "INVENTED" not in answer.text and "/company/" not in answer.text and "Document number" not in text   # no company at all
     assert "race track" not in answer.text.lower() and "pool" not in answer.text.lower()   # and nothing of the note or of what was read from it
     assert '<form method="post" action="/search">' in answer.text         # the box is there to try again
@@ -348,6 +355,10 @@ def test_the_note_is_on_no_page_whatever_goes_wrong(caplog, capfd):
         "the database is down": make(failing_database=True),
         "no company is close": make(companies=[]),
         "the note names no business": make(extract=lambda note: {**FIELDS, "is_specific": False}),
+        "the companies at an address": make(extract=lambda note: dict(BY_ADDRESS), companies=at_palm_pkwy()),
+        "no company at the address": make(extract=lambda note: dict(BY_ADDRESS)),
+        "too many companies at the address": make(extract=lambda note: dict(BY_ADDRESS), companies=at_palm_pkwy(active=51, inactive=0)),
+        "the database is down for an address": make(extract=lambda note: dict(BY_ADDRESS), failing_database=True),
     }
     with caplog.at_level(logging.DEBUG):
         for ending, (app, _) in endings.items():
@@ -403,9 +414,9 @@ def test_a_database_that_cannot_be_reached_says_unavailable_and_never_shows_an_e
 def test_an_empty_or_far_too_long_note_is_never_sent_to_the_extraction_step():
     app, handed = make()
     browser = client_for(app)
-    for note, sentence in (("", "Nothing was typed. Type the business's name, and a street or a city if you have one."),
-                           ("   ", "Nothing was typed. Type the business's name, and a street or a city if you have one."),
-                           ("x" * 501, "That is too long to search for. Type the business's name, and a street or a city if you have one.")):
+    for note, sentence in (("", "Nothing was typed. Type the business's name and its city, or a street address that begins with its house number."),
+                           ("   ", "Nothing was typed. Type the business's name and its city, or a street address that begins with its house number."),
+                           ("x" * 501, "That is too long to search for. Type the business's name and its city, or a street address that begins with its house number.")):
         answer = browser.post("/search", data={"note": note})
         assert answer.status_code == 200 and sentence in seen(answer.text) and "x" * 40 not in answer.text
     assert browser.post("/search").status_code == 200                     # a POST with no field at all is an empty note, not an error page
@@ -499,6 +510,134 @@ def test_strong_companies_that_did_not_fit_on_the_list_are_shown_under_it_with_t
     assert text.count("Source: Florida Division of Corporations (Sunbiz) record, document number T") == 7   # and all seven cite their source
     report = seen(browser.get(re.search(r'href="(/company/[^"]+)"', answer.text).group(1)).text)
     assert "6 other companies matched equally well." in report
+
+
+# --- The search by address (Phase D, leg D1; working rules S5 to S8) -----------------------------------
+
+BY_ADDRESS = {"business_name": "<UNKNOWN>", "city": "", "street": "8586 palm pwwy", "is_specific": False}
+# What the extraction step returned for the note "8586 palm pwwy" on Nov 25, 2026: no business, and the street exactly as typed.
+S8_SENTENCE = "A company's principal address is the address it gave the state, which is not always where it does business."   # typed out, not read from wording.py
+
+
+def at_palm_pkwy(active=1, inactive=2, city="ORLANDO"):
+    """Invented companies whose principal address is 8586 Palm Pkwy, written the three ways the state's records write such a street."""
+    base = next(c for c in fx.load_companies() if c.document_number == fx.NO_FLAG_COMPANY)
+    spellings = ("8586 PALM PKWY", "8586 PALM PARKWAY", "8586 Palm Pkwy.")
+    companies = [replace(base, document_number=f"T260000002{n:02d}", entity_name=f"INVENTED PIZZA {n} LLC", name_key=f"INVENTED PIZZA {n} LLC",
+                         status_code="A", principal_address_1=spellings[n % 3], principal_city=city, principal_zip="32836") for n in range(active)]
+    companies += [replace(base, document_number=f"T260000003{n:02d}", entity_name=f"INVENTED BILLIARDS {n} INC", name_key=f"INVENTED BILLIARDS {n} INC",
+                          status_code="I", principal_address_1=spellings[(n + 1) % 3], principal_city=city, principal_zip="32836") for n in range(inactive)]
+    return fx.load_companies() + companies
+
+
+def test_an_address_alone_lists_the_one_active_company_there_and_says_two_inactive_ones_are_not_listed():
+    # Working rules S5, S6 and S8, on the shape of the search that failed Andres on Nov 24. Before leg D1 this note got
+    # "That describes a business but doesn't name one", because the app never read the street.
+    app, handed = make(extract=lambda note: dict(BY_ADDRESS), companies=at_palm_pkwy())
+    browser = client_for(app)
+    answer = browser.post("/search", data={"note": "8586 palm pwwy"})
+    text = seen(answer.text)
+    assert answer.status_code == 200 and handed == ["8586 palm pwwy"] and "doesn't name one" not in text
+    assert "Companies at this address" in text and 'I read that as: the street "8586 palm pwwy"' in text
+    assert "UNKNOWN" not in answer.text and 'the business name "' not in text   # what the reply holds as a name, when it names no business, is never shown
+    links = re.findall(r'<h2><a href="/company/(T\d{11})\?from=([A-Za-z0-9_-]{16,})">([^<]+)</a></h2>', answer.text)
+    assert [(number, name) for number, _, name in links] == [("T26000000200", "INVENTED PIZZA 0 LLC")]   # the ACTIVE company, and it alone
+    assert "BILLIARDS" not in answer.text and "T260000003" not in answer.text   # rule S6: the two inactive companies are counted and never listed
+    assert "1 active company has this principal address on record." in text
+    assert ("2 inactive companies also have this principal address on record and are not listed. "
+            "Source: Florida Division of Corporations (Sunbiz) company records · fetched about 2026-10-22") in text   # the count cites the records it was made from
+    assert "Document number T26000000200 · Principal address 8586 PALM PKWY, ORLANDO, FL 32836" in text   # the address as the state has it, to compare with what was typed
+    assert ("A company is listed here when its principal address on record has the house number 8586 and a street name whose words you all typed. "
+            "The kind of street, such as ST or PKWY, and a direction, N, S, E or W, are not compared.") in text
+    assert "also begins with the city you gave" not in text               # no city was given, so nothing is said about one
+    assert text.count(S8_SENTENCE) == 1                                   # rule S8: once ...
+    assert text.index("INVENTED PIZZA 0 LLC") < text.index("2 inactive companies") < text.index(S8_SENTENCE) < text.index("Search again")   # ... and under the results
+    assert BANNED.findall(text) == [] and "Strong" not in text and "Likely" not in text and "Possible" not in text   # rule W4, and no match level: rule S4 keeps those for names
+    assert '<meta name="robots" content="noindex, nofollow">' in answer.text and '<meta name="viewport" content="width=device-width, initial-scale=1">' in answer.text
+    assert app.state.search_backend.address_calls and app.state.search_backend.calls == []   # the address search ran, and the name search did not
+    for word in ("8586", "palm", "pwwy"):
+        assert not [link for link in re.findall(r'href="([^"]+)"', answer.text) if word in link.lower()]   # no address carries what was read from the note
+
+    report = browser.get(f"/company/{links[0][0]}?from={links[0][1]}")
+    page = seen(report.text)
+    assert ('How this company was identified: from the street "8586 palm pwwy" · found by its principal address on record (the same house number, '
+            "and a street name whose words were all typed) · chosen by the user from the active companies listed for that address.") in page
+    assert "match level" not in page and "POSSIBLE" not in page and "other active compan" not in page   # no level, no caution, and nobody else was listed
+
+
+def test_several_active_companies_at_an_address_are_listed_by_document_number_and_the_report_says_how_many_others():
+    app, _ = make(extract=lambda note: dict(BY_ADDRESS), companies=list(reversed(at_palm_pkwy(active=3, inactive=1))))
+    browser = client_for(app)
+    answer = browser.post("/search", data={"note": "8586 palm pwwy"})
+    text = seen(answer.text)
+    assert re.findall(r'<h2><a href="/company/(T\d{11})\?from=', answer.text) == ["T26000000200", "T26000000201", "T26000000202"]   # document-number order
+    assert ("3 active companies have this principal address on record. They are in document-number order, which says nothing about which one you mean.") in text
+    assert "1 inactive company also has this principal address on record and is not listed." in text
+    assert text.count("Source: Florida Division of Corporations (Sunbiz) record, document number T") == 3   # each listed company cites its own record
+    second = seen(browser.get(re.findall(r'href="(/company/T26000000201\?from=[^"]+)"', answer.text)[0]).text)
+    assert "2 other active companies were listed for that address." in second     # rule W7: a tie is said on the report of whichever one was picked
+
+
+def test_a_city_given_with_an_address_keeps_only_the_companies_in_that_city_and_the_page_says_so():
+    companies = at_palm_pkwy()
+    elsewhere = replace(next(c for c in at_palm_pkwy() if c.document_number == "T26000000200"), document_number="T26000000250",
+                        entity_name="INVENTED GLASS OF MIAMI LLC", name_key="INVENTED GLASS OF MIAMI LLC", principal_address_1="8586 PALM AVE", principal_city="MIAMI")
+    with_city, _ = make(extract=lambda note: {**BY_ADDRESS, "city": "Orlando"}, companies=companies + [elsewhere])
+    text = seen(client_for(with_city).post("/search", data={"note": "8586 palm pwwy orlando"}).text)
+    assert 'I read that as: the street "8586 palm pwwy", the city "Orlando"' in text
+    assert "INVENTED PIZZA 0 LLC" in text and "MIAMI" not in text and "1 active company has this principal address on record." in text
+    assert "The kind of street, such as ST or PKWY, and a direction, N, S, E or W, are not compared. Its principal city on record also begins with the city you gave." in text
+    no_city, _ = make(extract=lambda note: dict(BY_ADDRESS), companies=companies + [elsewhere])
+    both = seen(client_for(no_city).post("/search", data={"note": "8586 palm pwwy"}).text)
+    assert "2 active companies have this principal address on record." in both      # with no city, 8586 PALM AVE in Miami matches too ...
+    assert "Principal address 8586 PALM AVE, MIAMI, FL 32836" in both               # ... and its own address is shown, so the reader can tell the two apart
+
+
+def test_an_address_search_that_lists_nobody_says_why_and_shows_no_company():
+    nobody, _ = make(extract=lambda note: dict(BY_ADDRESS))               # no company has that address
+    answer = client_for(nobody).post("/search", data={"note": "8586 palm pwwy"})
+    text = seen(answer.text)
+    assert answer.status_code == 200 and "/company/" not in answer.text and 'I read that as: the street "8586 palm pwwy"' in text
+    assert "No company with that principal address on record was found. Check the house number and the spelling of the street's name." in text
+    assert S8_SENTENCE not in text                                        # there are no results for it to stand under
+
+    only_inactive, _ = make(extract=lambda note: dict(BY_ADDRESS), companies=at_palm_pkwy(active=0, inactive=2))
+    answer = client_for(only_inactive).post("/search", data={"note": "8586 palm pwwy"})
+    text = seen(answer.text)
+    assert "/company/" not in answer.text and "BILLIARDS" not in answer.text       # nobody is listed, and nobody can be opened
+    assert "No active company has this principal address on record." in text and "2 inactive companies also have this principal address on record and are not listed." in text
+    assert text.count(S8_SENTENCE) == 1
+
+    crowded, _ = make(extract=lambda note: dict(BY_ADDRESS), companies=at_palm_pkwy(active=40, inactive=11))   # 51 companies at one address
+    answer = client_for(crowded).post("/search", data={"note": "8586 palm pwwy"})
+    text = seen(answer.text)
+    assert "/company/" not in answer.text and "INVENTED PIZZA" not in answer.text
+    assert "More than 50 companies have that principal address on record, which is too many to list. Add the business's name." in text
+    fifty, _ = make(extract=lambda note: dict(BY_ADDRESS), companies=at_palm_pkwy(active=40, inactive=10))    # exactly 50 is still listed
+    assert len(re.findall(r'href="/company/T', client_for(fifty).post("/search", data={"note": "8586 palm pwwy"}).text)) == 40
+
+    down, _ = make(extract=lambda note: dict(BY_ADDRESS), failing_database=True)
+    answer = client_for(down).post("/search", data={"note": "8586 palm pwwy"})
+    assert answer.status_code == 503 and "The search is unavailable right now, so no company is shown." in seen(answer.text) and "/company/" not in answer.text
+
+
+def test_a_note_that_names_a_business_gets_the_name_search_even_when_its_street_has_a_house_number():
+    # Working rule S5: the address search runs only when the note names no business.
+    app, _ = make(extract=lambda note: {**FIELDS, "street": "8586 palm pwwy"}, companies=at_palm_pkwy())
+    answer = client_for(app).post("/search", data={"note": NOTE})
+    text = seen(answer.text)
+    assert "Which company do you mean?" in text and "Companies at this address" not in text
+    assert app.state.search_backend.address_calls == [] and len(app.state.search_backend.calls) == 1
+    assert re.findall(r'<h2><a href="/company/(T\d{11})', answer.text)[0] == fx.LIEN_COMPANY
+
+
+def test_markup_in_an_address_or_in_the_street_that_was_read_is_shown_as_text_on_the_address_page():
+    mark = "<i>x</i>"
+    base = next(c for c in at_palm_pkwy() if c.document_number == "T26000000200")
+    hostile = replace(base, entity_name="INVENTED PIZZA " + mark, principal_address_1="8586 PALM PKWY " + mark)   # its street's words are PALM, PKWY, I, X and I
+    app, _ = make(extract=lambda note: {**BY_ADDRESS, "street": "8586 palm pwwy " + mark}, companies=[hostile])
+    answer = client_for(app).post("/search", data={"note": "8586 palm pwwy"})
+    assert "T26000000200" in answer.text and "<i>" not in answer.text and answer.text.count("&lt;i&gt;x&lt;/i&gt;") == 3   # the name, the address, and what was read
 
 
 # --- The report page -----------------------------------------------------------------------------
@@ -693,7 +832,7 @@ def test_every_page_has_a_viewport_tag_and_loads_only_the_apps_own_style_sheets(
 def test_nothing_of_datums_own_sets_a_width_wider_than_a_phone():
     # Acceptance test A11: usable at 390 pixels. Pico's own file is left alone: its wide rules sit inside rules for wide screens.
     own = [WEB / "static" / "datum.css"] + sorted((WEB / "templates").glob("*.html"))
-    assert len(own) == 8
+    assert len(own) == 10                                                 # the style sheet and nine templates, two of them for the address results (leg D1)
     for path in own:
         text = path.read_text()
         widths = [int(number) for number in re.findall(r"width\s*[:=]\s*[\"']?(\d+)\s*px", text)]
