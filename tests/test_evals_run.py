@@ -8,8 +8,10 @@ committed ones in pipeline/seeds/.
 Run from ~/datum:  pytest
 """
 
+import subprocess                           # runs git as a separate program, to ask what it ignores
 from dataclasses import replace             # a copy of a frozen dataclass with one field changed
 from datetime import date, datetime, timezone   # an invented company's dates and its UTC fetch time
+from pathlib import Path                    # the repo's root folder
 
 import pytest                               # the test runner; pytest.raises checks that an error IS raised
 
@@ -242,3 +244,12 @@ def test_a_fingerprint_changes_with_any_name_or_with_the_order():
     assert fingerprint(list(reversed(drawn))) != code                     # the same names in another order are another draw
     assert fingerprint([("ACME ROOFING LLC", ""), ("BEST POOLS INC.", "")]) != code   # one character changed
     assert fingerprint([("ACME ROOFING LLC", "TAMPA"), ("BEST POOLS INC", "")]) == code   # the city is not part of a draw: it is always empty
+
+
+@pytest.mark.parametrize("path", ["evals/draft_cases.csv", "evals/draft_extracted.csv"])
+def test_the_draft_case_files_are_ignored_by_git(path):
+    # Working rule S1: a drafted case stays on the Mac until Andres has checked it, because the repo is public and an unchecked
+    # address may be someone's home. `git check-ignore` compares the path, as text, with the ignore rules. No file is created or read.
+    repo_root = Path(__file__).parent.parent
+    result = subprocess.run(["git", "check-ignore", "--quiet", "--no-index", path], cwd=repo_root, check=False)
+    assert result.returncode == 0, f"{path} is not ignored, so `git add .` would publish it"   # 0 = ignored, 1 = not ignored
