@@ -471,8 +471,8 @@ def at(document_number, name, address, city="ORLANDO", status="A"):
 
 
 AT_ONE_ADDRESS = [
-    at("T00000000004", "QUARTZ BILLIARDS INC.", "8586 PALM PARKWAY", status="I"),
-    at("T00000000002", "8586 INVENTED PKWY LLC", "8586 Palm Pkwy.", status="I"),
+    at("T00000000004", "QUARTZ TILE INC.", "8586 PALM PARKWAY", status="I"),
+    at("T00000000002", "INVENTED HOLDINGS OF ORLANDO LLC", "8586 Palm Pkwy.", status="I"),
     at("T00000000001", "Q PIZZA LAKE BUENA VISTA LLC", "8586 PALM PKWY"),
     at("T00000000003", "ZEBRA GLASS OF TAMPA LLC", "8586 PALM RIVER RD", city="TAMPA"),   # the same number, another street
     at("T00000000005", "CORAL ELECTRIC LLC", "8587 PALM PKWY"),                           # the same street, the house next door

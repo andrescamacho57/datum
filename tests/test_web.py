@@ -525,7 +525,7 @@ def at_palm_pkwy(active=1, inactive=2, city="ORLANDO"):
     spellings = ("8586 PALM PKWY", "8586 PALM PARKWAY", "8586 Palm Pkwy.")
     companies = [replace(base, document_number=f"T260000002{n:02d}", entity_name=f"INVENTED PIZZA {n} LLC", name_key=f"INVENTED PIZZA {n} LLC",
                          status_code="A", principal_address_1=spellings[n % 3], principal_city=city, principal_zip="32836") for n in range(active)]
-    companies += [replace(base, document_number=f"T260000003{n:02d}", entity_name=f"INVENTED BILLIARDS {n} INC", name_key=f"INVENTED BILLIARDS {n} INC",
+    companies += [replace(base, document_number=f"T260000003{n:02d}", entity_name=f"INVENTED TILE {n} INC", name_key=f"INVENTED TILE {n} INC",
                           status_code="I", principal_address_1=spellings[(n + 1) % 3], principal_city=city, principal_zip="32836") for n in range(inactive)]
     return fx.load_companies() + companies
 
@@ -542,7 +542,7 @@ def test_an_address_alone_lists_the_one_active_company_there_and_says_two_inacti
     assert "UNKNOWN" not in answer.text and 'the business name "' not in text   # what the reply holds as a name, when it names no business, is never shown
     links = re.findall(r'<h2><a href="/company/(T\d{11})\?from=([A-Za-z0-9_-]{16,})">([^<]+)</a></h2>', answer.text)
     assert [(number, name) for number, _, name in links] == [("T26000000200", "INVENTED PIZZA 0 LLC")]   # the ACTIVE company, and it alone
-    assert "BILLIARDS" not in answer.text and "T260000003" not in answer.text   # rule S6: the two inactive companies are counted and never listed
+    assert "TILE" not in answer.text and "T260000003" not in answer.text   # rule S6: the two inactive companies are counted and never listed
     assert "1 active company has this principal address on record." in text
     assert ("2 inactive companies also have this principal address on record and are not listed. "
             "Source: Florida Division of Corporations (Sunbiz) company records · fetched about 2026-10-22") in text   # the count cites the records it was made from
@@ -604,7 +604,7 @@ def test_an_address_search_that_lists_nobody_says_why_and_shows_no_company():
     only_inactive, _ = make(extract=lambda note: dict(BY_ADDRESS), companies=at_palm_pkwy(active=0, inactive=2))
     answer = client_for(only_inactive).post("/search", data={"note": "8586 palm pwwy"})
     text = seen(answer.text)
-    assert "/company/" not in answer.text and "BILLIARDS" not in answer.text       # nobody is listed, and nobody can be opened
+    assert "/company/" not in answer.text and "TILE" not in answer.text       # nobody is listed, and nobody can be opened
     assert "No active company has this principal address on record." in text and "2 inactive companies also have this principal address on record and are not listed." in text
     assert text.count(S8_SENTENCE) == 1
 
