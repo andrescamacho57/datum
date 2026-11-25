@@ -471,5 +471,9 @@ def test_the_whole_evaluation_fails_only_when_a_checked_case_is_made_worse(tmp_p
     should_ask = [Case(case_id=4, case_group="g", expected_document_number=ASK, business_name="Pool", city="", street="77 quartz pkwy", is_specific=False)]
     assert evaluate(should_ask, None, backend, "fake", address_backend=backend, before=True) == 1
     # The same note as a DRAFT decides nothing in this comparison either: the checked case moved up, and the command passes.
+    capsys.readouterr()                                                   # forget what the call above printed: its own table also holds the row "g 1 0 1 0"
     assert evaluate(by_address, should_ask, backend, "fake", address_backend=backend, before=True) == 0
-    assert ["g", "1", "0", "1", "0"] in lines()                           # the draft is counted as moved down, in the drafts' own table
+    printed = capsys.readouterr().out
+    drafts_table = printed[printed.index("before Phase D, and now: draft cases"):]   # only what follows the drafts' own heading
+    assert ["g", "1", "0", "1", "0"] in [line.split() for line in drafts_table.splitlines()]   # the draft is counted as moved down, in the drafts' own table
+    assert ["checked", "cases", "made", "worse:", "none"] in [line.split() for line in printed.splitlines()]
