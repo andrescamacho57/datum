@@ -9,3 +9,6 @@ case_id,case_group,input_text,expected_document_number,expected_entity_name,case
 8,legal_name_variant,kromah properties,L26000402102,KROMAH PROPERTY LLC,word variant,2026-10-26,PROPERTIES vs PROPERTY
 9,real_world_reference,cinemark durbin park,P24771,"CINEMARK USA, INC.",location to operator,2026-10-26,storefront not registered; Texas corp registered in FL (foreign profit corp)
 10,real_world_reference,the pool guy off race track rd,NEEDS_MORE_INFO,,not identifiable,2026-10-26,correct behavior is to ask for more details instead of guessing
+11,contractor_search,v pizza orlando,L22000086098,V PIZZA LAKE BUENA VISTA LLC,trade name + city,2026-11-24,the registered name is longer than the trade name; the principal city on record is Orlando; 13 registered names begin with V PIZZA
+12,contractor_search,v pizza lake buena vista,L22000086098,V PIZZA LAKE BUENA VISTA LLC,trade name + area name,2026-11-24,Lake Buena Vista is part of the registered name; the principal city on record is Orlando
+13,contractor_search,8586 palm pwwy,L22000086098,V PIZZA LAKE BUENA VISTA LLC,"address only, with a typo",2026-11-24,PWWY is a typing mistake for PKWY; the principal address on record is 8586 PALM PKWY; the note names no business

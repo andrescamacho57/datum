@@ -40,8 +40,11 @@ def a_case(expected, is_specific=True, name="Acme Roofing", group="g", case_id=1
 
 def test_the_committed_test_set_is_read_and_joined_to_its_extractions():
     cases = read_cases()
-    assert [c.case_id for c in cases] == list(range(1, 11))               # ten hand-checked cases
+    assert [c.case_id for c in cases] == list(range(1, 14))               # thirteen hand-checked cases: ten from October, and three added in leg D1
     by_id = {c.case_id: c for c in cases}
+    assert [c.case_group for c in cases[10:]] == ["contractor_search"] * 3 and {c.expected_document_number for c in cases[10:]} == {"L22000086098"}
+    assert (by_id[11].business_name, by_id[11].city, by_id[11].is_specific) == ("V Pizza", "Orlando", True)
+    assert by_id[13].is_specific is False                                 # "8586 palm pwwy" names no business: the extraction step said so
     assert (by_id[1].business_name, by_id[1].city, by_id[1].is_specific) == ("Ferguson Air Conditioning", "Boynton Beach", True)
     assert by_id[10].expected_document_number == ASK and by_id[10].is_specific is False   # "the pool guy": the right answer is to ask
     assert by_id[7].is_specific is False                                  # the extraction step judged this one not specific

@@ -9,3 +9,6 @@ case_id,input_text,business_name,city,street,is_specific,model
 8,kromah properties,Kromah Properties,,,True,claude-haiku-5-5
 9,cinemark durbin park,Cinemark,,,True,claude-haiku-5-5
 10,the pool guy off race track rd,Pool,,Race Track Rd,False,claude-haiku-5-5
+11,v pizza orlando,V Pizza,Orlando,,True,claude-haiku-5-5
+12,v pizza lake buena vista,V Pizza,Lake Buena Vista,,True,claude-haiku-5-5
+13,8586 palm pwwy,<UNKNOWN>,,8586 palm pwwy,False,claude-haiku-5-5
