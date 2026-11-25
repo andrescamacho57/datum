@@ -124,6 +124,31 @@ class Identification(Frozen):
         return value
 
 
+class Extracted(Frozen):
+    """What the extraction step read from a note, checked: three texts and a yes-or-no. The note itself is not here."""
+
+    business_name: str
+    city: str
+    street: str
+    is_specific: bool                       # False = the note names no business, so the search must ask and not answer
+
+
+def read_extracted(reply: dict) -> Extracted:
+    """Check the extraction step's reply and trim it. Any fault in the reply raises an error here, where the caller expects one.
+
+    The reply comes from a model, so it is checked like any outside input: a missing field,
+    a number where a text belongs, or a text where True or False belongs is an error. A city
+    or a street the reply leaves empty (or sends as nothing at all) is an empty text. Spaces
+    around a value are removed, so a city of three spaces is no city.
+    """
+    return Extracted(
+        business_name=reply["business_name"].strip(),
+        city=(reply["city"] or "").strip(),
+        street=(reply["street"] or "").strip(),
+        is_specific=reply["is_specific"],
+    )
+
+
 class Report(Frozen):
     """Everything one report page shows. Both the terminal and the web app lay out this object and add no sentence of their own."""
 
@@ -137,6 +162,7 @@ class Report(Frozen):
     sources_not_checked: tuple[str, ...]    # what Datum did not look at, so that nobody reads silence as "nothing found"
     identification: Fact                    # the line that says how this company was picked (rules W6 and W7). It restates
                                             # the company's status and city as evidence, so it is a Fact with the company record's source
+    caution: str                            # wording.POSSIBLE_CAUTION when the company was picked at the level Possible. Otherwise empty
 
     @field_validator("sources_checked")
     @classmethod

@@ -146,6 +146,16 @@ def test_a_tie_is_said_on_the_report_of_whichever_company_was_picked():
     assert "matched equally well" not in build(fx.LIEN_COMPANY, PICKED).identification.text   # no tie: nothing is said about one
 
 
+def test_a_company_picked_at_the_level_possible_says_so_at_the_top_of_its_report():
+    caution = "This is only a POSSIBLE match: the name is similar, and nothing else confirms it is the company you mean."
+    possible = build(fx.LIEN_COMPANY, PICKED.model_copy(update={"level": "Possible"}))
+    text = render_markdown(possible)
+    assert possible.caution == caution and text.count(f"**{caution}**") == 1 and text.index(caution) < text.index("flags found")   # before the summary line
+    for identification in (PICKED, PICKED.model_copy(update={"level": "Likely"}), None):
+        report = build(fx.LIEN_COMPANY, identification)
+        assert report.caution == "" and "POSSIBLE" not in render_markdown(report)   # only the level Possible carries it, and "opened by its number" claims no level
+
+
 def test_the_identification_line_shows_the_extracted_fields_and_no_note():
     # The old report.py wrote the raw note, owner's name included, into the saved report (rule W6).
     identification = build(fx.LIEN_COMPANY, PICKED).identification
@@ -240,6 +250,9 @@ def test_everything_stated_about_the_company_is_a_fact_with_the_company_records_
     assert values["Date on record"] == "2019-05-06 (may be an effective date; confirm on the official record)"
     assert values["Principal address"] == "1 INVENTED WAY, BOYNTON BEACH, FL 33426"
     assert "data published 2026-10-07" in report.company_source.text
+    # ...and the page shows it. Until leg C4 the row showed the citation alone, and the date the state published the file was on no page.
+    assert ("| Official record | [Florida Division of Corporations (Sunbiz) record, document number T26000000001, data published 2026-10-07]"
+            "(https://search.sunbiz.org/Inquiry/CorporationSearch/ByDocumentNumber) · fetched about 2026-10-22 |") in render_markdown(report)
 
 
 def test_a_gap_in_the_states_record_is_said_and_never_filled_in():

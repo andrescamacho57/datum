@@ -37,7 +37,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]            # this file is src/da
 sys.path.insert(0, str(REPO_ROOT / "src"))                 # so `import datum.search` works when this file is run as a script
 
 from datum import wording                                   # noqa: E402  (the path line above has to come first)
-from datum.models import Candidate, Identification          # noqa: E402
+from datum.models import Candidate, Identification, read_extracted   # noqa: E402
 from datum.report_builder import ReportBackend, ReportBuilder, candidate_for_page, render_markdown   # noqa: E402
 from datum.search import SearchBackend, Shortlist, evidence, search_pool, shortlist   # noqa: E402
 
@@ -80,10 +80,10 @@ def show_shortlist(short: Shortlist, say: Callable[[str], None]) -> None:
         say("   " + source_line(candidate))
 
     say("")
+    if short.tied_at_top > 1:               # more than one company at the top level: said first, and it says which level and how many
+        say(wording.tie_text(short.tied_at_top, short.top_level) + "\n")
     for number, (level, found) in enumerate(zip(short.levels, short.candidates), start=1):
         show(candidate_for_page(found, level, short.city_given), f"{number}. ")
-    if short.tied_at_top > 1:               # more than one company at the top level
-        say("\n" + wording.SHORTLIST_TIE)
     if short.not_shown:                     # Strong candidates that are counted in the tie and did not fit on the list
         say(wording.not_shown_text(short.tied_not_shown))
         for found in short.not_shown:       # each one is shown with its reasons and its source, so the count is never a statement with nothing behind it
@@ -105,9 +105,10 @@ def run(note: str, extract: Callable[[str], dict], search_backend: SearchBackend
 
     for _ in range(MAX_ROUNDS):             # at most 3 rounds of "tell me more"
         try:
-            fields = extract(note)          # the ONLY use of the note. From here on, the code works with the extracted fields
-            business_name, city, street = fields["business_name"], fields["city"] or "", fields["street"] or ""
-            is_specific = fields["is_specific"]   # read inside the try, so a reply with a field missing is handled here too
+            extracted = read_extracted(extract(note))   # the ONLY use of the note. From here on, the code works with the extracted fields
+            business_name, city, street = extracted.business_name, extracted.city, extracted.street
+            is_specific = extracted.is_specific and bool(business_name)   # a reply that calls the note specific and gives no name names no business
+            # read_extracted is inside the try, so a reply with a field missing or of the wrong kind is handled here too
         except Exception as error:          # any failure of the extraction step: the API is down, the key is missing, the reply is malformed
             say("\n" + wording.SEARCH_UNAVAILABLE)   # a fixed sentence, and no company is shown
             say(wording.EXTRACTION_ERROR_KIND.format(kind=type(error).__name__))

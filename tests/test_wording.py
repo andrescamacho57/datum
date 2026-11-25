@@ -48,6 +48,16 @@ def test_a_sentence_about_a_count_says_what_the_count_covers():
         assert not [text for text in every if phrase in text], phrase
 
 
+def test_the_line_above_a_tied_shortlist_names_the_level_and_the_count_and_promises_nothing():
+    assert (wording.tie_text(1, "Strong"), wording.tie_text(0, "Strong"), wording.tie_text(3, None)) == ("", "", "")   # one company at the top is no tie
+    assert wording.tie_text(2, "Strong") == "2 companies match at the level Strong. Check which one you mean before you open a report."
+    assert wording.tie_text(3, "Likely") == "3 companies on this list match at the level Likely. Check which one you mean before you open a report."
+    assert wording.tie_text(5, "Possible") == "5 companies on this list match at the level Possible. Check which one you mean before you open a report."
+    every = " | ".join(value for name, value in vars(wording).items() if name.isupper() and isinstance(value, str))
+    for phrase in ("equally likely", "would help tell them apart", "Try again in a few minutes"):
+        assert phrase not in every, phrase                                # three things the app could not stand behind
+
+
 def test_the_identification_line_is_built_from_extracted_fields_and_leaves_out_an_empty_one():
     line = wording.identified_text("Acme Roofing", "", "", "Likely", ("name is similar (93/100)", "ACTIVE"), 0)
     assert line == 'from the business name "Acme Roofing" · match level Likely (name is similar (93/100); ACTIVE) · chosen by the user from a shortlist.'
@@ -68,8 +78,9 @@ def test_the_sentence_every_report_carries_and_the_banned_words_are_held_here_as
     assert wording.CONFIRMED_ONLY == ("Datum shows a record only when it can confirm that the record belongs to this company. "
                                       "A record filed under a similar name or at a different address is not shown.")   # rule W4, word for word
     assert wording.BANNED_WORDS == ("clean", "safe", "risky", "trustworthy", "reliable", "credit", "score", "recommend")   # rule W4's eight words
-    assert wording.SHORTLIST_TIE == "These look about equally likely. Is it one of these? A street or a city would help tell them apart."
-    assert wording.SEARCH_UNAVAILABLE == "The search is unavailable right now, so no company is shown. Try again in a few minutes."
+    assert wording.SEARCH_UNAVAILABLE == "The search is unavailable right now, so no company is shown."
+    assert wording.REPORT_UNAVAILABLE == "The report is unavailable right now."
+    assert wording.POSSIBLE_CAUTION == "This is only a POSSIBLE match: the name is similar, and nothing else confirms it is the company you mean."
     assert wording.IDENTIFIED_BY_NUMBER == "opened by its document number, so no match level applies."
     assert wording.NOTE_NOT_ON_COMMAND_LINE == ("What you typed after the command was not used. A shell usually keeps each command line in its history file, "
                                                 "so that text may be stored there now. Type the note below instead.")
