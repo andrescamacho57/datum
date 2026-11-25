@@ -94,6 +94,7 @@ class Candidate(Frozen):
     name: Fact                              # the legal name as filed
     place: Fact | None                      # "BOYNTON BEACH, FL". None when the state has no principal city for the company
     level: Level
+    mark: Fact | None = None                # "Inactive with the state", shown beside the name of an inactive company (rule S10). None for any other company
     evidence: tuple[Fact, ...]              # the reasons behind the level, from search.evidence()
     # The reasons are Facts too. "ACTIVE" and "principal city on record is TAMPA, ..." are
     # statements about the company, and "name is similar (93/100)" is worked out from its name,

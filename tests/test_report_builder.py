@@ -327,6 +327,11 @@ def test_a_search_result_becomes_a_page_candidate_whose_name_and_place_are_facts
     for fact in (candidate.name, candidate.place) + candidate.evidence:   # rule W1: the status and the city are stated with their source, like the name
         assert fact.source_url == companies[fx.LIEN_COMPANY].source_url and fact.fetched_at_is_approximate is True
         assert fact.citation == "Florida Division of Corporations (Sunbiz) record, document number T26000000001"
+    assert candidate.mark is None                                         # an active company carries no mark (rule S10)
+    marked = candidate_for_page(SearchCandidate(company=companies[fx.INACTIVE_COMPANY], similarity=100, city_match=False, exact_name=True, every_word=True), "Likely", city_given=True)
+    assert marked.mark.text == "Inactive with the state" and marked.mark.source_url == companies[fx.INACTIVE_COMPANY].source_url   # the mark is a Fact with the company record's source
+    assert marked.mark.citation == "Florida Division of Corporations (Sunbiz) record, document number T26000000003"
+    assert [reason.text for reason in marked.evidence][-1].startswith("principal city on record is TAMPA")   # and the status is not said again among the reasons
     no_city = candidate_for_page(SearchCandidate(company=companies[fx.GAPS_COMPANY], similarity=90, city_match=False, exact_name=False, every_word=False), "Possible", city_given=True)
     assert no_city.place is None                                          # no city on record: no place is shown
     assert [reason.text for reason in no_city.evidence] == ["name is similar (90/100)", "no principal city on record for this company", "ACTIVE"]

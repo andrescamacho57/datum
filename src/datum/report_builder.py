@@ -146,6 +146,7 @@ def candidate_for_page(candidate: SearchCandidate, level: str, city_given: bool)
         document_number=company.document_number, name=fact(company.entity_name),
         place=fact(place) if company.principal_city else None,   # no city on record: no place is shown, and none is made up
         level=level, evidence=tuple(fact(reason) for reason in evidence(candidate, city_given)),
+        mark=fact(wording.INACTIVE_MARK) if company.status_code == "I" else None,   # rule S10: said beside the name, as a Fact with the company record's source
     )
 
 

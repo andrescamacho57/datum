@@ -282,7 +282,7 @@ def test_every_answer_carries_the_headers_that_keep_a_page_out_of_caches_and_oth
 def test_a_note_that_names_a_business_gives_a_shortlist_with_the_right_company_first(browser):
     answer = browser.post("/search", data={"note": NOTE})
     assert answer.status_code == 200
-    names = re.findall(r'<h2><a href="/company/(T\d{11})\?from=([A-Za-z0-9_-]{16,})">([^<]+)</a></h2>', answer.text)
+    names = re.findall(r'<h2><a href="/company/(T\d{11})\?from=([A-Za-z0-9_-]{16,})">([^<]+)</a>(?: <small>· Inactive with the state</small>)?</h2>', answer.text)
     assert names[0][0] == fx.LIEN_COMPANY and names[0][2] == "INVENTED AIR CONDITIONING, LLC" and len(names) == 5
     assert len({token for _, token, _ in names}) == 1                     # one random token for the whole shortlist
     text = seen(answer.text)
@@ -458,6 +458,31 @@ def test_a_possible_match_carries_a_caution_on_the_shortlist_and_on_its_report()
     assert levels[fx.LIEN_COMPANY] == "Likely" and levels[fx.INACTIVE_COMPANY] == "Likely" and list(levels.values()).count("Possible") == 3
     for number, card in cards.items():
         assert (caution in card) == (levels[number] == "Possible"), number   # on every Possible card, and on no other
+
+
+def test_an_inactive_company_is_marked_beside_its_name_on_the_shortlist_and_the_words_are_said_once():
+    # Working rule S10 (leg D2). On Nov 24 the first company on Andres's shortlist was inactive, and the only sign of it was the
+    # last line of its reasons. The fixture's roofing company is inactive and the other four on this list are active.
+    answer = client_for(make()[0]).post("/search", data={"note": NOTE})
+    cards = {re.search(r"Document number (T\d{11})", card).group(1): card for card in answer.text.split("<article>")[1:]}
+    assert len(cards) == 5
+    inactive = cards[fx.INACTIVE_COMPANY]
+    assert re.search(r'<h2><a href="/company/T26000000003\?from=[^"]+">INVENTED ROOFING CORP</a> <small>· Inactive with the state</small></h2>', inactive)   # beside the name
+    assert inactive.count("Inactive with the state") == 1 and "INACTIVE" not in inactive   # said once: the words are no longer among the reasons
+    assert not re.findall(r"<li[^>]*>[^<]*nactive[^<]*</li>", inactive, flags=re.IGNORECASE)
+    for number, card in cards.items():
+        if number != fx.INACTIVE_COMPANY:
+            assert "Inactive with the state" not in card and "<small>·" not in card and '<li class="as-recorded">ACTIVE</li>' in card, number   # an active company has no mark
+    # A company with no status on record is not marked: no status is not "inactive" (CLAUDE.md rule 3).
+    no_status = [replace(c, status_code=None) if c.document_number == fx.INACTIVE_COMPANY else c for c in fx.load_companies()]
+    unknown = client_for(make(companies=no_status)[0]).post("/search", data={"note": NOTE}).text
+    assert "Inactive with the state" not in unknown and '<li class="as-recorded">status not on record</li>' in unknown
+    # A Strong company that did not fit on the list is shown under it with no link. It is marked the same way.
+    base = next(c for c in fx.load_companies() if c.document_number == fx.NO_FLAG_COMPANY)
+    seven = [replace(base, document_number=f"T2600000010{n}", entity_name=f"INVENTED AIR {suffix}", name_key=f"INVENTED AIR {suffix}", status_code="I" if suffix == "LTD" else "A")
+             for n, suffix in enumerate(("LLC", "INC", "CORP", "CO", "LTD", "LP", "PA"), start=1)]
+    under = client_for(make(companies=seven, extract=lambda note: {"business_name": "Invented Air", "city": "", "street": "", "is_specific": True})[0]).post("/search", data={"note": "invented air"})
+    assert "<h2>INVENTED AIR LTD <small>· Inactive with the state</small></h2>" in under.text and under.text.count("Inactive with the state") == 1
 
 
 def test_a_value_is_shown_with_the_spaces_the_record_holds():

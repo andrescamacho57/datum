@@ -242,14 +242,17 @@ def test_evidence_says_what_the_level_rests_on():
     assert evidence(similar, city_given=False) == ["name is similar (88/100)", "ACTIVE"]   # no city given: the city is not mentioned
 
 
-def test_evidence_ends_with_the_status_and_never_guesses_one():
-    # The status is what tells an active company from an inactive namesake on a shortlist, so it is always the last reason.
+def test_evidence_ends_with_the_status_of_an_active_company_and_never_guesses_one():
     active, inactive, unknown = (
         rank([company("T00000000001", "ACME ROOFING LLC", status=status)], "acme roofing")[0] for status in ("A", "I", None)
     )
     assert evidence(active, city_given=False)[-1] == "ACTIVE"
-    assert evidence(inactive, city_given=False)[-1] == "INACTIVE with the state"
     assert evidence(unknown, city_given=False)[-1] == "status not on record"   # a missing status is not "inactive" (CLAUDE.md rule 3)
+    # Working rule S10 (leg D2): an inactive company is marked beside its NAME on the shortlist, so its status is no longer a reason.
+    # Until leg D2 this list ended "INACTIVE with the state", and that last line was the only sign of it.
+    reasons = evidence(inactive, city_given=False)
+    assert len(reasons) == 1 and reasons[0].startswith("name matches (") and not [reason for reason in reasons if "nactive" in reason or "NACTIVE" in reason]
+    assert len(evidence(inactive, city_given=True)) == 2                  # the name and the city, and still no status
 
 
 def test_evidence_does_not_print_a_missing_city():

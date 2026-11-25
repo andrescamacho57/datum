@@ -74,7 +74,7 @@ def show_shortlist(short: Shortlist, say: Callable[[str], None]) -> None:
     states nothing about a company that it cannot cite.
     """
     def show(candidate: Candidate, lead: str) -> None:   # one company: its level and name, its place and reasons, its source
-        say(f"{lead}[{candidate.level}] {candidate.name.text}  ({candidate.document_number})")
+        say(f"{lead}[{candidate.level}] {candidate.name.text}  ({candidate.document_number})" + (f"  ·  {candidate.mark.text}" if candidate.mark else ""))   # rule S10: an inactive company says so beside its name
         say("   " + "  ·  ".join(part for part in (candidate.place.text if candidate.place else "",
                                                    "; ".join(reason.text for reason in candidate.evidence)) if part))
         say("   " + source_line(candidate))
