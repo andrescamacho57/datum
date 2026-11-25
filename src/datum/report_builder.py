@@ -213,8 +213,16 @@ class ReportBuilder:
                 fetched_at=in_utc(company.fetched_at), fetched_at_is_approximate=company.fetched_at_is_approximate,
             )
 
-        status = {"A": wording.STATUS_ACTIVE, "I": wording.STATUS_INACTIVE}.get(company.status_code, wording.NOT_ON_RECORD)
-        entity_type = wording.FILING_TYPES.get(company.filing_type, company.filing_type) or wording.NOT_ON_RECORD
+        status_on_record = {"A": wording.STATUS_ACTIVE, "I": wording.STATUS_INACTIVE}.get(company.status_code)   # None when the state has no status
+        entity_type_on_record = wording.FILING_TYPES.get(company.filing_type, company.filing_type) or None         # None when the state has no type
+        status = status_on_record or wording.NOT_ON_RECORD
+        entity_type = entity_type_on_record or wording.NOT_ON_RECORD
+        # The summary at the top (rule S9) is built here, from the very values the rows below are built from, so the
+        # two cannot say different things: one status, one entity type, one date on record, one published date.
+        headline = (
+            fact(wording.summary_status_text(status_on_record, company.published_on)),
+            fact(wording.summary_record_text(entity_type_on_record, company.file_date, built_on)),
+        )
         on_record = wording.DATE_ON_RECORD.format(day=wording.day_text(company.file_date)) if company.file_date else wording.NOT_ON_RECORD
         address = address_text(company) or wording.NOT_ON_RECORD
         rows = (
@@ -256,7 +264,7 @@ class ReportBuilder:
             ))
         return Report(
             document_number=company.document_number, built_on=built_on, name=company.entity_name,
-            company=rows, company_source=company_source, flags=flags,
+            headline=headline, company=rows, company_source=company_source, flags=flags,
             sources_checked=checked, sources_not_checked=not_checked, identification=identified,
             caution=wording.POSSIBLE_CAUTION if identification is not None and identification.level == "Possible" else "",
         )
@@ -316,13 +324,9 @@ def render_markdown(report: Report) -> str:
         f"# {wording.REPORT_TITLE.format(name=report.name)}", "",
         wording.BUILT_ON.format(day=wording.day_text(report.built_on)), "",
         *([f"**{report.caution}**", ""] if report.caution else []),   # a Possible match says so before anything else is read
-        f"**{report.summary}**", "",
-        report.confirmed_only, "",
-        "| | |", "|---|---|",
+        f"**{' '.join(fact.text for fact in report.headline)} {report.summary}**", "",   # the summary (rule S9): status, type and year, then the count of flags
+        report.confirmed_only, "",          # rule W4's sentence, right after the summary line, on every report
     ]
-    lines += [f"| {label} | {fact.text.replace('|', chr(92) + '|')} |" for label, fact in report.company]   # a "|" in a name would end the table cell, so it is written as \|
-    source = report.company_source          # its text is the citation AND the date the state published the file, so the text is what is shown
-    lines += [f"| {wording.LABEL_COMPANY_SOURCE} | [{source.text}]({source.source_url}) · {source.fetched_text} |", ""]
     if report.flags:
         lines += [f"## {wording.HEADING_FLAGS}", ""]
         for flag in report.flags:
@@ -337,9 +341,13 @@ def render_markdown(report: Report) -> str:
             lines.append(f"- {flag.caveat}")
             lines.append(f"- {wording.LABEL_SOURCE}: {cited(flag.fact)}")
             lines.append("")
-    lines += [f"## {wording.HEADING_CHECKED}", ""]
+    lines += [f"## {wording.HEADING_RECORDS}", "", "| | |", "|---|---|"]   # the details: the company's record, then what was and was not checked
+    lines += [f"| {label} | {fact.text.replace('|', chr(92) + '|')} |" for label, fact in report.company]   # a "|" in a name would end the table cell, so it is written as \|
+    source = report.company_source          # its text is the citation AND the date the state published the file, so the text is what is shown
+    lines += [f"| {wording.LABEL_COMPANY_SOURCE} | [{source.text}]({source.source_url}) · {source.fetched_text} |", ""]
+    lines += [f"### {wording.HEADING_CHECKED}", ""]
     lines += [f"- {fact.text} {wording.LABEL_SOURCE}: {cited(fact)}" for fact in report.sources_checked]
-    lines += ["", f"## {wording.HEADING_NOT_CHECKED}", ""]
+    lines += ["", f"### {wording.HEADING_NOT_CHECKED}", ""]
     lines += [f"- {item}" for item in report.sources_not_checked]
     lines += ["", f"**{wording.LABEL_IDENTIFIED}:** {report.identification.text}", "", f"*{report.disclaimer}*", ""]
     return "\n".join(lines)

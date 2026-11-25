@@ -719,6 +719,31 @@ def test_no_report_page_holds_a_word_that_reassures_or_judges(browser, document_
     assert "Sources checked" in text and "Not checked" in text and "Court cases" in text
 
 
+@pytest.mark.parametrize("document_number", [fx.LIEN_COMPANY, fx.LICENSE_COMPANY, fx.INACTIVE_COMPANY, fx.NEW_COMPANY, fx.NO_FLAG_COMPANY])
+def test_the_report_page_opens_with_a_summary_that_agrees_with_the_records_under_it(browser, document_number):
+    # Phase D, leg D2 (working rule S9). Everything is read off the page a contractor sees: the summary at the top, and the rows below.
+    answer = browser.get("/company/" + document_number)
+    summary = re.search(r"<p><strong>((Active|Inactive) with the state as of Oct 7, 2026\. ([^<]+?), on record since (\d{4})\. "
+                        r"(No flags found in the sources checked\.|(\d+) flags? found in 3 sources checked\.))</strong></p>\n<p>([^<]+)</p>", answer.text)
+    assert summary, answer.text[:900]
+    _, status, entity_type, year, count_line, count, next_paragraph = summary.groups()
+
+    def row(label):
+        return re.search(rf'<tr><th scope="row">{label}</th><td class="as-recorded">([^<]*)</td></tr>', answer.text).group(1)
+
+    assert (status, entity_type, year) == (row("Status with the state"), row("Entity type"), row("Date on record")[:4])   # the same status, type and year as the table
+    cards = answer.text.count("<article>")
+    assert count_line == "No flags found in the sources checked." if cards == 0 else count == str(cards)   # the count is the number of flag cards on the page
+    assert next_paragraph == W4_SENTENCE                                  # rule W4's sentence comes right after the summary line
+    assert "data published 2026-10-07</a>" in answer.text                 # the date in the summary is the record's published date, as the table has it
+    text = seen(answer.text)
+    order = [text.index(part) for part in (summary.group(1), "The records behind this summary", "Legal name", "Sources checked", "Not checked", "How this company was identified")]
+    assert order == sorted(order)                                         # the summary first, and the details under their heading
+    if cards:
+        assert text.index(summary.group(1)) < text.index("Flags") < text.index("The records behind this summary")   # the flags the summary counts come before the details
+    assert "<h2>The records behind this summary</h2>" in answer.text and BANNED.findall(text) == []
+
+
 def test_the_report_page_states_every_company_fact_and_cites_the_company_record(browser):
     # Rule W1 on the page itself: the facts, and for the record as a whole its address to check it on and its fetch date.
     answer = browser.get("/company/" + fx.LIEN_COMPANY)

@@ -131,3 +131,22 @@ def test_the_pages_ask_for_what_the_two_searches_use_and_no_longer_for_a_street_
     for page_sentence in (wording.SEARCH_HINT, wording.NOTE_EMPTY, wording.NOTE_TOO_LONG, wording.ASK_FOR_A_BUSINESS_ON_A_PAGE):
         assert "a street or a city" not in page_sentence
     assert wording.ASK_FOR_A_BUSINESS.endswith("a street or a city")      # the terminal has no search by address, so its question is unchanged
+
+
+def test_the_summary_sentences_say_the_status_as_of_a_date_and_never_fill_a_gap():
+    # Phase D, leg D2 (working rule S9). The example in the brief: "Active with the state as of Oct 7, 2026. Florida limited
+    # liability company, on record since 2022."
+    assert wording.long_day_text(date(2026, 10, 7)) == "Oct 7, 2026" and wording.long_day_text(date(2027, 1, 31)) == "Jan 31, 2027"
+    assert [wording.long_day_text(date(2026, month, 1))[:3] for month in range(1, 13)] == ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    assert wording.summary_status_text("Active", date(2026, 10, 7)) == "Active with the state as of Oct 7, 2026."
+    assert wording.summary_status_text("Inactive", date(2026, 11, 5)) == "Inactive with the state as of Nov 5, 2026."
+    assert wording.summary_status_text(None, date(2026, 10, 7)) == "No status with the state is on record as of Oct 7, 2026."   # a missing status is not "Inactive"
+    today = date(2026, 11, 25)
+    llc = "Florida limited liability company (LLC)"
+    assert wording.summary_record_text(llc, date(2022, 3, 14), today) == "Florida limited liability company (LLC), on record since 2022."
+    assert wording.summary_record_text(llc, today, today) == "Florida limited liability company (LLC), on record since 2026."   # today is not the future
+    assert wording.summary_record_text(llc, date(2120, 1, 1), today) == "Florida limited liability company (LLC), with a date on record in 2120, which is in the future."
+    assert wording.summary_record_text(llc, None, today) == "Florida limited liability company (LLC), with no date on record."
+    assert wording.summary_record_text(None, date(2022, 3, 14), today) == "Entity type not on record, on record since 2022."
+    assert wording.summary_record_text("TRUST", None, today) == "TRUST, with no date on record."   # a code with no label is shown as the state writes it
+    assert wording.HEADING_RECORDS == "The records behind this summary"

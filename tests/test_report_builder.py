@@ -99,7 +99,8 @@ def test_a_company_with_no_flag_says_exactly_the_no_flags_line():
     report = build(fx.NO_FLAG_COMPANY)
     assert report.flags == () and report.summary == "No flags found in the sources checked."
     text = render_markdown(report)
-    assert "**No flags found in the sources checked.**" in text and f"## {wording.HEADING_FLAGS}" not in text
+    assert ("**Active with the state as of Oct 7, 2026. Florida limited liability company (LLC), on record since 2015. "
+            "No flags found in the sources checked.**") in text and f"## {wording.HEADING_FLAGS}" not in text
 
 
 def test_the_count_ignores_a_hidden_flag_and_a_possible_match_even_when_the_backend_hands_them_over():
@@ -399,3 +400,67 @@ def test_a_count_of_companies_cites_the_records_it_was_made_from_and_is_as_fresh
     assert counted.source_url == base.source_url and counted.fetched_at == older.fetched_at   # the OLDEST fetch time of the two
     assert counted.fetched_at_is_approximate is True                      # one of the two times is an estimate, so the count's is
     assert count_fact("x", (older,)).fetched_at_is_approximate is False and count_fact("", ()) is None   # no companies: no sentence and no fact
+
+
+# --- The summary at the top (Phase D, leg D2; working rule S9) ------------------------------------------
+
+MONTH_NAMES = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")   # typed out, not read from wording.py
+SUMMARY = re.compile(r"\*\*((Active|Inactive) with the state as of ([A-Z][a-z]{2}) (\d{1,2}), (\d{4})\. (.+?), on record since (\d{4})\. (No flags found in the sources checked\.|(\d+) flags? found in \d+ sources? checked\.))\*\*")
+FIVE_REPORTS = (fx.LIEN_COMPANY, fx.LICENSE_COMPANY, fx.INACTIVE_COMPANY, fx.NEW_COMPANY, fx.NO_FLAG_COMPANY)   # the five kinds of report leg C3 built
+
+
+def table_row(text, label):
+    """The value of one row of the company record table in a rendered report."""
+    return re.search(rf"^\| {re.escape(label)} \| (.+) \|$", text, flags=re.M).group(1)
+
+
+@pytest.mark.parametrize("document_number", FIVE_REPORTS)
+def test_the_summary_at_the_top_agrees_with_the_facts_below_it(document_number):
+    # The summary is built from the same values as the rows under it. This test reads both off the RENDERED report and compares
+    # them, so it fails if the two ever come from different places: the status, the year, the count of flags and the date.
+    company = next(c for c in fx.load_companies() if c.document_number == document_number)
+    text = render_markdown(build(document_number))
+    summary = SUMMARY.search(text)
+    assert summary, text[:300]
+    whole, status, month, day_of_month, year_published, entity_type, year_on_record, count_line, count = summary.groups()
+    assert status == table_row(text, "Status with the state")             # the status in the summary is the status in the table
+    assert entity_type == table_row(text, "Entity type")
+    assert year_on_record == table_row(text, "Date on record")[:4] == str(company.file_date.year)
+    cards = text[:text.index("## The records behind this summary")].count("\n### ")   # one heading per flag card, all above the records
+    assert cards == len(build(document_number).flags)                     # the cards on the page are the report's flags
+    assert count_line == "No flags found in the sources checked." if cards == 0 else count == str(cards)   # and the summary counts exactly those cards
+    assert (int(year_published), MONTH_NAMES.index(month) + 1, int(day_of_month)) == (company.published_on.year, company.published_on.month, company.published_on.day)
+    assert f"data published {company.published_on:%Y-%m-%d}" in table_row(text, "Official record")   # the same date, as the table writes it
+    after = text[summary.end():].lstrip("\n")
+    assert after.startswith(W4_SENTENCE + "\n")                           # rule W4's sentence comes right after the summary line
+    assert text.index(whole) < text.index("## The records behind this summary") < text.index("| Legal name |") < text.index("### Sources checked") < text.index("### Not checked")
+    assert BANNED.findall(text) == [] and text.count(W4_SENTENCE) == 1
+
+
+def test_the_summarys_date_is_the_records_own_published_date_and_not_the_snapshots():
+    # A company first seen in a daily file has a later published date than the quarterly snapshot. The summary must give ITS date.
+    daily = replace(next(c for c in fx.load_companies() if c.document_number == fx.NO_FLAG_COMPANY), published_on=date(2026, 11, 5), status_code="I")
+    report = ReportBuilder(FakeReportBackend([daily], [], fx.load_sources()), today=lambda: fx.BUILT_ON).build(fx.NO_FLAG_COMPANY, None)
+    assert report.headline[0].text == "Inactive with the state as of Nov 5, 2026."
+    assert "data published 2026-11-05" in report.company_source.text and report.headline[0].source_url == daily.source_url   # the summary's fact cites the company record
+    assert report.headline[0].citation == "Florida Division of Corporations (Sunbiz) record, document number T26000000005"
+
+
+def test_the_summary_says_a_gap_in_the_record_and_never_fills_it_in():
+    gaps = render_markdown(build(fx.GAPS_COMPANY))                         # no date on record, and an entity-type code with no label
+    assert "**Active with the state as of Oct 7, 2026. TRUST, with no date on record. No flags found in the sources checked.**" in gaps
+    base = next(c for c in fx.load_companies() if c.document_number == fx.NO_FLAG_COMPANY)
+
+    def summary_of(company):
+        return " ".join(fact.text for fact in ReportBuilder(FakeReportBackend([company], [], fx.load_sources()), today=lambda: fx.BUILT_ON).build(company.document_number, None).headline)
+
+    assert summary_of(replace(base, status_code=None)) == "No status with the state is on record as of Oct 7, 2026. Florida limited liability company (LLC), on record since 2015."
+    assert summary_of(replace(base, filing_type=None)) == "Active with the state as of Oct 7, 2026. Entity type not on record, on record since 2015."
+    assert summary_of(replace(base, file_date=date(2120, 1, 1))).endswith("with a date on record in 2120, which is in the future.")   # not "on record since 2120"
+    assert "None" not in gaps and "None" not in summary_of(replace(base, status_code=None, filing_type=None, file_date=None))
+
+
+def test_a_possible_match_still_says_so_before_the_summary():
+    picked = Identification(business_name="Invented Electric", level="Possible", evidence=("name is similar (90/100)", "ACTIVE"))
+    text = render_markdown(build(fx.NO_FLAG_COMPANY, picked))
+    assert text.index(wording.POSSIBLE_CAUTION) < text.index("Active with the state as of")   # the caution is the first thing read, then the summary

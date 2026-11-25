@@ -183,6 +183,8 @@ class Report(Frozen):
     document_number: str
     built_on: date                          # the day the report was built
     name: str                               # the legal name, for the title
+    headline: tuple[Fact, Fact]             # the summary's first two sentences (rule S9): the status as of the published date, and the entity
+                                            # type with the year on record. Each is a Fact, built from the same values as the rows below
     company: tuple[tuple[str, Fact], ...]   # the company's own record: (label, fact) rows in display order
     company_source: Fact                    # the line that cites the company record as a whole
     flags: tuple[Flag, ...]                 # the company-record flags first, then the linked records, newest first

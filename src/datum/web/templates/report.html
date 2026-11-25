@@ -3,14 +3,8 @@
 <h1>{{ w.REPORT_TITLE.format(name=report.name) }}</h1>
 <p><small>{{ w.BUILT_ON.format(day=day(report.built_on)) }}</small></p>
 {% if report.caution %}<p><strong>{{ report.caution }}</strong></p>{% endif %}
-<p><strong>{{ report.summary }}</strong></p>
+<p><strong>{% for fact in report.headline %}{{ fact.text }} {% endfor %}{{ report.summary }}</strong></p>
 <p>{{ report.confirmed_only }}</p>
-<table>
-<tbody>
-{% for label, fact in report.company %}<tr><th scope="row">{{ label }}</th><td class="as-recorded">{{ fact.text }}</td></tr>
-{% endfor %}<tr><th scope="row">{{ w.LABEL_COMPANY_SOURCE }}</th><td><a href="{{ report.company_source.source_url }}" rel="noopener noreferrer">{{ report.company_source.text }}</a> · {{ report.company_source.fetched_text }}</td></tr>
-</tbody>
-</table>
 {% if report.flags %}<h2>{{ w.HEADING_FLAGS }}</h2>
 {% for flag in report.flags %}<article>
 <h3>{{ flag.title }}</h3>
@@ -23,11 +17,18 @@
 </ul>
 </article>
 {% endfor %}{% endif %}
-<h2>{{ w.HEADING_CHECKED }}</h2>
+<h2>{{ w.HEADING_RECORDS }}</h2>
+<table>
+<tbody>
+{% for label, fact in report.company %}<tr><th scope="row">{{ label }}</th><td class="as-recorded">{{ fact.text }}</td></tr>
+{% endfor %}<tr><th scope="row">{{ w.LABEL_COMPANY_SOURCE }}</th><td><a href="{{ report.company_source.source_url }}" rel="noopener noreferrer">{{ report.company_source.text }}</a> · {{ report.company_source.fetched_text }}</td></tr>
+</tbody>
+</table>
+<h3>{{ w.HEADING_CHECKED }}</h3>
 <ul>
 {% for fact in report.sources_checked %}<li>{{ fact.text }} {{ w.LABEL_SOURCE }}: <a href="{{ fact.source_url }}" rel="noopener noreferrer">{{ fact.citation }}</a> · {{ fact.fetched_text }}</li>
 {% endfor %}</ul>
-<h2>{{ w.HEADING_NOT_CHECKED }}</h2>
+<h3>{{ w.HEADING_NOT_CHECKED }}</h3>
 <ul>
 {% for item in report.sources_not_checked %}<li>{{ item }}</li>
 {% endfor %}</ul>

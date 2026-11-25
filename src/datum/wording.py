@@ -73,6 +73,23 @@ FLAG_NEW_TEXT = "On record since {day}"
 FLAG_NEW_CAVEAT = "May be an effective date"
 NEW_COMPANY_MONTHS = 12                     # "Date on record within 12 months", from the same table
 
+# --- The summary at the top of a report (Phase D, leg D2; working rule S9) ----------------
+# A contractor reads the first lines and stops. They answer "is it real, and is anything on the
+# record" from facts the report shows further down, and they give no verdict. The order is the
+# rule's: the status as of the day the state published the record, the entity type and the year
+# of the date on record, the summary line (summary_line below), and then CONFIRMED_ONLY.
+SUMMARY_STATUS = "{status} with the state as of {day}."
+# "As of" the published date, and never "is active": a change after that date is not checked
+# (rule W5 lists it), and a company first seen in a daily file has a later date than the snapshot.
+SUMMARY_NO_STATUS = "No status with the state is on record as of {day}."
+SUMMARY_TYPE_SINCE = "{entity_type}, on record since {year}."
+SUMMARY_TYPE_DATE_AHEAD = "{entity_type}, with a date on record in {year}, which is in the future."
+# 35 companies have a date on record that has not come yet. "On record since 2120" would be false.
+SUMMARY_TYPE_NO_DATE = "{entity_type}, with no date on record."
+SUMMARY_NO_TYPE = "Entity type not on record"                  # stands where the entity type would, when the state has none
+HEADING_RECORDS = "The records behind this summary"            # the company record table and the two lists of sources sit under it
+MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
 # --- A flag card ------------------------------------------------------------------------
 HEADING_FLAGS = "Flags"
 LABEL_FLAG_DATE = "Date on the record"
@@ -268,6 +285,26 @@ NOT_FOUND = "Nothing was found at this address."
 def day_text(value: date | datetime) -> str:
     """A date the way every page writes it: 2026-11-24. A fetch time is shown as its UTC date."""
     return value.strftime("%Y-%m-%d")
+
+
+def long_day_text(value: date) -> str:
+    """A date the way the summary writes it: Oct 7, 2026. The month names are spelled here, so the text does not depend on the machine's language."""
+    return f"{MONTHS[value.month - 1]} {value.day}, {value.year}"
+
+
+def summary_status_text(status: str | None, published_on: date) -> str:
+    """The summary's first sentence: the status with the state as of the day the record was published. `status` is None when the state has none."""
+    day = long_day_text(published_on)
+    return SUMMARY_STATUS.format(status=status, day=day) if status else SUMMARY_NO_STATUS.format(day=day)
+
+
+def summary_record_text(entity_type: str | None, on_record: date | None, built_on: date) -> str:
+    """The summary's second sentence: the entity type and the year of the date on record. A gap is said, and a date still to come is not called "since"."""
+    entity_type = entity_type or SUMMARY_NO_TYPE
+    if on_record is None:
+        return SUMMARY_TYPE_NO_DATE.format(entity_type=entity_type)
+    sentence = SUMMARY_TYPE_DATE_AHEAD if on_record > built_on else SUMMARY_TYPE_SINCE
+    return sentence.format(entity_type=entity_type, year=on_record.year)
 
 
 def summary_line(flag_count: int, sources_checked: int) -> str:
