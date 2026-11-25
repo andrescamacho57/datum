@@ -114,6 +114,19 @@ def test_exact_name_ignores_trailing_legal_suffixes_on_both_sides():
     assert by_number["T00000000001"].exact_name is True
     assert by_number["T00000000002"].exact_name is False                  # GROUP is part of the name, not a legal suffix
     assert by_number["T00000000003"].exact_name is True                   # CO and L L C are both removed
+    # What wording.NAME_IGNORING tells a contractor has to be what happens here, both ways.
+    spaced = {c.company.document_number: c for c in rank([company("T00000000004", "A.B.C. ROOFING, LLC"), company("T00000000005", "ABC ROOFING LLC")], "a b c roofing")}
+    assert spaced["T00000000004"].exact_name is True                      # capitals ignored, and each full stop read as a space
+    assert spaced["T00000000005"].exact_name is False                     # A B C is not ABC: a space is kept, it is not ignored
+
+
+def test_a_city_is_compared_by_its_spelling_and_the_reason_says_so():
+    # "St. Augustine" against ST AUGUSTINE: the full stop makes the comparison fail. The reason may not then say the company is in another city.
+    found = rank([company("T00000000001", "ACME ROOFING LLC", city="ST AUGUSTINE")], "Acme Roofing", "St. Augustine")[0]
+    assert found.city_match is False
+    reasons = evidence(found, city_given=True)
+    assert reasons[1] == "principal city on record is ST AUGUSTINE, and that spelling does not begin with the city you gave"
+    assert not [reason for reason in reasons if "not the city you gave" in reason]
 
 
 def test_search_asks_the_backend_for_a_pool_and_reranks_it():
@@ -149,8 +162,8 @@ def test_evidence_says_what_the_level_rests_on():
         company("T00000000001", "ACME ROOFING LLC", city="JACKSONVILLE"),
         company("T00000000002", "ACME ROOFING AND SIDING INC", city="TAMPA"),
     ], "acme roofing", city="jacksonville")
-    assert evidence(exact, city_given=True) == ["name matches exactly (ignoring LLC/INC)", "city matches", "ACTIVE"]
-    assert evidence(similar, city_given=True) == ["name is similar (88/100)", "registered in TAMPA, not the city you gave", "ACTIVE"]
+    assert evidence(exact, city_given=True) == ["name matches (ignoring capitals and legal endings such as LLC, INC or CORP, and reading anything that is not a letter A to Z or a digit as a space)", "principal city on record begins with the city you gave", "ACTIVE"]
+    assert evidence(similar, city_given=True) == ["name is similar (88/100)", "principal city on record is TAMPA, and that spelling does not begin with the city you gave", "ACTIVE"]
     assert evidence(similar, city_given=False) == ["name is similar (88/100)", "ACTIVE"]   # no city given: the city is not mentioned
 
 

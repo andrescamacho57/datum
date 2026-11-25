@@ -1,0 +1,6 @@
+<form method="post" action="/search">
+<label for="note">{{ w.SEARCH_LABEL }}</label>
+<input id="note" name="note" type="text" maxlength="500" required autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="note-hint">
+<small id="note-hint">{{ w.SEARCH_HINT }}</small>
+<button type="submit">{{ w.SEARCH_BUTTON }}</button>
+</form>

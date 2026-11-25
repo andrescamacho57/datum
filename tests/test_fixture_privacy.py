@@ -55,6 +55,10 @@ INVENTED_ALTERNATE = re.compile(r"[A-Z]+99\d{5}")          # DBPR: the occupatio
 INVENTED_COMPLAINT = re.compile(r"\d{4}9\d{5}")            # DBPR: the year, then a running number of 900000 or more
 INVENTED_WORD = "INVENTED"                                 # every invented legal description contains this word
 
+INVENTED_DOCUMENT = re.compile(r"T\d{11}")                 # report fixtures: no company in the state's file has a document number that starts with T
+INVENTED_FILING = re.compile(r"\d{2}FLR99\d{5}")           # report fixtures: a federal lien filing with a running number of 9900000 or more
+A_NUMBER = re.compile(r"[A-Z0-9]*\d{5,}")                  # anything in a sentence that could be a filing, license or document number: it ends in 5 or more digits
+
 DUVAL_KIND = re.compile(r"([dpl])\d{10}id\.16")            # d = documents, p = parties, l = links
 DUVAL_LOOKUP = re.compile(r"m\d{10}d\.16")                 # the document-type lookup file, which has no rows about anyone
 BYTE_ORDER_MARK = "\xef\xbb\xbf"                           # three bytes some of the Clerk's files start with, as latin-1 reads them
@@ -202,6 +206,47 @@ def dbpr_problems(dbpr_dir: Path) -> list[str]:
     return problems
 
 
+def report_problems(report_dir: Path) -> list[str]:
+    """The fixtures of the report builder (tests/fixtures/report/): invented companies, and flag rows whose every number is invented."""
+    problems = []
+    if not report_dir.is_dir():
+        return problems
+    known = {"company_search.csv", "company_flags.csv", "source_coverage.csv", "README.md"}
+    for path in sorted(p for p in report_dir.rglob("*") if p.is_file()):
+        where = path.relative_to(report_dir.parent)
+        if path.name not in known:
+            problems.append(f"{where}: a report fixture this test does not know, so it cannot check the rows. Teach it the layout")
+            continue
+        if path.name in ("README.md", "source_coverage.csv"):            # a source row is about a source, and about nobody
+            continue
+        with path.open(newline="", encoding="latin-1") as handle:
+            for number, row in enumerate(csv.DictReader(handle), start=2):   # line 1 is the header
+                if not INVENTED_DOCUMENT.fullmatch(row.get("document_number") or ""):
+                    problems.append(f"{where} line {number}: a document number outside the invented range")
+                if path.name == "company_search.csv":
+                    if INVENTED_WORD not in (row.get("entity_name") or ""):
+                        problems.append(f"{where} line {number}: a company name without the word {INVENTED_WORD}")
+                    if INVENTED_WORD not in (row.get("name_key") or ""):     # the simplified name is a second copy of the name
+                        problems.append(f"{where} line {number}: a company's name key without the word {INVENTED_WORD}")
+                    if A_NUMBER.search(row.get("source_url") or ""):         # an address that points at one record would carry its number
+                        problems.append(f"{where} line {number}: a company's source address holds a number")
+                    if row.get("principal_address_1") and INVENTED_WORD not in row["principal_address_1"]:
+                        problems.append(f"{where} line {number}: a company's street address without the word {INVENTED_WORD}")
+                    continue
+                record = row.get("source_record_id") or ""
+                invented = {"sunbiz_flr": INVENTED_FILING, "dbpr": INVENTED_ALTERNATE}.get(row.get("source"))
+                if invented is None:
+                    problems.append(f"{where} line {number}: a flag row from a source this test does not know, so it cannot check its numbers")
+                elif not invented.fullmatch(record):
+                    problems.append(f"{where} line {number}: a flag row has a record number outside the invented range")
+                # The same number is written into the sentences the mart builds. No other number may be in them,
+                # nor in the source address, which is a search page today and could one day point at a single record.
+                for column in ("citation", "status_note", "caveat", "source_url"):
+                    if any(found != record for found in A_NUMBER.findall(row.get(column) or "")):
+                        problems.append(f"{where} line {number}: a flag row's {column} holds a number that is not its invented record number")
+    return problems
+
+
 def find_problems(root: Path) -> list[str]:
     """Every rule broken under root, which is laid out like tests/fixtures/. An empty list means the fixtures are clean."""
     problems = []
@@ -213,6 +258,7 @@ def find_problems(root: Path) -> list[str]:
                     problems.append(f"{path.relative_to(root)} line {number}: a redacted row holds '{banned.strip()}'")
     problems += duval_problems(root / "duval")
     problems += dbpr_problems(root / "dbpr")
+    problems += report_problems(root / "report")
     return problems
 
 
@@ -229,6 +275,10 @@ def test_no_fixture_row_about_a_person_leads_back_to_that_person():
 PERSON = "DPA|16|2024900001|1|TO|REDACTED PERSON|\r\n"                       # makes 2024900001 a person's document
 LICENSE_ROW = '"06","CBC","REDACTED, PERSON","INVENTED BUILDERS INC","","REDACTED","","","TAMPA","FL","33675","39","{}","C","A","","","","","","{}",""\r\n'
 DISCIPLINE_ROW = '"Certified Building Contractor","{}","REDACTED, PERSON","REDACTED","","","TAMPA","FL","33675","DADE","{}","Licensed Activity","","","","",""\r\n'
+
+COMPANY_HEADER = "document_number,entity_name,name_key,status_code,filing_type,file_date,principal_address_1,principal_city,principal_state,principal_zip\r\n"
+FLAG_HEADER = "document_number,flag_type,fact_date,status,status_note,source,source_record_id,source_url,citation,fetched_at,caveat\r\n"
+FLAG_ROW = "T26000000001,some_flag,2020-01-15,open,status note.,{source},{number},https://example.org/search,Some filing {number},2026-11-18T07:10:57+00:00,A caveat.\r\n"
 
 BROKEN = [
     ("a redacted party next to an out-of-range instrument number",
@@ -286,6 +336,34 @@ BROKEN = [
      {"dbpr/contractor_disc_lic_19.csv": DISCIPLINE_ROW.format("0000000", "2025900001")}, "license number"),
     ("a discipline row whose respondent was replaced with some other placeholder",
      {"dbpr/contractor_disc_lic_19.csv": DISCIPLINE_ROW.format("0000000", "2025000000").replace("REDACTED, PERSON", "NAME REMOVED")}, "neither the redaction nor plainly a business"),
+    ("a report fixture company with a document number of a real shape",
+     {"report/company_search.csv": COMPANY_HEADER + "L26000000001,INVENTED POOLS INC,INVENTED POOLS INC,A,FLAL,2020-01-15,1 INVENTED WAY,TAMPA,FL,33602\r\n"}, "document number outside the invented range"),
+    ("a report fixture company cut from a real row, name and address left in",
+     {"report/company_search.csv": COMPANY_HEADER + "T26000000001,ACME POOLS INC,ACME POOLS INC,A,FLAL,2020-01-15,1 SOME STREET,TAMPA,FL,33602\r\n"}, "company name without the word"),
+    ("a report fixture company whose street address was left in",
+     {"report/company_search.csv": COMPANY_HEADER + "T26000000001,INVENTED POOLS INC,INVENTED POOLS INC,A,FLAL,2020-01-15,1 SOME STREET,TAMPA,FL,33602\r\n"}, "street address without the word"),
+    ("a report fixture lien row whose filing number was left real",
+     {"report/company_flags.csv": FLAG_HEADER + FLAG_ROW.format(number="21FLR0000000", source="sunbiz_flr")}, "record number outside the invented range"),
+    ("a report fixture license row whose license number was left real",
+     {"report/company_flags.csv": FLAG_HEADER + FLAG_ROW.format(number="CGC0000000", source="dbpr")}, "record number outside the invented range"),
+    ("a report fixture flag row whose number was replaced in one column and left real in the sentence next to it",
+     {"report/company_flags.csv": FLAG_HEADER + FLAG_ROW.format(number="26FLR9900001", source="sunbiz_flr").replace("filing 26FLR9900001", "filing 21FLR0000000")}, "citation holds a number"),
+    ("a report fixture flag row with a second, real-shaped number in its status note",
+     {"report/company_flags.csv": FLAG_HEADER + FLAG_ROW.format(number="CGC9900004", source="dbpr").replace("status note.", "License CGC0000000: inactive.")}, "status_note holds a number"),
+    ("a report fixture flag row with a real-shaped number in its caveat",
+     {"report/company_flags.csv": FLAG_HEADER + FLAG_ROW.format(number="26FLR9900001", source="sunbiz_flr").replace("A caveat.", "See filing 21FLR0000000.")}, "caveat holds a number"),
+    ("a report fixture flag row whose source address points at one real-shaped record",
+     {"report/company_flags.csv": FLAG_HEADER + FLAG_ROW.format(number="CGC9900004", source="dbpr").replace("https://example.org/search", "https://example.org/license/CGC0000000")}, "source_url holds a number"),
+    ("a report fixture flag row attached to a document number of a real shape",
+     {"report/company_flags.csv": FLAG_HEADER + FLAG_ROW.format(number="26FLR9900001", source="sunbiz_flr").replace("T26000000001", "L26000000001")}, "company_flags.csv line 2: a document number outside the invented range"),
+    ("a report fixture company whose simplified name was left real",
+     {"report/company_search.csv": COMPANY_HEADER + "T26000000001,INVENTED POOLS INC,ACME POOLS INC,A,FLAL,2020-01-15,1 INVENTED WAY,TAMPA,FL,33602\r\n"}, "name key without the word"),
+    ("a report fixture company whose source address points at one real-shaped record",
+     {"report/company_search.csv": COMPANY_HEADER.replace("principal_zip", "principal_zip,source_url") + "T26000000001,INVENTED POOLS INC,INVENTED POOLS INC,A,FLAL,2020-01-15,1 INVENTED WAY,TAMPA,FL,33602,https://example.org/company/L26000000001\r\n"}, "source address holds a number"),
+    ("a report fixture flag row from a source the test has no rule for",
+     {"report/company_flags.csv": FLAG_HEADER + FLAG_ROW.format(number="2024900001", source="duval")}, "source this test does not know"),
+    ("a report fixture file the test has no layout for",
+     {"report/company_possible_matches.csv": "document_number\r\nT26000000001\r\n"}, "report fixture this test does not know"),
     ("a redacted row in a DBPR file whose layout the test does not know",
      {"dbpr/some_new_extract.csv": '"REDACTED, PERSON","0000000"\r\n'}, "does not know"),
 ]
@@ -308,3 +386,11 @@ def test_a_document_between_businesses_may_keep_its_real_values(tmp_path):
     (tmp_path / "duval" / "d2025010301id.16").write_bytes(b"DDA|16|2024000000|RELEASE|RELEASE|Case# 16-|OR|1|1||1|12/31/2024|1|0.00|\r\n")
     (tmp_path / "duval" / "l2025010301id.16").write_bytes(b"2024000000|1|1|OR|RELEASE|2014000000|1|1|OR|MTG\r\n")
     assert find_problems(tmp_path) == []
+
+
+def test_a_report_fixture_with_invented_companies_and_invented_numbers_passes(tmp_path):
+    (tmp_path / "report").mkdir()
+    (tmp_path / "report" / "company_search.csv").write_text(COMPANY_HEADER + "T26000000001,INVENTED POOLS INC,INVENTED POOLS INC,A,FLAL,2020-01-15,1 INVENTED WAY,TAMPA,FL,33602\r\n")
+    (tmp_path / "report" / "company_flags.csv").write_text(
+        FLAG_HEADER + FLAG_ROW.format(number="26FLR9900001", source="sunbiz_flr") + FLAG_ROW.format(number="CGC9900004", source="dbpr"))
+    assert find_problems(tmp_path) == []                                  # dates such as 2026-11-18 are not mistaken for record numbers
