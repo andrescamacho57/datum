@@ -9,6 +9,7 @@ every change, so that "is the search better?" is a number and not an impression.
     python -m evals.run --backend postgres --latency 200 --retrieve word    # time the second approach leg C2 tried
     python -m evals.run --backend postgres --latency 200 --retrieve plain   # time the first approach leg C2 tried (slow)
     python -m evals.run --backend postgres --compare 200   # do the second approach and the app's search give the same five companies?
+    python -m evals.run --backend postgres --before        # also score the search as it was before Phase D, and say which cases moved
 
 Run from ~/datum with the project's virtual environment active.
 
@@ -28,6 +29,14 @@ they stay on the Mac until Andres checks them. Both kinds are scored, in SEPARAT
       for them, because a leg report pastes this output and the repo is public.
 When the draft files are absent, as they are on GitHub, one sentence says so and only the
 checked cases are scored. Every pass or fail decision is taken from the checked cases alone.
+
+--before scores every case twice: with the search as it is, and with the search as it was
+before Phase D (search version 1's order: similarity first, and the city only to break an
+exact tie). It then says, case by case for the checked cases and by count for the drafts,
+whether the expected company moved up, moved down or stayed. A checked case that moved down
+is the one thing that makes the command fail (exit code 1). That is working rule S3's test:
+a case is worse when its company leaves the top five, drops in rank, or when a note that
+should be asked about gets a company.
 
 What it measures, per case group and in total. The first two are defined exactly as in
 snowflake/11_score_search_v1.sql:
@@ -58,13 +67,14 @@ import hashlib                              # MD5, for the fingerprint of a draw
 import math                                # ceil(), for the percentile
 import sys                                  # the import path, and the exit code
 import time                                 # times each search
+from collections.abc import Callable        # the type of "a function that gives a candidate its sort key"
 from dataclasses import dataclass           # writes __init__ and friends for a class of plain fields
 from pathlib import Path                    # file paths that work on any operating system
 
 REPO_ROOT = Path(__file__).resolve().parents[1]            # this file is evals/run.py → go up 1 folder to the repo root
 sys.path.insert(0, str(REPO_ROOT / "src"))                 # so `import datum.search` works when this is run as python -m evals.run
 
-from datum.search import COMPANY_COLUMNS, CANDIDATE_POOL, SHORTLIST_SIZE, Company,PostgresBackend, SearchBackend, company_from_row, search, search_pool   # noqa: E402  (the path line above has to come first)
+from datum.search import COMPANY_COLUMNS, CANDIDATE_POOL, SHORTLIST_SIZE, Candidate, Company, PostgresBackend, SearchBackend, by_words_then_city, company_from_row, search, search_pool   # noqa: E402  (the path line above has to come first)
 
 TEST_SET = REPO_ROOT / "pipeline" / "seeds" / "test_set.csv"
 EXTRACTED = REPO_ROOT / "pipeline" / "seeds" / "extracted_inputs.csv"
@@ -153,19 +163,29 @@ def score_case(case: Case, answered: list[str], place: int | None = None, candid
     )
 
 
-def run_cases(cases: list[Case], backend: SearchBackend) -> list[CaseResult]:
+def version_1_order(candidate: Candidate) -> tuple:
+    """The sort key rank() used until leg D1: the highest similarity first, then a company in the city given, then the document number.
+
+    It is kept here, and not in the app's module, for one use: --before sorts the same pool
+    this way, so that the old order and the new one can be shown side by side at any time.
+    """
+    return (-candidate.similarity, not candidate.city_match, candidate.company.document_number)
+
+
+def run_cases(cases: list[Case], backend: SearchBackend, order: Callable[[Candidate], tuple] = by_words_then_city) -> list[CaseResult]:
     """Search for every specific case and score all of them. A case that names no business is never searched.
 
     The search ranks a whole pool of candidates and answers with the best five. The five are
     what is scored. The expected company's place in the whole pool is kept as well, because
     "it is 6th" and "the search never saw it" are different faults with different fixes.
+    `order` is the app's own order unless --before asks for version 1's.
     """
     results = []
     for case in cases:
         if not case.is_specific:
             results.append(score_case(case, []))
             continue
-        numbers = [c.company.document_number for c in search_pool(backend, case.business_name, case.city)]
+        numbers = [c.company.document_number for c in search_pool(backend, case.business_name, case.city, order=order)]
         place = numbers.index(case.expected_document_number) + 1 if case.expected_document_number in numbers else None
         results.append(score_case(case, numbers[:SHORTLIST_SIZE], place, len(numbers)))   # the first five are exactly what search() returns
     return results
@@ -178,6 +198,46 @@ def summarize(results: list[CaseResult]) -> list[tuple[str, int, int, int, int]]
     for group in groups + ["ALL"]:
         chosen = [r for r in results if group == "ALL" or r.case.case_group == group]
         rows.append((group, len(chosen), sum(r.top1_correct for r in chosen), sum(r.in_top5 for r in chosen), sum(r.wrong_match for r in chosen)))
+    return rows
+
+
+def standing(result: CaseResult) -> float:
+    """How well a case did, as one number where LOWER is better, so that two runs of the same case can be compared.
+
+    For a case that expects a company it is the company's place among the candidates: 1 is
+    first. A company that is not among them, or a search that asked for more, stands at
+    infinity, which is worse than any place. For a case whose right answer is to ask, 0
+    means the search asked and 1 means it answered with a company.
+    """
+    if result.case.expected_document_number == ASK:
+        return 1.0 if result.answered else 0.0
+    return float(result.place) if result.place else math.inf
+
+
+def moved(before: CaseResult, after: CaseResult) -> str:
+    """ "up", "down" or "stayed": how one case's standing changed between two runs."""
+    was, now = standing(before), standing(after)
+    return "up" if now < was else "down" if now > was else "stayed"
+
+
+def made_worse(before: list[CaseResult], after: list[CaseResult]) -> list[int]:
+    """The ids of the cases a change made worse (working rule S3). The two lists hold the same cases in the same order.
+
+    Rule S3 names three ways a case gets worse: its company leaves the top five, its company
+    drops in rank, or a note that should be asked about gets a company. All three are a
+    standing that went up, so "moved down" covers them: a company that leaves the top five
+    has dropped, and so has one that falls out of the candidates altogether.
+    """
+    return [a.case.case_id for b, a in zip(before, after, strict=True) if moved(b, a) == "down"]
+
+
+def movement(before: list[CaseResult], after: list[CaseResult]) -> list[tuple[str, int, int, int, int]]:
+    """(group, cases, moved up, moved down, stayed) for each case group, then for all cases. Counts only."""
+    pairs = list(zip(before, after, strict=True))
+    rows = []
+    for group in sorted({a.case.case_group for _, a in pairs}) + ["ALL"]:
+        moves = [moved(b, a) for b, a in pairs if group == "ALL" or a.case.case_group == group]
+        rows.append((group, len(moves), moves.count("up"), moves.count("down"), moves.count("stayed")))
     return rows
 
 
@@ -382,6 +442,35 @@ def print_comparison(comparisons: list[Comparison], test_inputs: int) -> None:
           f"1 to {SHORTLIST_SIZE - 1} for {len(comparisons) - full - none}, and none for {none}")
 
 
+def print_movement(rows: list[tuple[str, int, int, int, int]]) -> None:
+    print(f"{'group':<24}{'cases':>6}{'moved up':>10}{'moved down':>12}{'stayed':>8}")
+    for group, cases, up, down, stayed in rows:
+        print(f"{group:<24}{cases:>6}{up:>10}{down:>12}{stayed:>8}")
+
+
+def print_before_and_after(checked_before: list[CaseResult], checked_after: list[CaseResult],
+                           drafts_before: list[CaseResult] | None, drafts_after: list[CaseResult] | None) -> int:
+    """Both runs side by side, and the exit code: 1 when a CHECKED case was made worse, otherwise 0.
+
+    The checked cases get a line each. The draft cases get counts by case group and nothing
+    else. The exit code is worked out from the checked cases alone: the drafts are printed
+    after it is decided and are not an input to made_worse(), so no draft can change it
+    (working rule S1).
+    """
+    worse = made_worse(checked_before, checked_after)
+    print("\nbefore Phase D and now, checked cases (the place of the expected company among the candidates)")
+    print(f"{'case':>4}  {'group':<22}{'before':<18}{'now':<18}{'moved'}")
+    for b, a in zip(checked_before, checked_after, strict=True):
+        print(f"{a.case.case_id:>4}  {a.case.case_group:<22}{place_text(b):<18}{place_text(a):<18}{moved(b, a)}")
+    print()
+    print_movement(movement(checked_before, checked_after))
+    print("checked cases made worse: " + (", ".join(str(case_id) for case_id in worse) if worse else "none"))
+    if drafts_before is not None and drafts_after is not None:
+        print("\nbefore Phase D and now, draft cases (counts only: not checked by Andres, and so counted in no pass or fail decision)")
+        print_movement(movement(drafts_before, drafts_after))
+    return 1 if worse else 0
+
+
 DRAW_SQL = "select entity_name, '' from company_search tablesample bernoulli (0.01) repeatable (%s) limit %s"
 # tablesample bernoulli (0.01) picks a random 0.01% of the rows, about 1,300 companies, and
 # repeatable (42) makes it pick the same rows every time. limit then keeps the first 200 that
@@ -434,7 +523,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--latency", type=int, default=0, metavar="N", help="also time the search on the test inputs plus N random company names (postgres only)")
     parser.add_argument("--retrieve", choices=tuple(RETRIEVERS), default="narrow", help="postgres only: narrow = the narrow table, the search the app uses; word = the second approach and plain = the first, both for timing only")
     parser.add_argument("--compare", type=int, default=0, metavar="N", help="postgres only: run the second approach and the app's search on the test inputs plus N random company names, and count the searches whose five companies differ")
+    parser.add_argument("--before", action="store_true", help="postgres only: also score the search as it was before Phase D, say which cases moved, and fail when a checked case was made worse")
     args = parser.parse_args(argv)
+    exit_code = 0
     cases = read_cases()
     drafts = read_draft_cases()             # None when the two local files are not there
 
@@ -444,8 +535,15 @@ def main(argv: list[str] | None = None) -> int:
         with psycopg.connect(os.environ.get("DATUM_PG_DSN", "dbname=datum_dev")) as conn:
             backend_class, label = RETRIEVERS[args.retrieve]
             backend = backend_class(conn)
-            print_results(run_cases(cases, backend), f"postgres ({label})")
-            print_draft_results(run_cases(drafts, backend) if drafts is not None else None)
+            checked_now = run_cases(cases, backend)
+            drafts_now = run_cases(drafts, backend) if drafts is not None else None
+            print_results(checked_now, f"postgres ({label})")
+            print_draft_results(drafts_now)
+            if args.before:
+                exit_code = print_before_and_after(
+                    run_cases(cases, backend, order=version_1_order), checked_now,
+                    run_cases(drafts, backend, order=version_1_order) if drafts is not None else None, drafts_now,
+                )
             test_inputs = [(c.business_name, c.city) for c in cases if c.is_specific]
 
             def with_random_names(count: int) -> list[tuple[str, str]]:
@@ -472,7 +570,7 @@ def main(argv: list[str] | None = None) -> int:
             print_results(run_cases(cases, SnowflakeBackend(conn)), "snowflake")
         finally:
             conn.close()                    # always release the session, even after an error
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":                  # true only when this file is run directly

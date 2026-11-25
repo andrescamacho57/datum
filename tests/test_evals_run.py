@@ -19,7 +19,8 @@ from datum.search import COMPANY_COLUMNS, Company, FakeBackend, name_key
 from datum.search import PostgresBackend
 from evals.run import (
     ASK, DRAW_SQL, LATENCY_SEED, NO_DRAFTS, RETRIEVERS, Case, SnowflakeBackend, WideTableBackend, compare_backends, draw_company_names, fingerprint,
-    percentile, place_text, print_comparison, print_draft_results, print_results, read_cases, read_draft_cases, run_cases, score_case, summarize,
+    made_worse, moved, movement, percentile, place_text, print_before_and_after, print_comparison, print_draft_results, print_results, read_cases,
+    read_draft_cases, run_cases, score_case, summarize, version_1_order,
 )
 
 
@@ -322,3 +323,49 @@ def test_the_draft_cases_are_printed_as_a_summary_by_group_and_never_a_line_per_
         assert text not in printed, text                                  # no typed text, no company, no document number and no case id
     print_results(results, "a backend")                                   # the CHECKED table does print a line per case, so the check above can fail
     assert "T2" in capsys.readouterr().out
+
+
+def test_a_case_is_worse_when_its_company_drops_leaves_the_candidates_or_an_ask_case_gets_a_company():
+    # Working rule S3's three tests, and the two things that are NOT worse: staying put and moving up.
+    def result(expected, answered, place=None, is_specific=True):
+        return score_case(a_case(expected, is_specific=is_specific), answered, place, candidates=10)
+
+    first, second, sixth = result("T1", ["T1"], 1), result("T1", ["T2", "T1"], 2), result("T1", ["T2", "T3", "T4", "T5", "T6"], 6)
+    gone, asked_for_more = result("T1", ["T2"], None), result("T1", [], None, is_specific=False)
+    ask_kept, ask_broken = result(ASK, [], is_specific=False), result(ASK, ["T9"])
+    assert [moved(first, second), moved(second, sixth), moved(sixth, gone), moved(first, asked_for_more)] == ["down"] * 4   # a drop, out of the top five, out of the candidates, no answer at all
+    assert moved(ask_kept, ask_broken) == "down"                          # a note that should be asked about got a company
+    assert [moved(second, first), moved(gone, sixth), moved(ask_broken, ask_kept)] == ["up"] * 3
+    assert [moved(first, first), moved(gone, gone), moved(gone, asked_for_more), moved(ask_kept, ask_kept)] == ["stayed"] * 4
+    before = [score_case(a_case("T1", case_id=n), ["T1"], 1) for n in (1, 2, 3)]
+    after = [before[0], score_case(a_case("T1", case_id=2), ["T2", "T1"], 2), before[2]]
+    assert made_worse(before, after) == [2] and made_worse(before, before) == []
+    with pytest.raises(ValueError):
+        made_worse(before, after[:2])                                     # two runs of different length are not the same cases
+
+
+def test_the_two_orders_are_scored_on_the_same_pool_and_can_disagree():
+    # The same candidates, sorted two ways. Under version 1 the near-miss ROOFINGS comes first, and under rule S2 it comes last.
+    backend = FakeBackend([company("T1", "ACME ROOFINGS"), company("T2", "ACME ROOFING AND SIDING INC")])
+    (now,), (before,) = run_cases([a_case("T2")], backend), run_cases([a_case("T2")], backend, order=version_1_order)
+    assert (before.place, now.place, moved(before, now)) == (2, 1, "up")
+    assert movement([before], [now]) == [("g", 1, 1, 0, 0), ("ALL", 1, 1, 0, 0)]
+
+
+def test_a_draft_case_can_never_change_the_pass_or_fail_decision(tmp_path, capsys):
+    # Working rule S1: every gate reads the checked cases only. The fixture is a checked case that stays first, and two drafts
+    # that the change makes as bad as a case can get. The decision must be the same with those drafts, with none, and with good ones.
+    checked = read_cases(*write_case_files(tmp_path, [("1", "g", "acme roofing", "T1", "2026-11-24")]))
+    drafts = read_draft_cases(*write_case_files(tmp_path, [("101", "address_only", "77 zebra glass way", "T2", ""), ("102", "address_only", "88 quartz lane", "T3", "")], "drafts.csv"))
+    steady = [score_case(checked[0], ["T1"], 1, 3)]
+    drafts_good = [score_case(case, [case.expected_document_number], 1, 3) for case in drafts]
+    drafts_bad = [score_case(case, ["T9"], None, 3) for case in drafts]
+    assert print_before_and_after(steady, steady, drafts_good, drafts_bad) == 0      # both drafts fell out of the candidates, and the decision is still "pass"
+    printed = capsys.readouterr().out
+    assert "checked cases made worse: none" in printed and ["address_only", "2", "0", "2", "0"] in [line.split() for line in printed.splitlines()]
+    for text in ("zebra", "quartz", "77", "88", "T2", "T3", "101", "102"):   # the drafts appear as counts by group and nothing else
+        assert text not in printed, text
+    assert print_before_and_after(steady, steady, None, None) == 0 and print_before_and_after(steady, steady, drafts_bad, drafts_good) == 0
+    dropped = [score_case(checked[0], ["T9", "T1"], 2, 3)]
+    assert print_before_and_after(steady, dropped, drafts_bad, drafts_good) == 1     # a CHECKED case dropped: fail, however well the drafts did
+    assert "checked cases made worse: 1" in capsys.readouterr().out
