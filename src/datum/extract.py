@@ -201,6 +201,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--test-set", type=Path, default=TEST_SET, help="the file of cases to read (default: the hand-checked test set)")
     parser.add_argument("--output", type=Path, default=OUTPUT, help="the file to append the extracted rows to (default: the committed seed)")
     args = parser.parse_args(argv)
+    if args.test_set.resolve() != TEST_SET.resolve() and args.output.resolve() == OUTPUT.resolve():
+        # Any file of cases but the checked test set is a file of DRAFTS, and the default output is the seed that git tracks. Without
+        # this stop, leaving --output out would write unchecked draft notes into a public file (working rule S1).
+        parser.error("--test-set names a file other than the checked test set, so --output must name the file to write to. "
+                     "The default output is the committed seed, which may only hold checked cases")
 
     client = anthropic.Anthropic()                       # reads ANTHROPIC_API_KEY from the environment
     try:

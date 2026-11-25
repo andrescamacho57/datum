@@ -114,3 +114,15 @@ def test_the_command_cannot_extract_a_whole_file_and_stops_before_it_builds_a_cl
     with pytest.raises(SystemExit) as stopped:
         extract.main([])
     assert stopped.value.code == 2 and "--cases" in capsys.readouterr().err   # argparse's "this option is required", and no client was built
+
+
+def test_cases_from_another_file_are_never_written_to_the_committed_seed_by_default(extract, tmp_path, capsys):
+    # The security review of leg D1 found this slip: --test-set pointed at the draft file with --output left out would have
+    # appended unchecked draft notes to pipeline/seeds/extracted_inputs.csv, which git tracks and the repo publishes.
+    drafts = tmp_path / "draft_cases.csv"
+    write_cases(drafts, CASES)
+    before = extract.OUTPUT.read_bytes()
+    with pytest.raises(SystemExit) as stopped:
+        extract.main(["--test-set", str(drafts), "--cases", "3"])
+    assert stopped.value.code == 2 and "--output must name the file to write to" in capsys.readouterr().err
+    assert extract.OUTPUT.read_bytes() == before                         # the committed seed was not touched, and no client was built
