@@ -1,4 +1,4 @@
-"""search.py: find the company a contractor means, from an extracted business name and city (Phase C, leg C2).
+"""search.py: find the company a contractor means, from an extracted business name and city (Phase C, leg C2; the order changed in Phase D, leg D1).
 
 The search has two steps, and the split is the point of this module:
 
@@ -6,10 +6,17 @@ The search has two steps, and the split is the point of this module:
                   This step is fast and rough. It reads an index over a narrow table of names,
                   and it brings back a pool of candidates (200 by default) out of 13 million
                   companies, each fetched in full from company_search by its document number.
-    2. RERANK     score that small pool carefully, in plain Python, with the same rules as
-                  search version 1 (snowflake/11_score_search_v1.sql): Jaro-Winkler
-                  similarity first, then a city match, then the document number as a fixed
-                  tie-break. Keep the best five.
+    2. RERANK     put that small pool in order, in plain Python, by Phase D working rule S2:
+                  first the companies whose name holds every word that was typed, then the
+                  ones whose principal city agrees with the city given, then Jaro-Winkler
+                  similarity, then the document number as a fixed tie-break. Keep the best five.
+                  Until leg D1 the order was search version 1's
+                  (snowflake/11_score_search_v1.sql): similarity first, and the city only to
+                  break an exact tie. That order favoured a short name whenever the typed
+                  name was short.
+
+Step 2 can only order what step 1 brought back. A company that is not in the pool is never
+ranked, whatever the order is. Leg D1's report shows a case where that decides the answer.
 
 This pattern is called retrieve-then-rerank. A careful score over 13 million names takes
 Snowflake about a minute. A careful score over 200 names takes Python a millisecond.
@@ -28,6 +35,7 @@ No names of people are involved: every name here is a registered business name.
 """
 
 import re                                   # regular expressions, for the simplified name and the legal suffixes
+from collections.abc import Callable        # the type of "a function that gives a candidate its sort key"
 from dataclasses import dataclass           # writes __init__ and friends for a class of plain fields
 from datetime import date, datetime, timezone   # the types of a company's dates and fetch time, and the UTC zone
 from fractions import Fraction              # exact fractions, so a score never depends on rounding error
@@ -86,6 +94,7 @@ class Candidate:
     similarity: int                         # Jaro-Winkler similarity of the two simplified names, 0 to 100
     city_match: bool                        # True when a city was given and the company's city starts with it
     exact_name: bool                        # True when the two names are equal once legal suffixes are removed
+    every_word: bool                        # True when every word of the typed name is among the words of the company's name, legal suffixes aside
 
 
 @dataclass(frozen=True)
@@ -190,13 +199,43 @@ def without_suffixes(key: str) -> str:
     return SUFFIX_PATTERN.sub("", key)
 
 
-def rank(companies: list[Company], business_name: str, city: str = "", limit: int | None = SHORTLIST_SIZE) -> list[Candidate]:
+def holds_every_word(search_key: str, company_key: str) -> bool:
+    """True when every word of the typed name is among the words of the company's name, with trailing legal suffixes left out of both.
+
+    "V PIZZA" is held by "V PIZZA LAKE BUENA VISTA LLC": both of its words are there. It is
+    not held by "VA PIZZA LLC". Whole words are compared, so ROOFING is not held by ROOFINGS.
+    A typed name that is nothing but a legal suffix, such as "LLC", keeps its words, as it
+    does in the index lookup: there would otherwise be no word left to look for.
+    """
+    typed = (without_suffixes(search_key) or search_key).split()
+    words = set((without_suffixes(company_key) or company_key).split())
+    return bool(typed) and all(word in words for word in typed)
+
+
+def by_words_then_city(candidate: Candidate) -> tuple:
+    """Working rule S2, as a sort key. Python sorts tuples left to right, and False sorts before True.
+
+      1. a company whose name holds every typed word comes first ("not every_word" is False for it);
+      2. then a company whose principal city agrees with the city given;
+      3. then the higher Jaro-Winkler similarity (the minus sign puts 95 before 88);
+      4. then the document number, a fixed order, so a rerun can never flip two equal candidates.
+
+    Status is not in the key, on purpose. An inactive company is neither moved up nor down:
+    ranking active companies first would hide a dissolved client behind an active namesake.
+    The extraction step returns no ZIP code, so none is compared.
+    """
+    return (not candidate.every_word, not candidate.city_match, -candidate.similarity, candidate.company.document_number)
+
+
+def rank(companies: list[Company], business_name: str, city: str = "", limit: int | None = SHORTLIST_SIZE,
+         order: Callable[[Candidate], tuple] = by_words_then_city) -> list[Candidate]:
     """Step 2: score a pool of companies against the typed name and keep the best `limit` (all of them when limit is None).
 
-    The order is search version 1's: the highest similarity first, then a company in the
-    given city, then the document number, which is a fixed order so a rerun can't flip two
-    equal candidates. City is a tie-break and never a filter: a company's registered city
-    is its principal address, which can differ from the job site.
+    The order is working rule S2's, by_words_then_city above. City is a rank and never a
+    filter: a company in another city is still returned, lower down, because a company's
+    registered city is its principal address, which can differ from the job site.
+    `order` exists so that the evaluation can sort the same pool the way search version 1
+    did and show the two side by side. The app never passes it.
     """
     search_key = name_key(business_name)
     candidates = [
@@ -205,19 +244,21 @@ def rank(companies: list[Company], business_name: str, city: str = "", limit: in
             similarity=jaro_winkler_similarity(search_key, company.name_key),
             city_match=city_matches(city, company.principal_city),
             exact_name=without_suffixes(company.name_key) == without_suffixes(search_key),
+            every_word=holds_every_word(search_key, company.name_key),
         )
         for company in companies
     ]
-    candidates.sort(key=lambda c: (-c.similarity, not c.city_match, c.company.document_number))   # False sorts before True, so "not city_match" puts a city match first
+    candidates.sort(key=order)
     return candidates[:limit]                                      # a slice up to None is the whole list
 
 
-def search_pool(backend: SearchBackend, business_name: str, city: str = "", pool: int = CANDIDATE_POOL) -> list[Candidate]:
+def search_pool(backend: SearchBackend, business_name: str, city: str = "", pool: int = CANDIDATE_POOL,
+                order: Callable[[Candidate], tuple] = by_words_then_city) -> list[Candidate]:
     """Both steps, keeping the WHOLE reranked pool. The shortlist is built from this, so that it can see every tie."""
     search_key = name_key(business_name)
     if not search_key:                                             # nothing to search for: no candidates, and no guess
         return []
-    return rank(backend.nearest(search_key, pool), business_name, city, limit=None)
+    return rank(backend.nearest(search_key, pool), business_name, city, limit=None, order=order)
 
 
 def search(backend: SearchBackend, business_name: str, city: str = "", limit: int = SHORTLIST_SIZE, pool: int = CANDIDATE_POOL) -> list[Candidate]:
@@ -271,15 +312,16 @@ def shortlist(pool: list[Candidate], city_given: bool, limit: int = SHORTLIST_SI
     WHO IS SHOWN: the best `limit` by rank, which are exactly the candidates the evaluation
     scores, re-ordered by level with the best level first. Python's sort is stable, which
     means candidates with the same level keep their rank order. Nobody is brought in from
-    further down the pool. Doing that by level would let a weak name in the right city push
-    out the best-ranked company, and city is a tie-break, never a filter.
+    further down the pool. Who is among the best five is decided by rank() alone, and the
+    level only orders those five.
 
     HOW THE TIE IS COUNTED:
       - Strong means the SAME NAME (and the city agrees, or none was given). Those are
-        counted over the WHOLE pool, because a company with the exact name can rank sixth
-        by similarity, behind five near-misses, and a count over the five shown would miss
-        it. not_shown holds the ones that did not fit on the list, each with its own
-        source address and fetch time, so a page can name them and cite them.
+        counted over the WHOLE pool, because a company with the exact name can rank sixth,
+        behind five longer names that hold the same words and score higher, and a count
+        over the five shown would miss it. not_shown holds the ones that did not fit on the
+        list, each with its own source address and fetch time, so a page can name them and
+        cite them.
       - Likely and Possible are counted among the candidates shown only. Over the whole
         pool those counts would mostly measure how wide the retrieve step cast its net,
         and that says nothing about the companies.

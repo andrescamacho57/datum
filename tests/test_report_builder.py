@@ -318,14 +318,14 @@ def test_the_functions_that_lay_out_a_report_or_talk_in_the_terminal_hold_no_sen
 
 def test_a_search_result_becomes_a_page_candidate_whose_name_and_place_are_facts():
     companies = {c.document_number: c for c in fx.load_companies()}
-    found = SearchCandidate(company=companies[fx.LIEN_COMPANY], similarity=100, city_match=True, exact_name=True)
+    found = SearchCandidate(company=companies[fx.LIEN_COMPANY], similarity=100, city_match=True, exact_name=True, every_word=True)
     candidate = candidate_for_page(found, "Strong", city_given=True)
     assert (candidate.name.text, candidate.place.text, candidate.level) == ("INVENTED AIR CONDITIONING, LLC", "BOYNTON BEACH, FL", "Strong")
     assert [reason.text for reason in candidate.evidence] == ["name matches (ignoring capitals and legal endings such as LLC, INC or CORP, and reading anything that is not a letter A to Z or a digit as a space)", "principal city on record begins with the city you gave", "ACTIVE"]
     for fact in (candidate.name, candidate.place) + candidate.evidence:   # rule W1: the status and the city are stated with their source, like the name
         assert fact.source_url == companies[fx.LIEN_COMPANY].source_url and fact.fetched_at_is_approximate is True
         assert fact.citation == "Florida Division of Corporations (Sunbiz) record, document number T26000000001"
-    no_city = candidate_for_page(SearchCandidate(company=companies[fx.GAPS_COMPANY], similarity=90, city_match=False, exact_name=False), "Possible", city_given=True)
+    no_city = candidate_for_page(SearchCandidate(company=companies[fx.GAPS_COMPANY], similarity=90, city_match=False, exact_name=False, every_word=False), "Possible", city_given=True)
     assert no_city.place is None                                          # no city on record: no place is shown
     assert [reason.text for reason in no_city.evidence] == ["name is similar (90/100)", "no principal city on record for this company", "ACTIVE"]
 
