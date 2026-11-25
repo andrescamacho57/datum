@@ -33,6 +33,8 @@ from datetime import date, datetime, timezone   # the types of a company's dates
 from fractions import Fraction              # exact fractions, so a score never depends on rounding error
 from typing import Protocol                 # a Protocol describes an interface: "anything with these methods"
 
+from datum import wording                   # every sentence a contractor can be shown, the reasons for a match level included
+
 # --- Settings -------------------------------------------------------------------------
 CANDIDATE_POOL = 200                        # how many companies step 1 brings back for step 2 to score
 SHORTLIST_SIZE = 5                          # how many the contractor is shown
@@ -245,18 +247,19 @@ def evidence(candidate: Candidate, city_given: bool) -> list[str]:
     These are the three reasons report.py has given since October. Two gaps in the data are
     said plainly and never filled in (CLAUDE.md rule 3): a company with no principal city on
     record is not "registered in None", and a company with no status on record is not called inactive.
+    The words themselves live in wording.py, with every other sentence a contractor can be shown.
     """
-    reasons = ["name matches exactly (ignoring LLC/INC)" if candidate.exact_name
-               else f"name is similar ({candidate.similarity}/100)"]
+    reasons = [wording.EVIDENCE_EXACT_NAME if candidate.exact_name
+               else wording.EVIDENCE_SIMILAR_NAME.format(similarity=candidate.similarity)]
     if city_given:
         if candidate.city_match:
-            reasons.append("city matches")
+            reasons.append(wording.EVIDENCE_CITY_MATCHES)
         elif candidate.company.principal_city:
-            reasons.append(f"registered in {candidate.company.principal_city}, not the city you gave")
+            reasons.append(wording.EVIDENCE_OTHER_CITY.format(city=candidate.company.principal_city))
         else:
-            reasons.append("no principal city on record for this company")   # the principal address is the only one this table holds
+            reasons.append(wording.EVIDENCE_NO_CITY)
     status = candidate.company.status_code
-    reasons.append("ACTIVE" if status == "A" else "INACTIVE with the state" if status == "I" else "status not on record")
+    reasons.append(wording.EVIDENCE_ACTIVE if status == "A" else wording.EVIDENCE_INACTIVE if status == "I" else wording.EVIDENCE_NO_STATUS)
     return reasons
 
 
