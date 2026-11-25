@@ -1,4 +1,4 @@
-"""evals/run.py: score the search against the hand-checked test set, on Postgres or on Snowflake (Phase C, leg C2).
+"""evals/run.py: score the search against the hand-checked test set, on Postgres or on Snowflake (Phase C, leg C2; draft cases added in Phase D, leg D1).
 
 An evaluation ("eval") is a fixed set of questions with known answers, run again after
 every change, so that "is the search better?" is a number and not an impression.
@@ -18,6 +18,17 @@ of each case, saved by src/datum/extract.py). It never calls the Claude API (wor
 W10): the extraction is read from the saved file, so a run costs nothing in API tokens and
 gives the same result every time.
 
+Checked cases and draft cases (Phase D working rule S1). A CHECKED case is a row of
+test_set.csv: Andres has confirmed its expected answer, and its verified_on column says when.
+A DRAFT case is one an agent wrote from the register and nobody has checked yet. The drafts
+live in two files that git ignores, evals/draft_cases.csv and evals/draft_extracted.csv, and
+they stay on the Mac until Andres checks them. Both kinds are scored, in SEPARATE tables:
+    - the checked cases get a line per case and a summary by case group;
+    - the draft cases get the summary by case group ONLY. No line per case is ever printed
+      for them, because a leg report pastes this output and the repo is public.
+When the draft files are absent, as they are on GitHub, one sentence says so and only the
+checked cases are scored. Every pass or fail decision is taken from the checked cases alone.
+
 What it measures, per case group and in total. The first two are defined exactly as in
 snowflake/11_score_search_v1.sql:
     top-1         the first answer is the expected company. For a case whose right answer
@@ -33,8 +44,11 @@ The Snowflake backend costs credits: each case is one scan of 13 million names, 
 warehouse stays awake for one to three minutes in all (about 0.05 credits a run). Run it
 as rarely as the work needs.
 
-Nothing here reads the two local files in evals/ that .gitignore names, and no company
-drawn for the latency run or the comparison is ever printed: only timings, counts and a
+.gitignore names four local files in evals/. This module reads two of them, the Phase D
+drafts evals/draft_cases.csv and evals/draft_extracted.csv, and prints only counts from
+them. It never reads the other two, evals/link_sample_20.csv and
+evals/draft_test_cases_40.csv, which are the leg B3 hand-check drafts. No company drawn for
+the latency run or the comparison is ever printed either: only timings, counts and a
 fingerprint of the draw are (a short code for the whole list of names, see fingerprint()).
 """
 
@@ -54,6 +68,8 @@ from datum.search import COMPANY_COLUMNS, CANDIDATE_POOL, SHORTLIST_SIZE, Compan
 
 TEST_SET = REPO_ROOT / "pipeline" / "seeds" / "test_set.csv"
 EXTRACTED = REPO_ROOT / "pipeline" / "seeds" / "extracted_inputs.csv"
+DRAFT_CASES = REPO_ROOT / "evals" / "draft_cases.csv"       # git ignores both draft files (working rule S1)
+DRAFT_EXTRACTED = REPO_ROOT / "evals" / "draft_extracted.csv"
 ASK = "NEEDS_MORE_INFO"                     # the expected answer of a case that names no business
 LATENCY_SEED = 42                           # the seed of the random draw. Getting the same companies twice also needs draw_company_names' setting
 
@@ -67,6 +83,7 @@ class Case:
     expected_document_number: str           # a document number, or NEEDS_MORE_INFO
     business_name: str                      # from extracted_inputs.csv
     city: str
+    street: str                             # the street the extraction step returned. Empty for most cases
     is_specific: bool                       # False = the note names no business, so the search must ask and not answer
 
 
@@ -79,44 +96,78 @@ class CaseResult:
     top1_correct: bool
     in_top5: bool
     wrong_match: bool
+    place: int | None = None                # where the expected company stands among ALL the candidates the search ranked: 1 is first.
+                                            # None when it is not among them, when the search asked for more, or when no company is expected
+    candidates: int = 0                     # how many candidates the search ranked for this case
 
 
-def read_cases(test_set: Path = TEST_SET, extracted: Path = EXTRACTED) -> list[Case]:
-    """The cases of the test set, each joined to its saved extraction by case_id."""
+def read_case_files(cases_file: Path, extracted: Path, checked: bool) -> list[Case]:
+    """The cases of one file, each joined to its saved extraction by case_id.
+
+    `checked` says which kind of file this is, and each kind refuses a row of the other
+    (working rule S1). A checked case has a date in verified_on, the day Andres confirmed its
+    answer. A draft has none. So a draft pasted into the test set by mistake stops the run,
+    and it cannot be scored as if somebody had checked it.
+    """
     with extracted.open(newline="") as handle:
         fields = {row["case_id"]: row for row in csv.DictReader(handle)}
     cases = []
-    with test_set.open(newline="") as handle:
+    with cases_file.open(newline="") as handle:
         for row in csv.DictReader(handle):
+            if bool(row["verified_on"].strip()) != checked:        # the message gives the case id and the file, never the case's text
+                kind = "has no verified_on date, so it is a draft and not a checked case" if checked else "has a verified_on date, so it is not a draft"
+                raise ValueError(f"case {row['case_id']} in {cases_file.name} {kind}")
             extraction = fields[row["case_id"]]                    # a case with no extraction is an error, not a skip
             cases.append(Case(
                 case_id=int(row["case_id"]), case_group=row["case_group"],
                 expected_document_number=row["expected_document_number"],
-                business_name=extraction["business_name"], city=extraction["city"],
+                business_name=extraction["business_name"], city=extraction["city"], street=extraction["street"],
                 is_specific=extraction["is_specific"] == "True",   # extract.py writes Python's True or False as text
             ))
     return cases
 
 
-def score_case(case: Case, answered: list[str]) -> CaseResult:
+def read_cases(test_set: Path = TEST_SET, extracted: Path = EXTRACTED) -> list[Case]:
+    """The CHECKED cases: the committed test set, each case joined to its saved extraction."""
+    return read_case_files(test_set, extracted, checked=True)
+
+
+def read_draft_cases(cases_file: Path = DRAFT_CASES, extracted: Path = DRAFT_EXTRACTED) -> list[Case] | None:
+    """The DRAFT cases, or None when the two local files are not both there (as on GitHub, where git never had them)."""
+    if not cases_file.exists() or not extracted.exists():
+        return None
+    return read_case_files(cases_file, extracted, checked=False)
+
+
+def score_case(case: Case, answered: list[str], place: int | None = None, candidates: int = 0) -> CaseResult:
     """Score one case from the document numbers the search returned (none when it asked for more)."""
     if case.expected_document_number == ASK:                       # the right behavior is to ask
         correct = not case.is_specific
-        return CaseResult(case, tuple(answered), top1_correct=correct, in_top5=correct, wrong_match=bool(answered))
+        return CaseResult(case, tuple(answered), top1_correct=correct, in_top5=correct, wrong_match=bool(answered), candidates=candidates)
     return CaseResult(
         case, tuple(answered),
         top1_correct=answered[:1] == [case.expected_document_number],
         in_top5=case.expected_document_number in answered[:5],
         wrong_match=bool(answered) and answered[0] != case.expected_document_number,
+        place=place, candidates=candidates,
     )
 
 
 def run_cases(cases: list[Case], backend: SearchBackend) -> list[CaseResult]:
-    """Search for every specific case and score all of them. A case that names no business is never searched."""
+    """Search for every specific case and score all of them. A case that names no business is never searched.
+
+    The search ranks a whole pool of candidates and answers with the best five. The five are
+    what is scored. The expected company's place in the whole pool is kept as well, because
+    "it is 6th" and "the search never saw it" are different faults with different fixes.
+    """
     results = []
     for case in cases:
-        answered = [c.company.document_number for c in search(backend, case.business_name, case.city)] if case.is_specific else []
-        results.append(score_case(case, answered))
+        if not case.is_specific:
+            results.append(score_case(case, []))
+            continue
+        numbers = [c.company.document_number for c in search_pool(backend, case.business_name, case.city)]
+        place = numbers.index(case.expected_document_number) + 1 if case.expected_document_number in numbers else None
+        results.append(score_case(case, numbers[:SHORTLIST_SIZE], place, len(numbers)))   # the first five are exactly what search() returns
     return results
 
 
@@ -224,17 +275,49 @@ class PlainSimilarityBackend(PostgresBackend):
         return [company_from_row(row) for row in rows]
 
 
+def place_text(result: CaseResult) -> str:
+    """Where the expected company stands among the candidates the search ranked, in words a table can hold."""
+    if not result.answered and not result.candidates:
+        return "asked" if not result.case.is_specific else "no candidates"
+    if result.case.expected_document_number == ASK:
+        return "none expected"
+    return f"{result.place} of {result.candidates}" if result.place else f"not among {result.candidates}"
+
+
+def print_summary(results: list[CaseResult]) -> None:
+    """The summary table: one line per case group, then one for all of them."""
+    print(f"{'group':<24}{'cases':>6}{'top-1':>7}{'recall@5':>10}{'wrong_match':>13}")
+    for group, cases, top1, top5, wrong in summarize(results):
+        print(f"{group:<24}{cases:>6}{top1:>7}{top5:>10}{wrong:>13}")
+
+
 def print_results(results: list[CaseResult], backend_name: str) -> None:
-    """The per-case lines and the summary table."""
+    """The CHECKED cases: a line per case, and the summary table."""
     print(f"\nbackend: {backend_name}")
-    print(f"{'case':>4}  {'group':<22}{'expected':<16}{'answer':<16}{'top-1':<7}{'top-5':<7}{'wrong_match'}")
+    print("\nchecked cases (pipeline/seeds/test_set.csv)")
+    print(f"{'case':>4}  {'group':<22}{'expected':<16}{'answer':<16}{'top-1':<7}{'top-5':<7}{'wrong_match':<13}{'place of the expected company'}")
     for r in results:
         answer = r.answered[0] if r.answered else ASK
         print(f"{r.case.case_id:>4}  {r.case.case_group:<22}{r.case.expected_document_number:<16}{answer:<16}"
-              f"{'yes' if r.top1_correct else 'no':<7}{'yes' if r.in_top5 else 'no':<7}{'YES' if r.wrong_match else 'no'}")
-    print(f"\n{'group':<24}{'cases':>6}{'top-1':>7}{'recall@5':>10}{'wrong_match':>13}")
-    for group, cases, top1, top5, wrong in summarize(results):
-        print(f"{group:<24}{cases:>6}{top1:>7}{top5:>10}{wrong:>13}")
+              f"{'yes' if r.top1_correct else 'no':<7}{'yes' if r.in_top5 else 'no':<7}{'YES' if r.wrong_match else 'no':<13}{place_text(r)}")
+    print()
+    print_summary(results)
+
+
+NO_DRAFTS = "draft cases: the two local draft files are not here, so only the checked cases were scored."
+
+
+def print_draft_results(results: list[CaseResult] | None) -> None:
+    """The DRAFT cases: the summary table by case group and nothing else, or one sentence when there are no draft files.
+
+    No line per case is printed, on purpose. A draft is unchecked, it may hold an address
+    that is somebody's home, and this output is pasted into a public leg report.
+    """
+    if results is None:
+        print("\n" + NO_DRAFTS)
+        return
+    print("\ndraft cases (evals/draft_cases.csv: not checked by Andres, and so counted in no pass or fail decision)")
+    print_summary(results)
 
 
 def time_searches(backend: SearchBackend, inputs: list[tuple[str, str]]) -> list[float]:
@@ -353,6 +436,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--compare", type=int, default=0, metavar="N", help="postgres only: run the second approach and the app's search on the test inputs plus N random company names, and count the searches whose five companies differ")
     args = parser.parse_args(argv)
     cases = read_cases()
+    drafts = read_draft_cases()             # None when the two local files are not there
 
     if args.backend == "postgres":
         import os                           # reads the optional DATUM_PG_DSN environment variable
@@ -361,6 +445,7 @@ def main(argv: list[str] | None = None) -> int:
             backend_class, label = RETRIEVERS[args.retrieve]
             backend = backend_class(conn)
             print_results(run_cases(cases, backend), f"postgres ({label})")
+            print_draft_results(run_cases(drafts, backend) if drafts is not None else None)
             test_inputs = [(c.business_name, c.city) for c in cases if c.is_specific]
 
             def with_random_names(count: int) -> list[tuple[str, str]]:

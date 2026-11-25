@@ -18,8 +18,8 @@ import pytest                               # the test runner; pytest.raises che
 from datum.search import COMPANY_COLUMNS, Company, FakeBackend, name_key
 from datum.search import PostgresBackend
 from evals.run import (
-    ASK, DRAW_SQL, LATENCY_SEED, RETRIEVERS, Case, SnowflakeBackend, WideTableBackend, compare_backends, draw_company_names, fingerprint,
-    percentile, print_comparison, read_cases, run_cases, score_case, summarize,
+    ASK, DRAW_SQL, LATENCY_SEED, NO_DRAFTS, RETRIEVERS, Case, SnowflakeBackend, WideTableBackend, compare_backends, draw_company_names, fingerprint,
+    percentile, place_text, print_comparison, print_draft_results, print_results, read_cases, read_draft_cases, run_cases, score_case, summarize,
 )
 
 
@@ -35,7 +35,7 @@ def company(document_number, entity_name):
 
 
 def a_case(expected, is_specific=True, name="Acme Roofing", group="g", case_id=1):
-    return Case(case_id=case_id, case_group=group, expected_document_number=expected, business_name=name, city="", is_specific=is_specific)
+    return Case(case_id=case_id, case_group=group, expected_document_number=expected, business_name=name, city="", street="", is_specific=is_specific)
 
 
 def test_the_committed_test_set_is_read_and_joined_to_its_extractions():
@@ -45,6 +45,7 @@ def test_the_committed_test_set_is_read_and_joined_to_its_extractions():
     assert [c.case_group for c in cases[10:]] == ["contractor_search"] * 3 and {c.expected_document_number for c in cases[10:]} == {"L22000086098"}
     assert (by_id[11].business_name, by_id[11].city, by_id[11].is_specific) == ("V Pizza", "Orlando", True)
     assert by_id[13].is_specific is False                                 # "8586 palm pwwy" names no business: the extraction step said so
+    assert by_id[13].street == "8586 palm pwwy" and by_id[10].street == "Race Track Rd" and by_id[1].street == ""   # the street is read as the extraction step returned it
     assert (by_id[1].business_name, by_id[1].city, by_id[1].is_specific) == ("Ferguson Air Conditioning", "Boynton Beach", True)
     assert by_id[10].expected_document_number == ASK and by_id[10].is_specific is False   # "the pool guy": the right answer is to ask
     assert by_id[7].is_specific is False                                  # the extraction step judged this one not specific
@@ -256,3 +257,68 @@ def test_the_draft_case_files_are_ignored_by_git(path):
     repo_root = Path(__file__).parent.parent
     result = subprocess.run(["git", "check-ignore", "--quiet", "--no-index", path], cwd=repo_root, check=False)
     assert result.returncode == 0, f"{path} is not ignored, so `git add .` would publish it"   # 0 = ignored, 1 = not ignored
+
+
+def test_the_expected_companys_place_among_all_the_candidates_is_kept():
+    # "It is sixth" and "the search never saw it" are different faults. The five answers alone cannot tell them apart.
+    companies = [company(f"T{n}", f"ACME ROOFING {n}") for n in range(1, 7)] + [company("T7", "ACME ROOFING AND SIDING OF JACKSONVILLE")]
+    backend = FakeBackend(companies)
+    sixth, absent, asked, none_expected = run_cases([
+        a_case("T7", case_id=1), a_case("T9", case_id=2), a_case("T7", is_specific=False, case_id=3), a_case(ASK, case_id=4),
+    ], backend)
+    assert (sixth.place, sixth.candidates, sixth.in_top5, len(sixth.answered)) == (7, 7, False, 5)   # ranked, and below the five returned
+    assert (absent.place, absent.candidates) == (None, 7)                 # T9 is not among the candidates at all
+    assert [place_text(r) for r in (sixth, absent, asked, none_expected)] == ["7 of 7", "not among 7", "asked", "none expected"]
+    assert place_text(run_cases([a_case("T1")], FakeBackend([]))[0]) == "no candidates"
+
+
+def write_case_files(folder, rows, name="cases.csv"):
+    """A file of cases and the file of their extractions, in a temporary folder. Every case is invented."""
+    cases, extracted = folder / name, folder / ("extracted_" + name)
+    with cases.open("w", newline="") as handle:
+        handle.write("case_id,case_group,input_text,expected_document_number,expected_entity_name,case_type,verified_on,notes\n")
+        for case_id, group, typed, expected, verified_on in rows:
+            handle.write(f"{case_id},{group},{typed},{expected},,,{verified_on},\n")
+    with extracted.open("w", newline="") as handle:
+        handle.write("case_id,input_text,business_name,city,street,is_specific,model\n")
+        for case_id, _, typed, _, _ in rows:
+            handle.write(f"{case_id},{typed},{typed.title()},,,True,a-model\n")
+    return cases, extracted
+
+
+def test_a_draft_cannot_sit_in_the_test_set_and_a_checked_case_cannot_sit_among_the_drafts(tmp_path):
+    # Working rule S1: a case enters the test set only when Andres has checked it, and the date in verified_on is the sign that he did.
+    checked = [("1", "g", "acme roofing", "T1", "2026-11-24")]
+    draft = [("101", "g", "zebra glass", "T2", "")]
+    assert [c.case_id for c in read_cases(*write_case_files(tmp_path, checked))] == [1]
+    assert [c.case_id for c in read_draft_cases(*write_case_files(tmp_path, draft, "drafts.csv"))] == [101]
+    with pytest.raises(ValueError, match="case 101 in mixed.csv has no verified_on date, so it is a draft and not a checked case"):
+        read_cases(*write_case_files(tmp_path, checked + draft, "mixed.csv"))
+    with pytest.raises(ValueError, match="case 1 in mixed_drafts.csv has a verified_on date, so it is not a draft"):
+        read_draft_cases(*write_case_files(tmp_path, draft + checked, "mixed_drafts.csv"))
+
+
+def test_with_no_draft_files_one_sentence_says_so(tmp_path, capsys):
+    # On GitHub the two draft files do not exist, because git ignores them. The run must still score the checked cases.
+    cases, extracted = write_case_files(tmp_path, [("101", "g", "zebra glass", "T2", "")], "drafts.csv")
+    assert read_draft_cases(tmp_path / "no_such_file.csv", extracted) is None and read_draft_cases(cases, tmp_path / "no_such_file.csv") is None
+    print_draft_results(None)
+    assert capsys.readouterr().out.strip() == NO_DRAFTS == "draft cases: the two local draft files are not here, so only the checked cases were scored."
+
+
+def test_the_draft_cases_are_printed_as_a_summary_by_group_and_never_a_line_per_case(tmp_path, capsys):
+    # A leg report pastes this output into a public pull request. A draft may hold an address that is somebody's home.
+    drafts = read_draft_cases(*write_case_files(tmp_path, [
+        ("101", "address_only", "77 zebra glass way", "T2", ""), ("102", "address_only", "88 quartz lane", "T9", ""),
+        ("103", "brand_and_city", "acme roofing", "T1", ""),
+    ], "drafts.csv"))
+    backend = FakeBackend([company("T1", "ACME ROOFING LLC"), company("T2", "77 ZEBRA GLASS WAY LLC")])
+    results = run_cases(drafts, backend)
+    print_draft_results(results)
+    printed = capsys.readouterr().out
+    lines = [line.split() for line in printed.splitlines() if line and line.split()[0] in ("address_only", "brand_and_city", "ALL")]
+    assert lines == [["address_only", "2", "1", "1", "1"], ["brand_and_city", "1", "1", "1", "0"], ["ALL", "3", "2", "2", "1"]]   # counts, by group
+    for text in ("zebra", "Zebra", "ZEBRA", "quartz", "Quartz", "77", "88", "T1", "T2", "T9", "101", "102", "103", "ACME", "Acme"):
+        assert text not in printed, text                                  # no typed text, no company, no document number and no case id
+    print_results(results, "a backend")                                   # the CHECKED table does print a line per case, so the check above can fail
+    assert "T2" in capsys.readouterr().out
