@@ -470,6 +470,12 @@ def test_an_inactive_company_is_marked_beside_its_name_on_the_shortlist_and_the_
     assert re.search(r'<h2><a href="/company/T26000000003\?from=[^"]+">INVENTED ROOFING CORP</a> <small>· Inactive with the state</small></h2>', inactive)   # beside the name
     assert inactive.count("Inactive with the state") == 1 and "INACTIVE" not in inactive   # said once: the words are no longer among the reasons
     assert not re.findall(r"<li[^>]*>[^<]*nactive[^<]*</li>", inactive, flags=re.IGNORECASE)
+    # The report of that company keeps every fact it had (the brief: "Keep every other fact the report shows today, in the same
+    # words"). The line that says how it was identified still gives its status. Round 1 of the review found my first version dropped it.
+    browser = client_for(make()[0])
+    link = re.search(r'href="(/company/T26000000003\?from=[^"]+)"', browser.post("/search", data={"note": NOTE}).text).group(1)
+    identified = re.search(r"How this company was identified:</strong>([^<]+)</p>", browser.get(link).text).group(1)
+    assert "INACTIVE with the state) · chosen by the user from a shortlist." in identified
     for number, card in cards.items():
         if number != fx.INACTIVE_COMPANY:
             assert "Inactive with the state" not in card and "<small>·" not in card and '<li class="as-recorded">ACTIVE</li>' in card, number   # an active company has no mark
@@ -760,6 +766,7 @@ def test_the_report_page_opens_with_a_summary_that_agrees_with_the_records_under
     cards = answer.text.count("<article>")
     assert count_line == "No flags found in the sources checked." if cards == 0 else count == str(cards)   # the count is the number of flag cards on the page
     assert next_paragraph == W4_SENTENCE                                  # rule W4's sentence comes right after the summary line
+    assert seen(answer.text).count(summary.group(1)) == 1 and answer.text.count("with the state as of") == 1   # the summary is on the page once, not a second time lower down
     assert "data published 2026-10-07</a>" in answer.text                 # the date in the summary is the record's published date, as the table has it
     text = seen(answer.text)
     order = [text.index(part) for part in (summary.group(1), "The records behind this summary", "Legal name", "Sources checked", "Not checked", "How this company was identified")]

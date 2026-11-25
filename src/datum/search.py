@@ -339,17 +339,20 @@ def match_level(candidate: Candidate, city_given: bool) -> str:
     return "Possible"
 
 
-def evidence(candidate: Candidate, city_given: bool) -> list[str]:
+def evidence(candidate: Candidate, city_given: bool, status_marked: bool = False) -> list[str]:
     """The reasons behind the level, in words the contractor can check: the name, the city when one was given, and the status.
 
-    These are the three reasons report.py has given since October, with one change made in
-    leg D2 (working rule S10): an INACTIVE company no longer gets its status as a reason.
-    The shortlist says "Inactive with the state" beside its name, where it is seen first,
-    and so the words are said once. An active company still ends with ACTIVE.
-    Two gaps in the data are said plainly and never filled in (CLAUDE.md rule 3): a company
-    with no principal city on record is not "registered in None", and a company with no
-    status on record is not called inactive.
+    These are the three reasons report.py has given since October. Two gaps in the data are
+    said plainly and never filled in (CLAUDE.md rule 3): a company with no principal city on
+    record is not "registered in None", and a company with no status on record is not called inactive.
     The words themselves live in wording.py, with every other sentence a contractor can be shown.
+
+    `status_marked` is for a SHORTLIST (working rule S10, leg D2). A shortlist says "Inactive
+    with the state" beside an inactive company's name, and so it passes True, and that
+    company's status is left out of the reasons: it is said once, where it is seen first.
+    Every other caller leaves it False and gets all three reasons, as before: the line of a
+    report that says how its company was identified, and the terminal's question about a
+    Possible match, keep every fact they had.
     """
     reasons = [wording.EVIDENCE_EXACT_NAME if candidate.exact_name
                else wording.EVIDENCE_SIMILAR_NAME.format(similarity=candidate.similarity)]
@@ -361,8 +364,8 @@ def evidence(candidate: Candidate, city_given: bool) -> list[str]:
         else:
             reasons.append(wording.EVIDENCE_NO_CITY)
     status = candidate.company.status_code
-    if status != "I":                       # an inactive company is marked beside its NAME on the shortlist (rule S10, wording.INACTIVE_MARK), so it is not said again here
-        reasons.append(wording.EVIDENCE_ACTIVE if status == "A" else wording.EVIDENCE_NO_STATUS)
+    if not (status_marked and status == "I"):   # on a shortlist an inactive company's status is the mark beside its name, so it is not said a second time
+        reasons.append(wording.EVIDENCE_ACTIVE if status == "A" else wording.EVIDENCE_INACTIVE if status == "I" else wording.EVIDENCE_NO_STATUS)
     return reasons
 
 

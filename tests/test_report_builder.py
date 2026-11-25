@@ -436,6 +436,7 @@ def test_the_summary_at_the_top_agrees_with_the_facts_below_it(document_number):
     assert count_line == "No flags found in the sources checked." if cards == 0 else count == str(cards)   # and the summary counts exactly those cards
     assert (int(year_published), MONTH_NAMES.index(month) + 1, int(day_of_month)) == (company.published_on.year, company.published_on.month, company.published_on.day)
     assert f"data published {company.published_on:%Y-%m-%d}" in table_row(text, "Official record")   # the same date, as the table writes it
+    assert text.count(whole) == 1 and text.count("with the state as of") == 1   # the summary is in the report once, not a second time lower down
     after = text[summary.end():].lstrip("\n")
     assert after.startswith(W4_SENTENCE + "\n")                           # rule W4's sentence comes right after the summary line
     assert text.index(whole) < text.index("## The records behind this summary") < text.index("| Legal name |") < text.index("### Sources checked") < text.index("### Not checked")
@@ -462,6 +463,10 @@ def test_the_summary_says_a_gap_in_the_record_and_never_fills_it_in():
     assert summary_of(replace(base, status_code=None)) == "No status with the state is on record as of Oct 7, 2026. Florida limited liability company (LLC), on record since 2015."
     assert summary_of(replace(base, filing_type=None)) == "Active with the state as of Oct 7, 2026. Entity type not on record, on record since 2015."
     assert summary_of(replace(base, file_date=date(2120, 1, 1))).endswith("with a date on record in 2120, which is in the future.")   # not "on record since 2120"
+    # "The future" is measured from the day the report is BUILT, which the builder is told, and not from the machine's clock. The day
+    # after fx.BUILT_ON is already in the past for the machine, so this fails if the builder asks the clock.
+    assert summary_of(replace(base, file_date=fx.BUILT_ON + timedelta(days=1))).endswith("with a date on record in 2026, which is in the future.")
+    assert summary_of(replace(base, file_date=fx.BUILT_ON)).endswith("on record since 2026.")   # the day itself is not the future
     assert "None" not in gaps and "None" not in summary_of(replace(base, status_code=None, filing_type=None, file_date=None))
 
 

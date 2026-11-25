@@ -150,15 +150,17 @@ EVIDENCE_OTHER_CITY = "principal city on record is {city}, and that spelling doe
 # Whether the comparison itself should treat "St." and "ST" alike is question Q41.
 EVIDENCE_NO_CITY = "no principal city on record for this company"   # the principal address is the only one the table holds
 EVIDENCE_ACTIVE = "ACTIVE"
+EVIDENCE_INACTIVE = "INACTIVE with the state"
 EVIDENCE_NO_STATUS = "status not on record"
-# The seven lines above are the reasons search.evidence() gives for a match level. They were
-# written in search.py in leg C2 and moved here, so that this file holds them all.
+# The eight lines above are the reasons search.evidence() gives for a match level. They were
+# written in search.py in leg C2 and moved here unchanged, so that this file holds them all.
 INACTIVE_MARK = "Inactive with the state"
 # Working rule S10 (leg D2): the shortlist says this BESIDE an inactive company's name. Until
-# then the only sign was the last of its reasons, "INACTIVE with the state", which Andres did
-# not see on Nov 24. The words left the list of reasons when the mark arrived, so the page
-# says it once. It is the status on the record and nothing more: the same words head the flag
-# on the company's report.
+# then the only sign was the last of its reasons, EVIDENCE_INACTIVE above, which Andres did not
+# see on Nov 24. On a SHORTLIST that reason is left out when the mark is shown, so the list
+# says it once. Everywhere else the reason stays as it was: in the line of a report that says
+# how its company was identified, and in the terminal's question about a Possible match.
+# The mark is the status on the record and nothing more.
 TIE_STRONG = "{count} companies match at the level Strong. Check which one you mean before you open a report."
 TIE_ON_LIST = "{count} companies on this list match at the level {level}. Check which one you mean before you open a report."
 # Shown ABOVE the shortlist when more than one company shares the top level (rule W7). Each

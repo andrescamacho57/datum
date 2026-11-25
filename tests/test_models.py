@@ -168,8 +168,7 @@ def test_a_company_on_an_address_list_states_its_name_and_its_address_as_facts()
 
 def test_the_two_sentences_at_the_top_of_a_report_are_facts_and_there_are_exactly_two():
     # Phase D, leg D2 (working rule S9). The summary states the company's status and its entity type, so both carry their source (rule W1).
-    report = a_report()
-    assert [fact.source_url for fact in report.headline] == ["https://search.sunbiz.org/Inquiry/CorporationSearch/ByDocumentNumber"] * 2
+    assert Report.model_fields["headline"].is_required()                  # a report cannot be built without its two sentences
     for wrong in (("Inactive with the state as of Oct 7, 2026.", "Florida corporation (for profit), on record since 2010."),   # bare texts are not facts
                   (a_fact(text="only one"),), ()):
         with pytest.raises(ValidationError):

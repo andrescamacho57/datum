@@ -247,12 +247,14 @@ def test_evidence_ends_with_the_status_of_an_active_company_and_never_guesses_on
         rank([company("T00000000001", "ACME ROOFING LLC", status=status)], "acme roofing")[0] for status in ("A", "I", None)
     )
     assert evidence(active, city_given=False)[-1] == "ACTIVE"
+    assert evidence(inactive, city_given=False)[-1] == "INACTIVE with the state"   # as it has been since October: a report's line and the terminal's question keep it
     assert evidence(unknown, city_given=False)[-1] == "status not on record"   # a missing status is not "inactive" (CLAUDE.md rule 3)
-    # Working rule S10 (leg D2): an inactive company is marked beside its NAME on the shortlist, so its status is no longer a reason.
-    # Until leg D2 this list ended "INACTIVE with the state", and that last line was the only sign of it.
-    reasons = evidence(inactive, city_given=False)
+    # Working rule S10 (leg D2): a SHORTLIST marks an inactive company beside its name, and so asks for the reasons without that status.
+    reasons = evidence(inactive, city_given=False, status_marked=True)
     assert len(reasons) == 1 and reasons[0].startswith("name matches (") and not [reason for reason in reasons if "nactive" in reason or "NACTIVE" in reason]
-    assert len(evidence(inactive, city_given=True)) == 2                  # the name and the city, and still no status
+    assert len(evidence(inactive, city_given=True, status_marked=True)) == 2   # the name and the city, and no status
+    assert evidence(active, city_given=False, status_marked=True)[-1] == "ACTIVE"   # only an INACTIVE company's status is left out: nothing marks the others
+    assert evidence(unknown, city_given=False, status_marked=True)[-1] == "status not on record"
 
 
 def test_evidence_does_not_print_a_missing_city():

@@ -351,3 +351,15 @@ def test_the_terminal_marks_an_inactive_company_beside_its_name_and_says_it_once
     assert len(lines) == 1 and lines[0].endswith("INVENTED ROOFING CORP  (T26000000003)  ·  Inactive with the state")
     assert sum(line.count("Inactive with the state") for line in talk.said) == 1 and not [line for line in talk.said if "INACTIVE" in line]
     assert not [line for line in talk.said if "INVENTED AIR CONDITIONING, LLC" in line and "Inactive" in line]   # an active company is not marked
+
+
+def test_the_terminals_question_about_a_possible_match_still_gives_an_inactive_companys_status(tmp_path):
+    # The shortlist marks the company beside its name (rule S10). The question that follows a pick, and the saved report's line,
+    # are not the shortlist, and they keep the status among the reasons, as they have since October.
+    inactive = [c for c in fx.load_companies() if c.document_number == fx.INACTIVE_COMPANY]
+    talk = Talk(["1", "y"])
+    path = run(talk, tmp_path, fields={"business_name": "Invented Roofers", "city": "", "street": "", "is_specific": True}, companies=inactive)
+    question = next(prompt for prompt in talk.asked if "POSSIBLE match" in prompt)
+    assert "INACTIVE with the state. Nothing else confirms" in question
+    assert "INACTIVE with the state) · chosen by the user from a shortlist." in path.read_text()
+    assert [line for line in talk.said if line.endswith("(T26000000003)  ·  Inactive with the state")]   # and the shortlist line above it has the mark
