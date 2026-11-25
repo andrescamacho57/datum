@@ -16,8 +16,13 @@ What it does, in order:
                  just loaded: the document number and the simplified name of every company and
                  nothing else, written in name order. Then check that it holds exactly the
                  companies company_search holds. One difference stops the run here.
-    5. index     build the indexes on the new tables, including the trigram index the search uses.
-    6. swap      in ONE transaction: drop each old table and give the new one its name. A
+    5. addresses build company_search_addresses, the narrow address table (Phase D, leg D1), from
+                 the same company rows: the document number, the house number at the start of
+                 the principal address, and the words of the street after it. Then check that
+                 it holds exactly the document numbers company_search holds. One difference
+                 stops the run here.
+    6. index     build the indexes on the new tables, including the trigram index the search uses.
+    7. swap      in ONE transaction: drop each old table and give the new one its name. A
                  transaction is all-or-nothing, so the app sees the old tables until the
                  moment it sees all the new ones. A load that fails halfway never leaves the
                  app reading half a table.
@@ -28,6 +33,11 @@ a row is about 240 bytes, the table is 3 GB, and those rows are scattered throug
 narrow table a row is about 70 bytes and rows with names that start alike sit next to each
 other, so the same check reads far fewer pages. The search then fetches the full row of the
 200 companies it keeps from company_search, by document number.
+
+Why there is an address table (leg D1): a contractor often knows a job by its address and
+not by the client's legal name. The search by address looks a house number up in an index,
+and then compares the street's words. Cutting 13 million addresses into a number and words
+on every search would be far too slow, so the loader cuts them once.
 
 Hidden records never get here (working rule W9): the export keeps only rows whose is_shown
 is true, and the two flag tables below also carry CHECK (is_shown), so Postgres itself
@@ -190,6 +200,61 @@ NAMES_CHECK_SQL = (
 # each of those ways.
 
 
+ADDRESSES = Table(
+    name="company_search_addresses",
+    columns=(
+        ("document_number", "text not null"),
+        ("house_number", "text"),               # empty (NULL) when the principal address does not begin with a number, or when there is none
+        ("street_words", "text not null"),      # the words after the house number, in capitals, one space between them. Empty when there are none
+    ),
+    indexes=(("house_number", "(house_number)"),),   # the search by address starts from the house number, which must match exactly
+)
+# The narrow address table. Like NAMES it is NOT in TABLES, because no file is exported for
+# it: step 5 builds it inside Postgres from the company rows just loaded. It has one row per
+# company, also for a company whose address has no house number, so that the same-companies
+# check below can be exact.
+# It has no source_url and no fetched_at, for the same reason NAMES has none: it states no
+# fact to anybody. The search reads it only to learn WHICH document numbers to fetch, and
+# every company it then shows or counts is read from company_search, with its source address
+# and fetch time. Only the principal address is cut. It is the only address company_search holds.
+
+ADDRESSES_FILL_SQL = (
+    f"insert into {ADDRESSES.name}{NEW} (document_number, house_number, street_words) "
+    "select document_number, house_number, street_words from ("
+    "select document_number, "
+    "case when words[1] ~ '^[0-9]' then words[1] end as house_number, "
+    "case when words[1] ~ '^[0-9]' then array_to_string(words[2:], ' ') else '' end as street_words "
+    "from (select document_number, "
+    "string_to_array(trim(regexp_replace(upper(coalesce(principal_address_1, '')), '[^A-Z0-9]+', ' ', 'g')), ' ') as words "
+    f"from company_search{NEW}) as simplified) as cut "
+    'order by house_number collate "C" nulls last, street_words collate "C", document_number'
+)
+# The innermost select simplifies an address the way search.name_key simplifies a name: capitals,
+# and every run of characters that are not A to Z or 0 to 9 becomes one space. So
+# "8586 Palm Pkwy., Ste. 2" becomes the words 8586, PALM, PKWY, STE and 2. The select around it
+# keeps the first word as the house number when it begins with a digit ("8586", and also
+# "123A"), and the words after it as the street. An address that begins with a letter, such
+# as "PO BOX 12" or "ONE MAIN ST", has no house number here and cannot be found by address.
+# No word is removed: the search itself decides which words to ignore (street types and
+# directions), so that list lives in one place, search.py.
+# order by: the rows are WRITTEN in house-number order, then street, so the companies at one
+# address share a page on disk, as the names do in the narrow name table.
+
+ADDRESSES_CHECK_SQL = (
+    "select"
+    f" (select count(*) from {ADDRESSES.name}{NEW}),"
+    f" (select count(*) from company_search{NEW}),"
+    f" (select count(*) from {ADDRESSES.name}{NEW} a where not exists"
+    f" (select 1 from company_search{NEW} c where c.document_number = a.document_number)),"
+    f" (select count(*) from company_search{NEW} c where not exists"
+    f" (select 1 from {ADDRESSES.name}{NEW} a where a.document_number = c.document_number))"
+)
+# The same four numbers as NAMES_CHECK_SQL, for the address table: its rows, the rows of
+# company_search, the address rows with no company of that document number, and the companies
+# with no address row. The two tables hold the same document numbers exactly when the first
+# two are equal and the last two are 0.
+
+
 class ExportError(ValueError):
     """The export on disk is not what this module expects. Nothing has been swapped in when it is raised."""
 
@@ -269,8 +334,8 @@ def load(conn, export_dir: Path = EXPORT_DIR) -> dict:
     """Load every table from the export and swap them in. Returns the counts and timings.
 
     conn is an open psycopg connection in autocommit mode. Autocommit means each statement
-    is saved as soon as it finishes, which is right for steps 2 to 5: they only touch the
-    temporary tables. Step 6 opens an explicit transaction for the swap.
+    is saved as soon as it finishes, which is right for steps 2 to 6: they only touch the
+    temporary tables. Step 7 opens an explicit transaction for the swap.
     """
     expected = read_expected_counts(export_dir)                    # step 1: inspect before loading
     files = {table.name: export_files(table.name, export_dir) for table in TABLES}
@@ -283,7 +348,7 @@ def load(conn, export_dir: Path = EXPORT_DIR) -> dict:
     loaded = {}
     conn.execute("set time zone 'UTC'")                            # times are shown in UTC for this session; the files already say Z
     conn.execute(f"set maintenance_work_mem = '{INDEX_MEMORY}'")   # this session only: a faster index build
-    conn.execute(f"set work_mem = '{SORT_MEMORY}'")                # this session only: room to sort 13 million names in step 4
+    conn.execute(f"set work_mem = '{SORT_MEMORY}'")                # this session only: room to sort 13 million rows in steps 4 and 5
     for table in TABLES:                                           # step 2: load into temporary tables
         conn.execute(f"drop table if exists {table.name}{NEW}")    # left over from a run that stopped early
         conn.execute(create_statement(table))
@@ -311,25 +376,39 @@ def load(conn, export_dir: Path = EXPORT_DIR) -> dict:
             f"{only_in_names} are only in {NAMES.name} and {only_in_companies} are only in company_search"
         )
 
+    conn.execute(f"drop table if exists {ADDRESSES.name}{NEW}")    # step 5: the narrow address table, built from the same rows
+    conn.execute(create_statement(ADDRESSES))
+    conn.execute(ADDRESSES_FILL_SQL)
+    address_rows, company_rows_again, only_in_addresses, without_an_address_row = conn.execute(ADDRESSES_CHECK_SQL).fetchone()
+    if address_rows != company_rows_again or only_in_addresses or without_an_address_row:   # the search by address would miss a company, or find one the app cannot show
+        for table in TABLES + (NAMES, ADDRESSES):
+            conn.execute(f"drop table if exists {table.name}{NEW}")
+        raise ExportError(
+            f"{ADDRESSES.name} and company_search do not hold the same companies, nothing was swapped in. "
+            f"{ADDRESSES.name} has {address_rows} rows and company_search has {company_rows_again}; "
+            f"{only_in_addresses} are only in {ADDRESSES.name} and {without_an_address_row} are only in company_search"
+        )
+
     index_seconds = {}
-    for table in TABLES + (NAMES,):                                # step 5: indexes, on the temporary tables
+    for table in TABLES + (NAMES, ADDRESSES):                      # step 6: indexes, on the temporary tables
         for statement in index_statements(table):
             started = time.perf_counter()                          # a clock for measuring durations
             conn.execute(statement)
             index_seconds[statement.split()[2].replace(NEW, "")] = time.perf_counter() - started   # word 3 of the statement is the index name
         conn.execute(f"analyze {table.name}{NEW}")                 # refresh the statistics the query planner uses
 
-    with conn.transaction():                                       # step 6: the swap, all or nothing, the narrow table included
-        for table in TABLES + (NAMES,):
+    with conn.transaction():                                       # step 7: the swap, all or nothing, the two narrow tables included
+        for table in TABLES + (NAMES, ADDRESSES):
             for statement in swap_statements(table):
                 conn.execute(statement)
     names = {"rows": names_rows, "company_rows": company_rows, "only_in_names": only_in_names, "only_in_companies": only_in_companies}
-    return {"expected": expected, "loaded": loaded, "index_seconds": index_seconds, "names": names}
+    addresses = {"rows": address_rows, "company_rows": company_rows_again, "only_in_addresses": only_in_addresses, "only_in_companies": without_an_address_row}
+    return {"expected": expected, "loaded": loaded, "index_seconds": index_seconds, "names": names, "addresses": addresses}
 
 
 def sizes(conn) -> list[tuple[str, str, str]]:
     """(relation, kind, size) for every table and index this module made, biggest first."""
-    names = [table.name for table in TABLES + (NAMES,)]
+    names = [table.name for table in TABLES + (NAMES, ADDRESSES)]
     rows = conn.execute(
         """
         select c.relname,
@@ -365,6 +444,9 @@ def main() -> int:
         narrow = result["names"]
         print(f"{NAMES.name}: {narrow['rows']:,} rows built from company_search's {narrow['company_rows']:,}; "
               f"{narrow['only_in_names']} only in {NAMES.name}, {narrow['only_in_companies']} only in company_search")
+        cut = result["addresses"]
+        print(f"{ADDRESSES.name}: {cut['rows']:,} rows built from company_search's {cut['company_rows']:,}; "
+              f"{cut['only_in_addresses']} only in {ADDRESSES.name}, {cut['only_in_companies']} only in company_search")
         for index, seconds in result["index_seconds"].items():
             print(f"index {index}: built in {seconds:.1f} seconds")
         for name, kind, pretty in sizes(conn):
