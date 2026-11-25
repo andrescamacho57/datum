@@ -16,20 +16,21 @@ from pathlib import Path                    # file paths
 import pytest                               # the test runner; parametrize runs one test body over several cases
 
 from datum.search import (
-    CANDIDATE_POOL, COMPANY_COLUMNS, Company, FakeBackend, PostgresBackend, by_words_then_city, company_from_row, evidence, holds_every_word,
-    jaro_winkler_similarity, match_level, name_key, rank, search, search_pool, shortlist,
+    ADDRESS_FETCH, CANDIDATE_POOL, COMPANY_COLUMNS, DIRECTIONS, IGNORED_STREET_WORDS, MOST_AT_AN_ADDRESS, STREET_TYPES, Company, FakeBackend, PostgresBackend,
+    address_search, by_words_then_city, company_from_row, evidence, holds_every_word, jaro_winkler_similarity, match_level, name_key, rank, search,
+    search_kind, search_pool, shortlist, street_matches, street_parts,
 )
 
 PAIRS = Path(__file__).parent / "fixtures" / "search" / "jarowinkler_pairs.csv"
 FETCHED = datetime(2026, 10, 22, 19, 31, 31, tzinfo=timezone.utc)
 
 
-def company(document_number, entity_name, city="JACKSONVILLE", status="A"):
+def company(document_number, entity_name, city="JACKSONVILLE", status="A", address="1 INVENTED WAY"):
     """An invented company with the fields the search reads. The document numbers use a prefix (T) the state does not."""
     return Company(
         document_number=document_number, entity_name=entity_name, name_key=name_key(entity_name),
         status_code=status, filing_type="FLAL", file_date=date(2020, 1, 15),
-        principal_address_1="1 INVENTED WAY", principal_city=city, principal_state="FL", principal_zip="32256",
+        principal_address_1=address, principal_city=city, principal_state="FL", principal_zip="32256",
         published_on=date(2026, 10, 7), source_url="https://search.sunbiz.org/Inquiry/CorporationSearch/ByDocumentNumber",
         fetched_at=FETCHED, fetched_at_is_approximate=True,
     )
@@ -424,3 +425,121 @@ def test_a_fetch_time_that_arrives_in_local_time_is_converted_to_utc():
     naive = row[:12] + (datetime(2026, 10, 22, 19, 31, 31),) + row[13:]
     with pytest.raises(ValueError, match="time-zone-aware UTC"):
         company_from_row(naive)                                           # a time with no zone is never guessed to be UTC
+
+
+# --- The search by address (Phase D, leg D1; working rules S5 to S8) ---------------------------------
+
+def test_a_street_is_cut_into_a_house_number_and_the_words_that_are_compared():
+    assert street_parts("8586 palm pwwy") == ("8586", ("PALM", "PWWY"))   # the mistyped street type stays a word. Nothing has to match it
+    assert street_parts("8586 Palm Pkwy.") == ("8586", ("PALM",))         # PKWY is a street type: left out
+    assert street_parts("77 N. Quartz Rd") == ("77", ("QUARTZ",))   # a direction and a street type: both left out
+    assert street_parts("12 US-1 N") == ("12", ("US", "1"))               # punctuation becomes a space, as it does in a name
+    assert street_parts("123A Main Street, Suite 4") == ("123A", ("MAIN", "SUITE", "4"))   # a number with a letter is the whole house number. A suite is not ignored
+    assert street_parts("115 SE 1st St") == ("115", ("SE", "1ST"))        # SE is not one of the four directions the rule lists
+    for no_number in ("Race Track Rd", "race track rd 12", "PO Box 12", "One Main St", "", "   "):
+        assert street_parts(no_number) == (None, ()), no_number           # a street that does not BEGIN with a digit has no house number here
+    assert {"PKWY", "PARKWAY", "ST", "STREET", "AVE", "AVENUE", "RD", "ROAD", "BLVD", "DR", "DRIVE", "LN", "CT", "WAY", "CIR", "HWY"} <= STREET_TYPES   # the sixteen the brief names
+    assert DIRECTIONS == {"N", "S", "E", "W"} and IGNORED_STREET_WORDS == STREET_TYPES | DIRECTIONS
+
+
+def test_a_stored_street_matches_when_all_its_words_were_typed_whatever_the_street_type():
+    typed = street_parts("8586 palm pwwy")[1]
+    assert street_matches("PALM PKWY", typed) and street_matches("PALM PARKWAY", typed) and street_matches("N PALM AVE", typed)   # the type and the direction are ignored
+    assert not street_matches("PALM BEACH PKWY", typed)                   # BEACH is a word of the stored street that was not typed
+    assert not street_matches("PALMETTO PKWY", typed)                     # whole words are compared
+    assert not street_matches("PALM PKWY STE 200", typed)                 # a suite on the record that was not typed is a miss: a suite is not a street type
+    assert street_matches("PALM PKWY STE 200", street_parts("8586 palm pkwy ste 200")[1])
+    assert not street_matches("", typed) and not street_matches("N ST", typed) and not street_matches("PKWY", typed)   # nothing left to compare matches nothing
+    assert not street_matches("PALM PKWY", ())                            # and nothing typed matches nothing
+    assert not street_matches("ZEBRA GLASS MEMORIAL HWY", street_parts("12 w zebra glass hwy")[1])   # one word of the stored street left out: a miss
+
+
+def test_a_note_gets_the_name_search_the_address_search_or_a_question():
+    # Working rules S5 and S7. Before leg D1 every note that named no business was asked for more, whatever its street.
+    assert search_kind("", "8586 palm pwwy", False) == "address"          # no business, and the street begins with a house number
+    assert search_kind("<UNKNOWN>", "8586 palm pwwy", False) == "address"   # what the extraction step puts in the name when there is none does not count
+    assert search_kind("", "8586 palm pwwy", True) == "address"           # "specific", and no name at all: it names no business
+    assert search_kind("   ", "8586 palm pwwy", True) == "address"
+    assert search_kind("Pool", "Race Track Rd", False) == "ask"           # rule S7: a street with no house number still asks ("the pool guy off race track rd")
+    assert search_kind("", "", False) == "ask" and search_kind("Pool", "", False) == "ask"
+    assert search_kind("Q Pizza", "12 made up ave", True) == "name"   # a note that names a business gets the name search, house number or not
+    assert search_kind("V Pizza", "", True) == "name"
+
+
+def at(document_number, name, address, city="ORLANDO", status="A"):
+    return company(document_number, name, city=city, status=status, address=address)
+
+
+AT_ONE_ADDRESS = [
+    at("T00000000004", "QUARTZ BILLIARDS INC.", "8586 PALM PARKWAY", status="I"),
+    at("T00000000002", "8586 INVENTED PKWY LLC", "8586 Palm Pkwy.", status="I"),
+    at("T00000000001", "Q PIZZA LAKE BUENA VISTA LLC", "8586 PALM PKWY"),
+    at("T00000000003", "ZEBRA GLASS OF TAMPA LLC", "8586 PALM RIVER RD", city="TAMPA"),   # the same number, another street
+    at("T00000000005", "CORAL ELECTRIC LLC", "8587 PALM PKWY"),                           # the same street, the house next door
+    at("T00000000006", "DUNE ROOFING LLC", "8586 PALM AVE", city="MIAMI"),                # the same number and street name in another city
+]
+
+
+def test_an_address_search_lists_the_active_companies_and_only_counts_the_inactive_ones():
+    # Working rules S5 and S6, on the shape of Andres's case: one active company and two inactive ones at "8586 palm pwwy" in Orlando.
+    backend = FakeBackend(AT_ONE_ADDRESS)
+    found = address_search(backend, "8586 palm pwwy", "Orlando")
+    assert [c.document_number for c in found.active] == ["T00000000001"]  # the one active company whose principal address this is
+    assert [c.document_number for c in found.inactive] == ["T00000000002", "T00000000004"]   # carried, in document-number order, so that a page can count them
+    assert (found.house_number, found.street_words, found.no_status, found.too_many) == ("8586", ("PALM", "PWWY"), (), False)
+    assert backend.address_calls == [("8586", ("PALM", "PWWY"), ADDRESS_FETCH)] and backend.calls == []   # one lookup by house number, and no name search
+    # With no city given, the company with the same number and street name in Miami matches too. Document-number order, whatever the city.
+    assert [c.document_number for c in address_search(backend, "8586 palm pwwy").active] == ["T00000000001", "T00000000006"]
+    assert address_search(backend, "8586 palm pwwy", "Tampa").active == ()   # a city that no match is in: the Tampa company is on another street
+    assert [c.document_number for c in address_search(backend, "8587 palm parkway").active] == ["T00000000005"]   # the house number must be the same
+    assert address_search(backend, "858 palm pkwy").active == () and address_search(backend, "8586 pkwy").active == ()   # a shorter number, and no street name
+
+
+def test_an_address_search_is_in_document_number_order_and_status_never_reorders_it():
+    backend = FakeBackend([at(f"T0000000000{n}", f"INVENTED CO {n} LLC", "12 MADE UP RD") for n in (5, 3, 9, 1)])
+    assert [c.document_number for c in address_search(backend, "12 made up road").active] == ["T00000000001", "T00000000003", "T00000000005", "T00000000009"]
+    unknown = FakeBackend([at("T00000000001", "INVENTED CO LLC", "12 MADE UP RD", status=None), at("T00000000002", "OTHER CO LLC", "12 MADE UP RD", status="X")])
+    found = address_search(unknown, "12 made up rd")
+    assert (found.active, found.inactive) == ((), ()) and [c.document_number for c in found.no_status] == ["T00000000001", "T00000000002"]   # no status is not "inactive"
+
+
+def test_an_address_with_more_companies_than_a_page_may_list_lists_none():
+    crowded = FakeBackend([at(f"T{n:011d}", f"INVENTED CO {n} LLC", "7 MAIL DROP WAY STE 300") for n in range(MOST_AT_AN_ADDRESS + 1)])
+    found = address_search(crowded, "7 mail drop way ste 300")
+    assert found.too_many is True and (found.active, found.inactive, found.no_status) == ((), (), ())
+    exactly = FakeBackend(crowded.companies[:MOST_AT_AN_ADDRESS])
+    assert address_search(exactly, "7 mail drop way ste 300").too_many is False and len(address_search(exactly, "7 mail drop way ste 300").active) == MOST_AT_AN_ADDRESS
+    # When the database hands over as many rows as it was asked for, there may be more that were never looked at. No count can be trusted then.
+    full = FakeBackend([at(f"T{n:011d}", f"INVENTED CO {n} LLC", "7 OTHER ST" if n else "7 MAIL DROP WAY") for n in range(ADDRESS_FETCH)])
+    assert address_search(full, "7 mail drop way").too_many is True       # one real match, and a full hand-over: the answer is still "too many"
+    assert address_search(FakeBackend(full.companies[:ADDRESS_FETCH - 1]), "7 mail drop way").too_many is False
+
+
+def test_a_street_with_no_house_number_or_no_name_looks_nothing_up():
+    backend = FakeBackend(AT_ONE_ADDRESS)
+    for street in ("palm pkwy", "8586", "8586 pkwy n", ""):
+        found = address_search(backend, street)
+        assert (found.active, found.inactive, found.too_many) == ((), (), False), street
+    assert backend.address_calls == []                                    # the database was not asked at all
+
+
+def test_the_address_query_sends_what_was_typed_as_values_and_reads_every_company_from_company_search():
+    sql = PostgresBackend.AT_HOUSE_NUMBER_SQL
+    assert [sql.count(f"%({name})s") for name in ("house_number", "allowed", "ignored", "limit")] == [1, 1, 1, 1] and "{" not in sql
+    subquery = sql[sql.index("(select"):sql.index(") as found")]
+    assert subquery.startswith("(select document_number, street_words from company_search_addresses where house_number = %(house_number)s ")
+    assert subquery.endswith("order by document_number limit %(limit)s")  # the list is cut BEFORE the join, so at most `limit` full rows are fetched
+    assert ") as found join company_search as c using (document_number)" in sql
+    selected = sql[len("select "):sql.index(" from (")].split(", ")
+    assert selected == ["c." + column for column in COMPANY_COLUMNS] + ["found.street_words"]   # every company field comes from company_search
+
+    class AddressConnection(RecordingConnection):
+        def fetchall(self):
+            return [row + ("PALM PKWY",) for row in super().fetchall()]
+
+    conn = AddressConnection()
+    rows = PostgresBackend(conn).at_house_number("8586'; drop table company_search; --", ("PALM", "PWWY"), 1000)
+    asked, params = conn.asked[-1]
+    assert "drop table" not in asked and params["house_number"] == "8586'; drop table company_search; --" and params["limit"] == 1000
+    assert params["ignored"] == sorted(IGNORED_STREET_WORDS) and params["allowed"] == ["PALM", "PWWY"] + sorted(IGNORED_STREET_WORDS)
+    assert rows == [(company("T00000000001", "ACME ROOFING LLC"), "PALM PKWY")]   # the company, and its stored street for street_matches()
