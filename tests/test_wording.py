@@ -105,6 +105,9 @@ def test_the_sentences_of_an_address_search_are_held_here_as_literal_text():
     assert wording.count_text(3, wording.ADDRESS_NO_STATUS_ONE, wording.ADDRESS_NO_STATUS_MANY) == "3 companies with no status on record also match and are not listed."
     assert "inactive" not in wording.ADDRESS_NO_STATUS_ONE + wording.ADDRESS_NO_STATUS_MANY   # no status on record is never called inactive
     assert wording.ADDRESS_TOO_MANY == "That house number and street name are on the records of too many companies to list them. Add the business's name."
+    assert wording.address_not_found_text(city_given=False) == wording.ADDRESS_NOT_FOUND and "city" not in wording.ADDRESS_NOT_FOUND
+    assert wording.address_not_found_text(city_given=True).startswith("No company matches: none has a principal address on record with that house number, "
+                                                                      "a street name made only of words you typed, and a principal city that begins with the city you gave.")
     assert wording.address_compared_text("8586", city_given=False).endswith("are not compared. You gave no city, so a match can be in any city.")
     assert wording.address_compared_text("8586", city_given=True).endswith("are not compared. Its principal city on record also begins with the city you gave.")
 

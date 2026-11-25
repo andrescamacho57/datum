@@ -605,6 +605,15 @@ def test_an_address_search_that_lists_nobody_says_why_and_shows_no_company():
     assert answer.status_code == 200 and "/company/" not in answer.text and 'I read that as: the street "8586 palm pwwy"' in text
     assert "No company matches: none has a principal address on record with that house number and a street name made only of words you typed. Check the house number and the spelling of the street's name, and add the suite or unit if the address has one." in text
     assert S8_SENTENCE not in text                                        # there are no results for it to stand under
+    # With a city given, the city is one of the things compared. Companies DO have that house number and street, in Orlando, so the
+    # page may not say that none has: it has to say that the city was part of the comparison (round 2 of the review).
+    elsewhere, _ = make(extract=lambda note: {**BY_ADDRESS, "city": "Tampa"}, companies=at_palm_pkwy())
+    answer = client_for(elsewhere).post("/search", data={"note": "8586 palm pwwy tampa"})
+    text = seen(answer.text)
+    assert "/company/" not in answer.text and 'I read that as: the street "8586 palm pwwy", the city "Tampa"' in text
+    assert ("No company matches: none has a principal address on record with that house number, a street name made only of words you typed, "
+            "and a principal city that begins with the city you gave.") in text
+    assert "with that house number and a street name made only of words you typed." not in text   # the sentence for a search with NO city would be false here
 
     only_inactive, _ = make(extract=lambda note: dict(BY_ADDRESS), companies=at_palm_pkwy(active=0, inactive=2))
     answer = client_for(only_inactive).post("/search", data={"note": "8586 palm pwwy"})

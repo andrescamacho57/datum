@@ -234,8 +234,16 @@ ADDRESS_NOT_FOUND = (
     "No company matches: none has a principal address on record with that house number and a street name made only of words you typed. "
     "Check the house number and the spelling of the street's name, and add the suite or unit if the address has one."
 )
-# It says what was compared, so that it does not read as "no company is at this address". A
-# record that holds a suite only matches when the suite was typed too (question Q47).
+ADDRESS_NOT_FOUND_IN_CITY = (
+    "No company matches: none has a principal address on record with that house number, a street name made only of words you typed, "
+    "and a principal city that begins with the city you gave. "
+    "Check the house number, the spelling of the street's name and the city, and add the suite or unit if the address has one."
+)
+# Each says what was compared, so that it does not read as "no company is at this address". A
+# record that holds a suite only matches when the suite was typed too (question Q47). The
+# second is shown when a city was read from the note: the city is then part of the comparison,
+# and a company with that house number and street in ANOTHER city is not a match. Round 2 of
+# leg D1's review found that one sentence for both cases denied such a company's record.
 ADDRESS_TOO_MANY = "That house number and street name are on the records of too many companies to list them. Add the business's name."
 # It gives no count. The search stops reading at a limit, before the city is compared, so it
 # cannot say how many companies there are, and a sentence with a number would need a source.
@@ -315,6 +323,11 @@ def count_text(count: int, one: str, many: str) -> str:
 def address_compared_text(house_number: str, city_given: bool) -> str:
     """The sentence that says what an address search compared, and a second one about the city: compared, or not given."""
     return f"{ADDRESS_COMPARED.format(house_number=house_number)} {ADDRESS_COMPARED_CITY if city_given else ADDRESS_COMPARED_NO_CITY}"
+
+
+def address_not_found_text(city_given: bool) -> str:
+    """The sentence for an address search that matched nobody. It names the city as one of the things compared only when one was given."""
+    return ADDRESS_NOT_FOUND_IN_CITY if city_given else ADDRESS_NOT_FOUND
 
 
 def identified_by_address_text(street: str, city: str, others_listed: int) -> str:

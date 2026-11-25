@@ -470,3 +470,6 @@ def test_the_whole_evaluation_fails_only_when_a_checked_case_is_made_worse(tmp_p
     # And the reverse: a note that should be asked about, which the address search now answers, fails the --before comparison.
     should_ask = [Case(case_id=4, case_group="g", expected_document_number=ASK, business_name="Pool", city="", street="77 quartz pkwy", is_specific=False)]
     assert evaluate(should_ask, None, backend, "fake", address_backend=backend, before=True) == 1
+    # The same note as a DRAFT decides nothing in this comparison either: the checked case moved up, and the command passes.
+    assert evaluate(by_address, should_ask, backend, "fake", address_backend=backend, before=True) == 0
+    assert ["g", "1", "0", "1", "0"] in lines()                           # the draft is counted as moved down, in the drafts' own table

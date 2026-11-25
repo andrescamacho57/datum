@@ -238,7 +238,7 @@ def create_app(access_code: str, extract: Callable[[str], dict], open_backends: 
         if found.too_many:                  # an office tower, a mail drop or an agent's office: no list of fifty would help
             return page(request, "message.html", heading=wording.SEARCH_HEADING, message=wording.ADDRESS_TOO_MANY, read_as=read_as, form=True)
         if not (found.active or found.inactive or found.no_status):
-            return page(request, "message.html", heading=wording.SEARCH_HEADING, message=wording.ADDRESS_NOT_FOUND, read_as=read_as, form=True)
+            return page(request, "message.html", heading=wording.SEARCH_HEADING, message=wording.address_not_found_text(city_given=bool(city)), read_as=read_as, form=True)
         identifications = {
             company.document_number: Identification(found_by="address", street=street, city=city, tied_others=len(found.active) - 1)
             for company in found.active     # only a listed company can be opened from this page
