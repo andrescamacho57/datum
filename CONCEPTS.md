@@ -966,3 +966,25 @@ Source: Anthropic, "Building Effective Agents" (the evaluator-optimizer workflow
   come from the way real users search: here, a trade name plus a city, and an address with no name.
 - **A legal name is not the name on the sign.** A contractor knows "V Pizza & Tap Room" and an address. The register
   holds "V PIZZA LAKE BUENA VISTA LLC". Fictitious names (DBAs) and address search close that gap.
+
+---
+
+## Two-Stage Retrieval: the First Step Sets the Ceiling (Nov 25)
+
+- A search over millions of names runs in two steps. Step 1, retrieval, is cheap and rough: Postgres uses the
+  trigram index to keep a short list of candidates, here the 200 names nearest to what was typed. Step 2,
+  ranking, is careful and slower: Python scores only those 200 and puts the best first.
+- The ranking can only reorder what step 1 hands it. If the right company is not among the 200, no ranking rule
+  can put it first. This is called a recall ceiling: step 1's recall (the share of right answers it keeps) is the
+  most step 2 can ever achieve.
+- Phase D showed this on a real case. For "v pizza orlando", 10,062 names were similar enough to pass step 1's
+  test, and V PIZZA LAKE BUENA VISTA LLC stood 2,861st among them, so it was dropped before the ranking ever saw it.
+  The Phase D brief had put the fix in step 2, and the agent measured where the company was lost before changing
+  anything, which is how the real cause was found.
+- **How to diagnose it.** Ask two questions in order: did step 1 keep the right answer, and if it did, where did
+  step 2 put it? Fixing the ranking when step 1 lost the answer changes nothing.
+- **The proposed fix (question Q46).** Step 1 brings back first the names that contain every word that was typed,
+  and fills the rest of the 200 by similarity. Measured alone, it lifts the right company from not listed to 17th,
+  and with the new ranking (rule S2) switched on, to 1st.
+- The same pattern appears in search engines and in RAG (retrieval-augmented generation), where a model can only
+  use the passages the retriever found.
