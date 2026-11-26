@@ -1,10 +1,11 @@
 # Florida master brief (for Fable 5.2 in Claude Code)
 
 Kickoff line Andres types: `Read docs/prompts/florida_master.md. Run Phase A only.`
-Later: `Read docs/prompts/florida_master.md. Run Phase B.` then `Run Phase C.` then `Run Phase D.` Never start a phase you weren't told to run.
+Later: `Read docs/prompts/florida_master.md. Run Phase B.` then `Run Phase C.` then `Run Phase D.`, and on Nov 26 `Run legs D3 and D4.` Never start a phase or leg you weren't told to run.
 Phase A finished Nov 12, 2026 (three legs, reports in `docs/legs/`).
 Phase B finished Nov 19, 2026 (four legs). Leg C0 followed the same day and added rulings R29 and R30.
 Phase C finished Nov 24, 2026 (legs C1 to C4: the marts the app reads, the Postgres copy and the search, the report, and the web app).
+Legs D1 and D2 finished Nov 25, 2026 (the search by address and the report's summary). Legs D3 and D4 were added on Nov 26, because the name search still did not find the company Andres meant.
 
 ## 1. What you're building and for whom
 
@@ -83,6 +84,7 @@ Datum checks a small trade contractor's commercial client before a job: is it a 
 - Each technical term is explained in a few words the first time, and every number says what it counts.
 - It states no fact about the change that is not in the leg report or the diff. Three things may come from elsewhere: what the tier asks of him (from `REVIEW.md`), the merge order (from the open pull requests), and what an open question asks (from `docs/open_questions.md`).
 - It explains the ideas he needs for the three questions, and it does not quote the questions or their answers. The questions stay a check of his understanding.
+- Each of the three questions must be answerable from this section alone (added Nov 26, 2026). On Nov 25 Andres could answer only one of pull request 24's three questions from its section, because review rounds 2 and 3 changed the change after the section was written, and he had to read the brief for the rest. So the last review round also gets the three questions, and the reviewer answers each one using only the section. A question that needs the leg report, the diff or another file to answer is an `Important` finding, and the fix is to add the missing idea to the section, never to make the question easier.
 - The pull request is public. Never name a person, and never give a street address or a secret. Name a company only when it is one of the repo's own test cases, and otherwise give a count and describe the case.
 - For a pull request with no leg report, read "the leg report" in these rules as the diff and the filled-in template, and "What is not proven" lists what the author could not check. At High tier, add a `## Three questions` section at the end of the pull request body, with the questions and not their answers.
 - The template's "What this changes" and "What a person should look at" must agree with this section. Each may be one sentence that points to it.
@@ -431,8 +433,79 @@ Done when the leg report holds:
 - a screenshot of the report page and the shortlist at 390 pixels wide, or the 🟡 mark;
 - every new or changed sentence in one table, for Andres to read.
 
+### Rulings of Nov 26, 2026, for legs D3 and D4
+
+On Nov 26, 2026 Andres merged pull requests 25 and 26 and decided the nine questions they raised (Q45 to Q53), taking the recommendation on each. The rules below are binding for legs D3 and D4, and `docs/open_questions.md` records each question as answered. Rules S1 and S4 to S10 still apply. For these two legs, rule S13 replaces the choice that rule S3 made, and rule S17 replaces rule S3's test of what counts as worse.
+
+| # | Rule | Why | Question |
+|---|---|---|---|
+| S11 | The first step of the name search brings back first the names that hold every typed word, and then the nearest names, as it does today. Build it as one more term in the `ORDER BY` of `NEAREST_SQL` in `src/datum/search.py`, placed before the trigram distance. "Every typed word" means the words of the typed business name with the legal suffixes left out, the same words that `holds_every_word()` compares for rule S2. The rule lives in the query, so its test pins the query's text, as the existing tests in `tests/test_search.py` do, and the measured numbers on the real data prove what it does. The in-memory backend the tests use does not need to copy it. | The step keeps the 200 names nearest to the typed name as a whole, and a long legal name is far from a short trade name. For `v pizza orlando`, 10,062 names passed the step and the right company stood 2,861st among them, so no ranking of the 200 could put it first. Leg D1 measured this option in a scratch script: alone it brought the company to 17th, no checked case got worse, and it was not slower. | Q46 |
+| S12 | The shortlist page shows its five companies in rank order, each with its match level beside it, as today. `shortlist()` stops re-sorting them by level. Top-1 in the evaluation then means the first company on the page, which is now also the first by rank. | The page sorted the five by match level, so the first company by rank could be second on the page, and the evaluation scored one order while a contractor saw another. That gap is what moved checked case 9 (`cinemark durbin park`) to second on the page under rule S2. | Q51 |
+| S13 | Switch rule S2 on: `RANK_ORDER` becomes `by_words_then_city`. This holds only if, with rules S11 and S12 built, it passes the gate of rule S17. | With rule S11, rule S2 put the right company first for `v pizza orlando`. Its only cost on the checked cases was case 9 on the page, and rule S12 removes the cause. | Q52 |
+| S14 | In step (2) of rule S2, the city also agrees when every word of the city the extraction returned is among the words of the company's name. This changes the order only. The match level keeps its rules (rule S4). The evidence list gets one new line when this applies, saying that the place the contractor gave is part of the company's name, and its words live in `src/datum/wording.py`. | The extraction moves a place out of the business name even when the place is part of the registered name. `v pizza lake buena vista` came back as the business "V Pizza" and the city "Lake Buena Vista", and the company's principal city is Orlando, so it could never agree. The model also read that same note two different ways on two calls, and the installed SDK rejects a temperature setting for this model, so the search has to reach the same company whichever way the place is read. | Q50 |
+| S15 | When the address search compares streets, a unit and every word after it are left out, on the stored side and on the typed side. The unit words are STE, SUITE, UNIT, APT, BLDG, FL, FLOOR, LOT, RM, ROOM, and any word that begins with `#`. NORTH, SOUTH, EAST, WEST, NE, NW, SE and SW also count as directions, beside N, S, E and W. | A contractor types a building's address and not its suite. 1,095,222 principal addresses hold a unit word, and today each one is found only when the note has the same unit. A record that says SOUTH or SE matches only a note that says the same. | Q47 |
+| S16 | When an address search finds no active company and at least one inactive one, the page says so in one sentence, gives how many inactive companies match, and asks for the business's name. It still lists none of them. | This is Andres's idea from Nov 25, given when he approved pull request 24. A client that is a dissolved company should not look like an empty address, and the page still must not list companies at what may be somebody's home. With the name added, the name search finds the company and marks it inactive (rule S10). | Q45 |
+| S17 | The gate for every change in legs D3 and D4: compare with `main` at commit `051a928`, the state on Nov 26. A change is kept only when no checked case is worse, which means its expected company drops by rank, drops on the page, or leaves the first five, and no NEEDS_MORE_INFO case gets a company. In leg D3, build rules S11 and S12 and measure, then switch on rule S13 and measure, then add rule S14 and measure. When a step makes a checked case worse, leave that step off, keep the steps before it, and put the result first in the leg report. Do not invent another order or a variant. | This is the same discipline as rule S3. Trying variant after variant on 13 cases would be fitting the test set. | none |
+| S18 | The terminal command `src/datum/report.py` takes the same path as the web app. It makes the same choice between the name search, the address search and a question (`search_kind()`), and it uses the same address search and the same sentences. | One note should get the same answer in the terminal and on the page. Today an address-only note gets the address search on the page and a question in the terminal. | Q49 |
+
+Three things stay as built, because each is the reading that shows less or wording that was already reviewed, and nothing found since argues for changing it. They are the limit of 50 companies at one address (Q48), listing only the active companies at an address and counting the inactive ones (rule S6, Q45), and the three wording choices in the report's summary (Q53). Whether an address that may be a home should be searchable at all stays on the list of questions for a lawyer before launch.
+
+### Before legs D3 and D4
+
+Stop if any of these fails.
+
+1. **Pull requests 25 and 26 must be merged.** Run `git fetch origin` and check that `origin/main` contains commit `051a928` and that `src/datum/search.py` on `origin/main` defines `RANK_ORDER` and `address_search`.
+2. **Postgres must hold the data.** Check that Postgres is running, that `company_search` in `datum_dev` has 12,988,435 rows, and that `company_search_addresses` exists and is not empty. If Postgres is stopped, start it with `brew services start postgresql@17`.
+3. **The exported files must still be on the Mac,** in `data/export/`, because leg D4 rebuilds the address table. If they are not there, stop: getting them again needs Snowflake.
+4. **Count the checked cases.** `pipeline/seeds/test_set.csv` holds 13 cases on `main`. If it holds more when the leg starts, Andres checked some drafts and added them himself. Score them as checked cases, include them in the gate of rule S17, and say how many there were. Never move a draft into the test set yourself (rule S1).
+
+Before the first change, read `docs/legs/d1-contractor-search.md` (check 9 above all), `docs/legs/d2-report-summary.md`, and questions Q45 to Q53 in `docs/open_questions.md`.
+
+### Rules for legs D3 and D4
+
+- **Branches.** `leg/d3-name-search` from `main`, then `leg/d4-address-search` from `leg/d3-name-search`. One pull request per leg, each targeting `main`. Andres merges them in order.
+- **Live calls.** At most 10 live extraction calls across both legs. Leg D3 uses five on the real app: the three V Pizza notes, `v pizza durbin`, and `v pizza lake buena vista` a second time, to show that rule S14 reaches the same company whichever way the place is read. Leg D4 uses up to three, on address notes on the real app. That is about 0.4 cents 🟡 (the plan's figure of $0.0004 a call). Never extract the checked cases or the draft cases again, because the evaluation scores their saved extractions. No test calls the API.
+- **No Snowflake,** as for legs D1 and D2. Running anything in Snowflake is a stop condition.
+- **Public repo.** The rules of D1 and D2 hold: a case may name a company and never a person, and the draft cases appear only as counts by kind. An address appears in a commit, a test or a pull request only when it is already in `pipeline/seeds/test_set.csv`. Every other street in a test is invented.
+- **Review.** Both legs are High. Give the three reviewers the Phase D hunts, unchanged. The rule added on Nov 26 under "Human review section" applies to both pull requests: the last round checks that each of the three questions can be answered from the Human review section alone.
+
+### D3. The name search finds the company
+
+- **Build in the order of rule S17.** First rules S11 and S12, then rule S13, then rule S14, measuring after each step against `main` at `051a928`. Show one table like check 9 of leg D1, with each checked case's place by rank and on the page after each step, and the draft cases by count only (moved up, moved down, stayed, by kind).
+- **The query.** Two tests in `tests/test_search.py` and one in `tests/test_evals_run.py` read the text of `NEAREST_SQL`, so change them with the query. Explain the new `ORDER BY` term in the comments, line by line.
+- **Rank order on the page (rule S12).** A company with a lower match level can now be shown above one with a higher level. On the 200 randomly drawn names of the speed check, count how many pages show that, and give the count only.
+- **Speed.** Measure the name search as leg D1 did, with the same 200 randomly drawn names plus every specific checked case. The target is still a p95 under 1 second. If it misses with two different approaches, record the numbers and stop the leg. Do not loosen the target.
+- **If `v pizza orlando` is still not first on the page** after every step that rule S17 keeps, say why with numbers. Do not add a rule to make it pass.
+- **Tests.** One test for each of rules S11, S12, S13 and S14 that fails on the old behavior. One test proves that the match levels of rule S4 come out as before under the new order. One test proves that the evidence line of rule S14 appears only when the typed city's words are in the company's name, and that the company's level is the same with and without it.
+
+Done when the leg report holds:
+- the evaluation on `main` at `051a928` and after the leg, on the checked and the draft cases in separate tables, by case group: top-1, recall at 5 and `wrong_match`;
+- the table of each step described above, and which steps were kept;
+- the five searches on the real app, with the top five each returned, and for both runs of `v pizza lake buena vista` the business name and city the extraction returned;
+- the speed numbers and the count for rule S12;
+- `pytest` and `ruff check src tests` passing with Postgres stopped;
+- the number of live extraction calls made.
+
+### D4. The address search, finished
+
+- **Units and directions (rule S15).** Change `street_parts()`, `street_matches()`, `AT_HOUSE_NUMBER_SQL` and the loader step that builds `company_search_addresses`, then rebuild that table. The loader's check that it holds the same document numbers as `company_search` still runs before the swap. Give the database's size before and after.
+- **The SQL and the Python rule must agree.** Run leg D1's check 8 again, on 200 addresses drawn at random, and report how many kept different rows. The answer must be 0. Change the pinned query test with the query.
+- **The crowded addresses again.** Rule S15 merges the suites of a building into one address, so more addresses pass the limit of 50. Count again, before and after: out of 200 random addresses, how many get the "too many" answer, and how many addresses in all hold more than 50 companies.
+- **Only inactive companies (rule S16).** Add the sentence to `src/datum/wording.py`, and use it when the address search has no active match and at least one inactive one.
+- **The terminal (rule S18).** Change `src/datum/report.py` so an address-only note takes the same path as on the web page. The terminal's questions, `ASK_FOR_A_BUSINESS`, `ASK_FOR_MORE` and the sentence that ends "its name, a street or a city" in `src/datum/wording.py`, still offer a street or a city. Make them ask for what the search now uses, as leg D1 did for the web pages, and remove any of them that nothing uses any more.
+- **Speed.** Time the address search on 200 addresses drawn at random. The target is a p95 under 1 second, with the same stop rule as leg D3.
+- **Tests.** One test for each of rules S15, S16 and S18 that fails on the old behavior. For rule S15, a stored address with a suite matches a note without one, a note with a suite matches a stored address without one, and a stored SOUTH matches a typed S. For rule S18, the terminal and the web app give the same kind of answer and the same companies for one note, on a fixture.
+
+Done when the leg report holds:
+- the address case of the evaluation, before and after;
+- check 8 run again, the counts of crowded addresses before and after, and the database's size before and after;
+- the restaurant's address and one address with a suite run on the real app, with the second described by count and kind only;
+- the speed numbers;
+- `pytest` and `ruff check src tests` passing with Postgres stopped;
+- the number of live extraction calls made.
+
 ### Cost
 
-- **Claude API.** At most 30 live extraction calls, about 1.2 cents 🟡.
+- **Claude API.** Legs D1 and D2 made 27 of their 30 live extraction calls. Legs D3 and D4 may make at most 10 more, about 0.4 cents 🟡.
 - **Snowflake.** None.
 - **Everything else is free.** Postgres runs on the Mac.
