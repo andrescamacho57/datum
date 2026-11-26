@@ -23,7 +23,7 @@ from datum import wording
 from datum.models import Identification
 from datum.report_builder import (
     CompanyNotFound, FakeReportBackend, NoSourceChecked, PostgresReportBackend, ReportBuilder, address_candidate_for_page, address_text, candidate_for_page,
-    count_fact, looks_like_a_document_number, one_year_before, render_markdown,
+    address_counts, count_fact, looks_like_a_document_number, one_year_before, render_markdown,
 )
 from datum.search import Candidate as SearchCandidate
 
@@ -306,9 +306,9 @@ def test_the_functions_that_lay_out_a_report_or_talk_in_the_terminal_hold_no_sen
 
     a_sentence = re.compile(r"[A-Za-z]{2,}\s+[A-Za-z]{2,}")                # two words with a space between
     functions = (render_markdown, ReportBuilder.build, ReportBuilder.company_record_flags, ReportBuilder.linked_flags, candidate_for_page,
-                 address_candidate_for_page, address_text, count_fact,
+                 address_candidate_for_page, address_text, count_fact, address_counts,
                  terminal.run, terminal.show_shortlist, terminal.source_line, terminal.pick, terminal.read_note, terminal.others_at_the_same_level,
-                 terminal.save_report)
+                 terminal.save_report, terminal.show_address_results, terminal.by_address)
     for function in functions:
         written = [text for text in texts(function.__code__) if text != function.__doc__ and a_sentence.search(text)]
         assert written == [], (function.__name__, written)

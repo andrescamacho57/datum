@@ -195,16 +195,25 @@ SHORTLIST_NOT_SHOWN_MANY = "{count} more companies match at the level Strong and
 # The sentence names the LEVEL, because that is exactly what is counted: the candidates rated
 # Strong that did not fit on the list (search.shortlist). It does not restate what Strong means.
 # Each of those companies is then shown with its own reasons, as the companies on the list are.
-ASK_FOR_A_BUSINESS = "That describes a business but doesn't name one. Add its name, a street or a city"
-ASK_FOR_MORE = "Add a street or a city"
+ASK_FOR_MORE = "Add the business's full name or its city"
+# The terminal's question after a search that ended without a report. What is typed here is ADDED
+# to the note, and the note is read again. A name or a city helps after either search: after the
+# name search, a fuller name or the city ranks the companies better; after an address search, a
+# name sends the note to the name search, and a city narrows the address search. A street does
+# not help here: once the note names a business, the name search runs and the street is not used
+# (rule S5). Until leg D4 this asked for "a street or a city". The terminal's question for a note
+# that names no business is the web page's own, ASK_FOR_A_BUSINESS_ON_A_PAGE below (rule S18), and
+# the terminal's old version of it, ASK_FOR_A_BUSINESS, was removed in leg D4 because nothing used it.
 POSSIBLE_ONLY = (
     "That's only a POSSIBLE match: {evidence}. Nothing else confirms it's the company you mean. "
     "Make the report anyway? (y/N): "
 )
 GIVING_UP = (
     "I can't identify this business from what I have, so I won't guess. "
-    "Run it again when you have its name, a street or a city."
+    "Run it again when you have its name and its city, or its street address beginning with the house number."
 )
+# Until leg D4 it ended "its name, a street or a city". A new run is a new search, so both of the
+# things the two searches use are offered, as the web page's search box offers them.
 READ_AS = "I read that as: {fields}"       # the terminal shows the EXTRACTED fields, never the note itself
 PICK = "Pick 1-{count}, or 0 to add more details: "
 PICK_AGAIN = "Please type a number from 0 to {count}."
@@ -239,8 +248,8 @@ SHORTLIST_HEADING = "Which company do you mean?"
 NOTE_EMPTY = "Nothing was typed. Type the business's name and its city, or a street address that begins with its house number."
 NOTE_TOO_LONG = "That is too long to search for. Type the business's name and its city, or a street address that begins with its house number."
 ASK_FOR_A_BUSINESS_ON_A_PAGE = "That describes a business but doesn't name one. Add its name, or its street address beginning with the house number."
-# Acceptance test A2. The terminal's question, ASK_FOR_A_BUSINESS above, still ends "a street or
-# a city": the terminal has no search by address, so its words are left as they were.
+# Acceptance test A2. Since leg D4 the terminal asks this very sentence too (rule S18), because it
+# has the search by address now, so the page and the terminal cannot drift apart.
 NO_COMPANY_FOUND = "No company with a name close to that was found. Check the spelling of the business's name."
 REPORT_UNAVAILABLE = "The report is unavailable right now."
 REQUEST_NOT_READ = "That could not be read as a search. Type the business's name in the box."   # a form that was not sent by the search box

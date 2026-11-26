@@ -170,7 +170,14 @@ def test_the_pages_ask_for_what_the_two_searches_use_and_no_longer_for_a_street_
     assert wording.ASK_FOR_A_BUSINESS_ON_A_PAGE == "That describes a business but doesn't name one. Add its name, or its street address beginning with the house number."
     for page_sentence in (wording.SEARCH_HINT, wording.NOTE_EMPTY, wording.NOTE_TOO_LONG, wording.ASK_FOR_A_BUSINESS_ON_A_PAGE):
         assert "a street or a city" not in page_sentence
-    assert wording.ASK_FOR_A_BUSINESS.endswith("a street or a city")      # the terminal has no search by address, so its question is unchanged
+    # Since leg D4 the terminal has the search by address too (rule S18). It asks the page's own question, its old version is gone,
+    # and its two other sentences ask for what the searches use.
+    assert not hasattr(wording, "ASK_FOR_A_BUSINESS")
+    assert wording.ASK_FOR_MORE == "Add the business's full name or its city"
+    assert wording.GIVING_UP == ("I can't identify this business from what I have, so I won't guess. "
+                                 "Run it again when you have its name and its city, or its street address beginning with the house number.")
+    every = [value for name, value in vars(wording).items() if name.isupper() and isinstance(value, str)]
+    assert not [text for text in every if "a street or a city" in text]   # no sentence anywhere still offers "a street or a city"
 
 
 def test_the_summary_sentences_say_the_status_as_of_a_date_and_never_fill_a_gap():
