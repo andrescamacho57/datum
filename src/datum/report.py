@@ -186,7 +186,7 @@ def show_address_results(found: AddressMatches, street: str, city: str, say: Cal
         say(wording.ADDRESS_TOO_MANY)
         return 0
     if not (found.active or found.inactive or found.no_status):
-        say(wording.address_not_found_text(city_given=bool(city)))
+        say(wording.address_not_found_text(found.house_number, city_given=bool(city)))
         return 0
     say(wording.address_compared_text(found.house_number, city_given=bool(city)))
     say(wording.count_text(len(found.active), wording.ADDRESS_ACTIVE_ONE, wording.ADDRESS_ACTIVE_MANY) or wording.ADDRESS_NO_ACTIVE)

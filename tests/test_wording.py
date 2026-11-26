@@ -118,12 +118,13 @@ def test_the_sentences_of_an_address_search_are_held_here_as_literal_text():
     assert wording.count_text(3, wording.ADDRESS_NO_STATUS_ONE, wording.ADDRESS_NO_STATUS_MANY) == "3 companies with no status on record also match and are not listed."
     assert "inactive" not in wording.ADDRESS_NO_STATUS_ONE + wording.ADDRESS_NO_STATUS_MANY   # no status on record is never called inactive
     assert wording.ADDRESS_TOO_MANY == "That house number and street name are on the records of too many companies to list them. Add the business's name."
-    assert wording.address_not_found_text(city_given=False) == wording.ADDRESS_NOT_FOUND and "city" not in wording.ADDRESS_NOT_FOUND
-    # Both sentences for "no match", word for word (round 1 of leg D4's review found the second one pinned only in part).
-    assert wording.address_not_found_text(city_given=False) == "No company matches. A company matches when its principal address on record has that house number and a street name that keeps at least one word once the kind of street, a direction, and an office unit word with the one word after it are left out, and when every word it keeps is among the words you typed, with the same words left out of those. Check the house number and the spelling of the street's name, and add the apartment, unit or lot number if the address has one."
-    assert wording.address_not_found_text(city_given=True) == "No company matches. A company matches when its principal address on record has that house number and a street name that keeps at least one word once the kind of street, a direction, and an office unit word with the one word after it are left out, when every word it keeps is among the words you typed, with the same words left out of those, and when its principal city begins with the city you gave. Check the house number, the spelling of the street's name and the city, and add the apartment, unit or lot number if the address has one."
-    assert wording.address_compared_text("8586", city_given=False).endswith("so it has to be typed too. You gave no city, so a match can be in any city.")
-    assert wording.address_compared_text("8586", city_given=True).endswith("so it has to be typed too. Its principal city on record also begins with the city you gave.")
+    # Both sentences for "no match", word for word. Since round 3 of leg D4's review each holds the ONE description of the
+    # comparison, ADDRESS_COMPARED, and says nothing of its own about what was compared: two shorter restatements of the rule had each
+    # missed a case. "No company matches." makes no claim about any record.
+    assert wording.address_not_found_text("8586", city_given=False) == "No company matches. A company matches when its principal address on record begins with the house number 8586, and every word of its street name is among the words you typed once three things are left out of both: the kind of street, such as ST or PKWY; a direction (N, S, E, W, NORTH, SOUTH, EAST, WEST, NE, NW, SE or SW); and an office unit word (STE, SUITE, BLDG, FL, FLOOR, RM or ROOM) with the one word after it, unless that word is a unit word too. A street name with no word left after that matches nothing. Punctuation counts as a space, so in STE 400-B the B is still compared, and so is a unit written as one word, such as STE200. An apartment, unit or lot on the record is compared, the word and its number, so both have to be typed too. You gave no city, so a match can be in any city. Check the house number and the spelling of the street's name, and add the apartment, unit or lot number if the address has one."
+    assert wording.address_not_found_text("8586", city_given=True) == "No company matches. A company matches when its principal address on record begins with the house number 8586, and every word of its street name is among the words you typed once three things are left out of both: the kind of street, such as ST or PKWY; a direction (N, S, E, W, NORTH, SOUTH, EAST, WEST, NE, NW, SE or SW); and an office unit word (STE, SUITE, BLDG, FL, FLOOR, RM or ROOM) with the one word after it, unless that word is a unit word too. A street name with no word left after that matches nothing. Punctuation counts as a space, so in STE 400-B the B is still compared, and so is a unit written as one word, such as STE200. An apartment, unit or lot on the record is compared, the word and its number, so both have to be typed too. Its principal city on record also begins with the city you gave. Check the house number, the spelling of the street's name and the city, and add the apartment, unit or lot number if the address has one."
+    assert wording.address_compared_text("8586", city_given=False).endswith("so both have to be typed too. You gave no city, so a match can be in any city.")
+    assert wording.address_compared_text("8586", city_given=True).endswith("so both have to be typed too. Its principal city on record also begins with the city you gave.")
 
 
 def test_the_sentence_about_what_an_address_search_compares_names_exactly_the_words_the_search_leaves_out():
@@ -133,16 +134,19 @@ def test_the_sentence_about_what_an_address_search_compares_names_exactly_the_wo
     import re
     from datum.search import DIRECTIONS, HOME_UNIT_WORDS, OFFICE_UNIT_WORDS
     assert wording.ADDRESS_COMPARED == (
-        "A company matches when its principal address on record has the house number {house_number} and a street name made only of words you typed. "
-        "Three things are not compared: the kind of street, such as ST or PKWY; a direction (N, S, E, W, NORTH, SOUTH, EAST, WEST, NE, NW, SE or SW); "
-        "and an office unit word (STE, SUITE, BLDG, FL, FLOOR, RM or ROOM) with the one word after it, its number or letter. "
-        "A street name with no word left once those are left out matches nothing. "
-        "A hyphen counts as a space, so in STE 400-B the B is still compared, and so is a unit written as one word, such as STE200. "
-        "An apartment, unit or lot number on the record is compared, so it has to be typed too."
+        'A company matches when its principal address on record begins with the house number {house_number}, and every word of its street name '
+        'is among the words you typed once three things are left out of both: the kind of street, such as ST or PKWY; '
+        'a direction (N, S, E, W, NORTH, SOUTH, EAST, WEST, NE, NW, SE or SW); '
+        'and an office unit word (STE, SUITE, BLDG, FL, FLOOR, RM or ROOM) with the one word after it, unless that word is a unit word too. '
+        'A street name with no word left after that matches nothing. '
+        'Punctuation counts as a space, so in STE 400-B the B is still compared, and so is a unit written as one word, such as STE200. '
+        'An apartment, unit or lot on the record is compared, the word and its number, so both have to be typed too.'
     )
-    # The example in the sentence is what the code does: a hyphen is read as a space, and only the one word after the unit word goes.
+    # Each clause is what the code does: punctuation is read as a space, only the one word after the unit word goes, a unit word is
+    # never taken as another's number, and APT is compared like any other word.
     from datum.search import street_parts
-    assert street_parts("12 made up rd ste 400-b") == ("12", ("MADE", "UP", "B"))
+    assert street_parts("12 made up rd ste 400-b") == ("12", ("MADE", "UP", "B")) and street_parts("12 made up rd ste.400") == ("12", ("MADE", "UP"))
+    assert street_parts("12 made up rd bldg apt 305") == ("12", ("MADE", "UP", "APT", "305"))
     assert street_parts("12 made up rd ste200") == ("12", ("MADE", "UP", "STE200"))   # and a unit written as one word is compared, as the sentence says
     named = re.findall(r"\(([^)]*)\)", wording.ADDRESS_COMPARED)          # the two lists in brackets
     assert set(re.findall(r"[A-Z]+", named[0])) == set(DIRECTIONS) and len(DIRECTIONS) == 12

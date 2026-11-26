@@ -451,7 +451,7 @@ def web_answer(fields, companies):
     return browser.post("/search", data={"note": "a note"}).text
 
 
-ADDRESS_SENTENCES = (wording.ADDRESS_TOO_MANY, wording.ADDRESS_NOT_FOUND, wording.ADDRESS_NOT_FOUND_IN_CITY)
+ADDRESS_SENTENCES = (wording.ADDRESS_TOO_MANY, "No company matches. A company matches when")   # the two answers of an address search that list nobody
 
 
 def kind_on_the_page(page):
@@ -467,7 +467,7 @@ def kind_on_the_page(page):
 def kind_in_the_terminal(talk):
     if any(re.match(r"\d+\. \[(Strong|Likely|Possible)\]", line) for line in talk.said) or wording.NO_COMPANY_FOUND in talk.said:
         return "name"
-    if any(line.startswith("A company matches when its principal address") for line in talk.said) or any(s in talk.said for s in ADDRESS_SENTENCES):
+    if any(line.startswith("A company matches when its principal address") for line in talk.said) or any(s in line for line in talk.said for s in ADDRESS_SENTENCES):
         return "address"
     return "ask" if talk.asked and talk.asked[0].startswith(wording.ASK_FOR_A_BUSINESS_ON_A_PAGE) else "something else"
 
@@ -482,7 +482,7 @@ def fixed_sentences(fields):
                           wording.FIELD_STREET.format(value=street) if street else "") if part))
     house = street.split()[0] if street.split() and street.split()[0][0].isdigit() else ""
     sentences = [by_address, by_name, wording.address_compared_text(house, city_given=bool(city)), wording.ADDRESS_NO_ACTIVE, wording.ADDRESS_ONLY_INACTIVE,
-                 wording.PRINCIPAL_ADDRESS_NOTE, wording.ADDRESS_TOO_MANY, wording.ADDRESS_NOT_FOUND, wording.ADDRESS_NOT_FOUND_IN_CITY, wording.NO_COMPANY_FOUND]
+                 wording.PRINCIPAL_ADDRESS_NOTE, wording.ADDRESS_TOO_MANY, wording.address_not_found_text(house, city_given=bool(city)), wording.NO_COMPANY_FOUND]
     for count in (1, 2, 3):
         sentences += [wording.count_text(count, wording.ADDRESS_ACTIVE_ONE, wording.ADDRESS_ACTIVE_MANY),
                       wording.count_text(count, wording.ADDRESS_INACTIVE_ONE, wording.ADDRESS_INACTIVE_MANY),

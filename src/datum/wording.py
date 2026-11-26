@@ -258,17 +258,27 @@ REQUEST_NOT_READ = "That could not be read as a search. Type the business's name
 # --- The search by address (Phase D, leg D1; working rules S5 to S8) ------------------------
 ADDRESS_HEADING = "Companies by principal address"
 ADDRESS_COMPARED = (
-    "A company matches when its principal address on record has the house number {house_number} "
-    "and a street name made only of words you typed. Three things are not compared: the kind of street, such as ST or PKWY; "
+    "A company matches when its principal address on record begins with the house number {house_number}, and every word of its street name "
+    "is among the words you typed once three things are left out of both: the kind of street, such as ST or PKWY; "
     "a direction (N, S, E, W, NORTH, SOUTH, EAST, WEST, NE, NW, SE or SW); "
-    "and an office unit word (STE, SUITE, BLDG, FL, FLOOR, RM or ROOM) with the one word after it, its number or letter. "
-    "A street name with no word left once those are left out matches nothing. "
-    "A hyphen counts as a space, so in STE 400-B the B is still compared, and so is a unit written as one word, such as STE200. "
-    "An apartment, unit or lot number on the record is compared, so it has to be typed too."
+    "and an office unit word (STE, SUITE, BLDG, FL, FLOOR, RM or ROOM) with the one word after it, unless that word is a unit word too. "
+    "A street name with no word left after that matches nothing. "
+    "Punctuation counts as a space, so in STE 400-B the B is still compared, and so is a unit written as one word, such as STE200. "
+    "An apartment, unit or lot on the record is compared, the word and its number, so both have to be typed too."
 )
 # Phase D rule S15 (leg D4) changed the comparison, and so this sentence: it names all twelve
 # directions and the seven office unit words, because those are exactly the words
 # search.street_parts() leaves out, and it says that APT, UNIT and LOT are still compared.
+# THIS IS THE ONE DESCRIPTION OF THE COMPARISON. The page shows it under every address search
+# that found a company, and the sentences for "no match" below show it too. Round 3 of leg D4's
+# review found that each prose restatement of the rule had missed a case, three rounds running,
+# so there is now only this one, and it follows the code clause by clause:
+#   "begins with the house number"     the first word of the address is the house number (street_parts)
+#   "left out of both"                 the cut applies to the record and to the note (rule S15)
+#   "unless that word is a unit word"  without_office_units() never takes a unit word as a number
+#   "no word left ... matches nothing" street_matches() returns False for an empty street
+#   "Punctuation counts as a space"    name_key() turns every run of other characters into one space
+#   "the word and its number"          APT, UNIT and LOT are words like any other: both are compared
 # "The one word after it, its number or letter" is the cut (search.without_office_units): the word
 # after a unit word goes with it unless that word is itself a unit word, so "FL STE 300" loses FL
 # alone and then STE 300, and "BLDG APT 305" keeps APT 305, which the last sentence covers. Round 1
@@ -307,15 +317,11 @@ ADDRESS_NO_STATUS_MANY = "{count} companies with no status on record also match 
 PRINCIPAL_ADDRESS_NOTE = "A company's principal address is the address it gave the state, which is not always where it does business."
 # Rule S8, word for word: once, under the results of every address search.
 ADDRESS_NOT_FOUND = (
-    "No company matches. A company matches when its principal address on record has that house number and a street name that keeps at least one word "
-    "once the kind of street, a direction, and an office unit word with the one word after it are left out, and when every word it keeps is among "
-    "the words you typed, with the same words left out of those. "
+    "No company matches. {compared} "
     "Check the house number and the spelling of the street's name, and add the apartment, unit or lot number if the address has one."
 )
 ADDRESS_NOT_FOUND_IN_CITY = (
-    "No company matches. A company matches when its principal address on record has that house number and a street name that keeps at least one word "
-    "once the kind of street, a direction, and an office unit word with the one word after it are left out, when every word it keeps is among "
-    "the words you typed, with the same words left out of those, and when its principal city begins with the city you gave. "
+    "No company matches. {compared} "
     "Check the house number, the spelling of the street's name and the city, and add the apartment, unit or lot number if the address has one."
 )
 # Each says what was compared, so that it does not read as "no company is at this address".
@@ -326,8 +332,12 @@ ADDRESS_NOT_FOUND_IN_CITY = (
 # record the next version denied: a street with nothing left once the street type and the
 # direction are gone, such as SOUTH ST, which matches nothing (search.street_matches). So each
 # sentence now says "No company matches." and then states the rule a match follows, which is true
-# of every record, in place of a claim about what no record has. Whether the typed side should
-# keep the unit's number is question Q62.
+# of every record, in place of a claim about what no record has. Round 3 found four more records
+# that version described wrongly (a unit number with a hyphen, a BLDG followed by APT, and a
+# record whose first word is not its house number), because it was a second, shorter description
+# of the rule. So {compared} is now filled with ADDRESS_COMPARED itself, the one description, and
+# the sentence of its own says only "No company matches." and what to check. Whether the typed side
+# should keep the unit's number is question Q62.
 # Until leg D4 both advised adding "the suite or unit". A suite is no longer compared (rule
 # S15), so that advice could not help. A record that holds an apartment, a unit or a lot still
 # matches only when it was typed too, and so the advice is now about those three. The
@@ -445,9 +455,9 @@ def only_inactive_text(active: int, inactive: int) -> str:
     return ADDRESS_ONLY_INACTIVE if inactive > 0 and active == 0 else ""
 
 
-def address_not_found_text(city_given: bool) -> str:
-    """The sentence for an address search that matched nobody. It names the city as one of the things compared only when one was given."""
-    return ADDRESS_NOT_FOUND_IN_CITY if city_given else ADDRESS_NOT_FOUND
+def address_not_found_text(house_number: str, city_given: bool) -> str:
+    """The sentences for an address search that matched nobody: "No company matches.", the one description of the comparison, and what to check."""
+    return (ADDRESS_NOT_FOUND_IN_CITY if city_given else ADDRESS_NOT_FOUND).format(compared=address_compared_text(house_number, city_given))
 
 
 def identified_by_address_text(street: str, city: str, others_listed: int) -> str:

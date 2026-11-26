@@ -645,12 +645,7 @@ def test_an_address_alone_lists_the_one_active_company_there_and_says_two_inacti
     assert "Document number T26000000200 · Principal address 8586 PALM PKWY, ORLANDO, FL 32836" in text   # the address as the state has it, to compare with what was typed
     # The sentence that says what was compared, typed out. Since rule S15 (leg D4) it names all twelve directions and the office
     # units, which are not compared, and says that an apartment, unit or lot number still is.
-    assert ("A company matches when its principal address on record has the house number 8586 and a street name made only of words you typed. "
-            "Three things are not compared: the kind of street, such as ST or PKWY; a direction (N, S, E, W, NORTH, SOUTH, EAST, WEST, NE, NW, SE or SW); "
-            "and an office unit word (STE, SUITE, BLDG, FL, FLOOR, RM or ROOM) with the one word after it, its number or letter. "
-            "A street name with no word left once those are left out matches nothing. "
-            "A hyphen counts as a space, so in STE 400-B the B is still compared, and so is a unit written as one word, such as STE200. "
-            "An apartment, unit or lot number on the record is compared, so it has to be typed too. You gave no city, so a match can be in any city.") in text
+    assert 'A company matches when its principal address on record begins with the house number 8586, and every word of its street name is among the words you typed once three things are left out of both: the kind of street, such as ST or PKWY; a direction (N, S, E, W, NORTH, SOUTH, EAST, WEST, NE, NW, SE or SW); and an office unit word (STE, SUITE, BLDG, FL, FLOOR, RM or ROOM) with the one word after it, unless that word is a unit word too. A street name with no word left after that matches nothing. Punctuation counts as a space, so in STE 400-B the B is still compared, and so is a unit written as one word, such as STE200. An apartment, unit or lot on the record is compared, the word and its number, so both have to be typed too. You gave no city, so a match can be in any city.' in text
     assert "also begins with the city you gave" not in text               # no city was given, and the page says that none was compared
     assert "this principal address" not in text and "at this address" not in text   # the page says "matches", which is all the comparison shows (round 1 of the review)
     assert text.count(S8_SENTENCE) == 1                                   # rule S8: once ...
@@ -692,7 +687,7 @@ def test_a_city_given_with_an_address_keeps_only_the_companies_in_that_city_and_
     text = seen(client_for(with_city).post("/search", data={"note": "8586 palm pwwy orlando"}).text)
     assert 'I read that as: the street "8586 palm pwwy", the city "Orlando"' in text
     assert "INVENTED PIZZA 0 LLC" in text and "MIAMI" not in text and "1 active company matches." in text
-    assert "An apartment, unit or lot number on the record is compared, so it has to be typed too. Its principal city on record also begins with the city you gave." in text
+    assert "An apartment, unit or lot on the record is compared, the word and its number, so both have to be typed too. Its principal city on record also begins with the city you gave." in text
     no_city, _ = make(extract=lambda note: dict(BY_ADDRESS), companies=companies + [elsewhere])
     both = seen(client_for(no_city).post("/search", data={"note": "8586 palm pwwy"}).text)
     assert "2 active companies match." in both      # with no city, 8586 PALM AVE in Miami matches too ...
@@ -705,8 +700,8 @@ def test_an_address_search_that_lists_nobody_says_why_and_shows_no_company():
     answer = client_for(nobody).post("/search", data={"note": "8586 palm pwwy"})
     text = seen(answer.text)
     assert answer.status_code == 200 and "/company/" not in answer.text and 'I read that as: the street "8586 palm pwwy"' in text
-    assert "No company matches. A company matches when its principal address on record has that house number and a street name that keeps at least one word once the kind of street, a direction, and an office unit word with the one word after it are left out, and when every word it keeps is among the words you typed, with the same words left out of those. Check the house number and the spelling of the street's name, and add the apartment, unit or lot number if the address has one." in text
-    assert "suite" not in text.lower()                                    # a suite is not compared since rule S15, so the page no longer advises adding one
+    assert "No company matches. A company matches when its principal address on record begins with the house number 8586, and every word of its street name is among the words you typed once three things are left out of both: the kind of street, such as ST or PKWY; a direction (N, S, E, W, NORTH, SOUTH, EAST, WEST, NE, NW, SE or SW); and an office unit word (STE, SUITE, BLDG, FL, FLOOR, RM or ROOM) with the one word after it, unless that word is a unit word too. A street name with no word left after that matches nothing. Punctuation counts as a space, so in STE 400-B the B is still compared, and so is a unit written as one word, such as STE200. An apartment, unit or lot on the record is compared, the word and its number, so both have to be typed too. You gave no city, so a match can be in any city. Check the house number and the spelling of the street's name, and add the apartment, unit or lot number if the address has one." in text   # the one description of the comparison, and what to check
+    assert "add the suite" not in text.lower()                            # a suite is not compared since rule S15, so the page no longer advises adding one
     assert S8_SENTENCE not in text                                        # there are no results for it to stand under
     # With a city given, the city is one of the things compared. Companies DO have that house number and street, in Orlando, so the
     # page may not say that none has: it has to say that the city was part of the comparison (round 2 of the review).
@@ -714,8 +709,8 @@ def test_an_address_search_that_lists_nobody_says_why_and_shows_no_company():
     answer = client_for(elsewhere).post("/search", data={"note": "8586 palm pwwy tampa"})
     text = seen(answer.text)
     assert "/company/" not in answer.text and 'I read that as: the street "8586 palm pwwy", the city "Tampa"' in text
-    assert "No company matches. A company matches when its principal address on record has that house number and a street name that keeps at least one word once the kind of street, a direction, and an office unit word with the one word after it are left out, when every word it keeps is among the words you typed, with the same words left out of those, and when its principal city begins with the city you gave. Check the house number, the spelling of the street's name and the city, and add the apartment, unit or lot number if the address has one." in text
-    assert "left out of those. Check the house number and the spelling" not in text   # the sentence for a search with NO city would be false here
+    assert "No company matches. A company matches when its principal address on record begins with the house number 8586, and every word of its street name is among the words you typed once three things are left out of both: the kind of street, such as ST or PKWY; a direction (N, S, E, W, NORTH, SOUTH, EAST, WEST, NE, NW, SE or SW); and an office unit word (STE, SUITE, BLDG, FL, FLOOR, RM or ROOM) with the one word after it, unless that word is a unit word too. A street name with no word left after that matches nothing. Punctuation counts as a space, so in STE 400-B the B is still compared, and so is a unit written as one word, such as STE200. An apartment, unit or lot on the record is compared, the word and its number, so both have to be typed too. Its principal city on record also begins with the city you gave. Check the house number, the spelling of the street's name and the city, and add the apartment, unit or lot number if the address has one." in text
+    assert "You gave no city" not in text                                 # the city was part of the comparison, and the page says so
 
     only_inactive, _ = make(extract=lambda note: dict(BY_ADDRESS), companies=at_palm_pkwy(active=0, inactive=2))
     answer = client_for(only_inactive).post("/search", data={"note": "8586 palm pwwy"})
@@ -770,8 +765,31 @@ def test_a_street_with_nothing_left_to_compare_matches_nothing_and_the_page_says
     answer = client_for(make(extract=lambda note: {**BY_ADDRESS, "street": "12 south stt"}, companies=fx.load_companies() + south)[0]).post("/search", data={"note": "12 south stt"})
     text = seen(answer.text)
     assert "/company/" not in answer.text and "INVENTED SOUTH" not in answer.text   # nothing to compare: the record is not listed
-    assert "No company matches. A company matches when its principal address on record has that house number and a street name that keeps at least one word" in text
-    assert "none has a principal address" not in text                     # the sentence makes no claim about what no record has
+    assert "No company matches. A company matches when its principal address on record begins with the house number 12," in text
+    assert "A street name with no word left after that matches nothing." in text and "none has a principal address" not in text
+
+
+@pytest.mark.parametrize("record,note,clause", [
+    ("12 MADE UP RD STE 400-B", "12 made up rd", "Punctuation counts as a space, so in STE 400-B the B is still compared"),
+    ("12 MADE UP RD STE 400-C", "12 made up rd ste 400-b", "Punctuation counts as a space, so in STE 400-B the B is still compared"),
+    ("12 MADE UP RD BLDG APT 305", "12 made up rd #305", "with the one word after it, unless that word is a unit word too"),
+    ("12 MADE UP RD BLDG APT 305", "12 made up rd #305", "the word and its number, so both have to be typed too"),
+    ("STE 200 12 MADE UP RD", "12 made up rd", "begins with the house number 12,"),
+    ("12 MADE UP RD #200", "12 made up rd suite 200", "every word of its street name is among the words you typed once three things are left out of both"),
+    ("12 SOUTH ST", "12 south stt", "A street name with no word left after that matches nothing."),
+])
+def test_a_record_the_search_leaves_out_is_explained_by_the_page_and_never_denied(record, note, clause):
+    # Three review rounds of leg D4 each found a record that a "no match" sentence described wrongly. These are all seven of them, as
+    # invented records. For each, the page lists nobody, and the one description of the comparison it shows holds the clause that
+    # leaves that record out. The page makes no claim of its own about what no record has.
+    base = next(c for c in fx.load_companies() if c.document_number == fx.NO_FLAG_COMPANY)
+    there = [replace(base, document_number="T26000000601", entity_name="INVENTED CO LLC", name_key="INVENTED CO LLC", status_code="A",
+                     principal_address_1=record, principal_city="ORLANDO")]
+    answer = client_for(make(extract=lambda typed: {**BY_ADDRESS, "street": note}, companies=fx.load_companies() + there)[0]).post("/search", data={"note": note})
+    text = seen(answer.text)
+    assert "/company/" not in answer.text and "INVENTED CO LLC" not in answer.text   # the search leaves the record out
+    assert text.count("No company matches. A company matches when") == 1 and clause in text
+    assert "none has" not in text
 
 
 def test_a_company_with_no_status_on_record_is_counted_apart_and_never_called_inactive():
