@@ -9,6 +9,7 @@ Run from ~/datum:  pytest
 """
 
 import ast                                  # parses source code into its structure, without running it
+import html                                 # turns &#39; and &#34; on a page back into the characters a person reads
 import inspect                              # reads the source of the module under test
 import re                                   # the search for the words rule W4 bans
 from pathlib import Path                    # the path of extract.py, which one test reads as text
@@ -455,11 +456,12 @@ ADDRESS_SENTENCES = (wording.ADDRESS_TOO_MANY, wording.ADDRESS_NOT_FOUND, wordin
 
 def kind_on_the_page(page):
     heading = re.search(r"<h1>(.*?)</h1>", page).group(1)
-    if heading == wording.SHORTLIST_HEADING:
+    text = html.unescape(page)
+    if heading == wording.SHORTLIST_HEADING or wording.NO_COMPANY_FOUND in text:   # the name search, with a list or with no company close to the name
         return "name"
-    if heading == wording.ADDRESS_HEADING or any(sentence.replace("'", "&#39;") in page for sentence in ADDRESS_SENTENCES):
+    if heading == wording.ADDRESS_HEADING or any(sentence in text for sentence in ADDRESS_SENTENCES):
         return "address"
-    return "ask" if wording.ASK_FOR_A_BUSINESS_ON_A_PAGE.replace("'", "&#39;") in page else "something else"
+    return "ask" if wording.ASK_FOR_A_BUSINESS_ON_A_PAGE in text else "something else"
 
 
 def kind_in_the_terminal(talk):
@@ -470,29 +472,98 @@ def kind_in_the_terminal(talk):
     return "ask" if talk.asked and talk.asked[0].startswith(wording.ASK_FOR_A_BUSINESS_ON_A_PAGE) else "something else"
 
 
+def fixed_sentences(fields):
+    """Every fixed sentence an answer to this note could hold, built with the page's own wording, so both sides can be searched for them."""
+    street, city = fields["street"], fields["city"]
+    by_address = wording.READ_AS.format(fields=", ".join(
+        part for part in (wording.FIELD_STREET.format(value=street), wording.FIELD_CITY.format(value=city) if city else "") if part))
+    by_name = wording.READ_AS.format(fields=", ".join(
+        part for part in (wording.FIELD_BUSINESS_NAME.format(value=fields["business_name"]), wording.FIELD_CITY.format(value=city) if city else "",
+                          wording.FIELD_STREET.format(value=street) if street else "") if part))
+    house = street.split()[0] if street.split() and street.split()[0][0].isdigit() else ""
+    sentences = [by_address, by_name, wording.address_compared_text(house, city_given=bool(city)), wording.ADDRESS_NO_ACTIVE, wording.ADDRESS_ONLY_INACTIVE,
+                 wording.PRINCIPAL_ADDRESS_NOTE, wording.ADDRESS_TOO_MANY, wording.ADDRESS_NOT_FOUND, wording.ADDRESS_NOT_FOUND_IN_CITY, wording.NO_COMPANY_FOUND]
+    for count in (1, 2, 3):
+        sentences += [wording.count_text(count, wording.ADDRESS_ACTIVE_ONE, wording.ADDRESS_ACTIVE_MANY),
+                      wording.count_text(count, wording.ADDRESS_INACTIVE_ONE, wording.ADDRESS_INACTIVE_MANY),
+                      wording.count_text(count, wording.ADDRESS_NO_STATUS_ONE, wording.ADDRESS_NO_STATUS_MANY)]
+    return sentences
+
+
+def with_one_in_miami():
+    """The fixture of palm_pkwy(), plus an active company with the same house number and street name in Miami."""
+    base = next(c for c in fx.load_companies() if c.document_number == fx.NO_FLAG_COMPANY)
+    return palm_pkwy() + [replace(base, document_number="T26000000250", entity_name="INVENTED GLASS OF MIAMI LLC", name_key="INVENTED GLASS OF MIAMI LLC",
+                                  status_code="A", principal_address_1="8586 PALM AVE", principal_city="MIAMI")]
+
+
+def with_no_status_only():
+    """One company at 8586 Palm Pkwy, with no status on record, plus the fixture companies."""
+    base = next(c for c in fx.load_companies() if c.document_number == fx.NO_FLAG_COMPANY)
+    return fx.load_companies() + [replace(base, document_number="T26000000401", entity_name="INVENTED GLASS LLC", name_key="INVENTED GLASS LLC",
+                                          status_code=None, principal_address_1="8586 PALM PKWY", principal_city="ORLANDO")]
+
+
 @pytest.mark.parametrize("label,fields,companies,kind,listed", [
     ("a business named", FIELDS, None, "name", 5),                   # five companies, in whatever order the name search ranks them
+    ("a business named, and no company close to it", FIELDS, "none", "name", []),
     ("an address with one active company", ADDRESS_NOTE, "one", "address", ["T26000000200"]),
+    ("an address with a city given", {**ADDRESS_NOTE, "city": "Orlando"}, "one and Miami", "address", ["T26000000200"]),
     ("an address with only inactive companies", ADDRESS_NOTE, "inactive", "address", []),
+    ("an address where the only company has no status", ADDRESS_NOTE, "no status", "address", []),
     ("an address with too many companies", ADDRESS_NOTE, "crowded", "address", []),
     ("an address nobody has", {**ADDRESS_NOTE, "street": "12 made up rd"}, "one", "address", []),
+    ("an address nobody has, with a city given", {**ADDRESS_NOTE, "street": "12 made up rd", "city": "Orlando"}, "one", "address", []),
     ("no business and no house number", {"business_name": "pool service", "city": "", "street": "Race Track Rd", "is_specific": False}, None, "ask", []),
 ])
 def test_the_terminal_and_the_web_app_give_the_same_kind_of_answer_and_the_same_companies_for_one_note(tmp_path, label, fields, companies, kind, listed):
-    # Phase D rule S18: one note gets the same answer in both places. Until leg D4 the three address notes got the address search on the
-    # page and a question in the terminal, and this test fails on that. The sentences an address page shows must be said in the terminal too.
-    companies = {None: fx.load_companies(), "one": palm_pkwy(), "inactive": palm_pkwy(active=0, inactive=2), "crowded": palm_pkwy(active=40, inactive=11)}[companies]
+    # Phase D rule S18: one note gets the same answer in both places. Until leg D4 the address notes got the address search on the page
+    # and a question in the terminal, and this test fails on that. Round 1 of leg D4's review found the first version too narrow, and
+    # it now also compares, for every note: the same companies in the same order, each listed company followed by its address and its
+    # source in the terminal, and every fixed sentence on both sides or on neither, in the same order.
+    companies = {None: fx.load_companies(), "none": [], "one": palm_pkwy(), "one and Miami": with_one_in_miami(), "inactive": palm_pkwy(active=0, inactive=2),
+                 "no status": with_no_status_only(), "crowded": palm_pkwy(active=40, inactive=11)}[companies]
     page = web_answer(fields, companies)
     talk = Talk(["0", ""] if listed else [""])                           # look at the list and pick nothing, or add nothing, so the run stops
-    run(talk, tmp_path, note="a note", fields=fields, companies=companies)
+    assert run(talk, tmp_path, note="a note", fields=fields, companies=companies) is None and list(tmp_path.iterdir()) == []   # 0, or nothing to pick: no report
     assert kind_on_the_page(page) == kind_in_the_terminal(talk) == kind, label
     on_the_page = re.findall(r'href="/company/(T\d{11})\?from=', page)
-    in_the_terminal = [re.search(r"\((T\d{11})\)", line).group(1) for line in talk.said if re.match(r"\d+\. ", line)]
+    numbered = [at for at, line in enumerate(talk.said) if re.match(r"\d+\. ", line)]
+    in_the_terminal = [re.search(r"\((T\d{11})\)", talk.said[at]).group(1) for at in numbered]
     assert on_the_page == in_the_terminal, label                           # the same companies, in the same order
     assert (len(on_the_page) == listed) if isinstance(listed, int) else (on_the_page == listed), label
-    if kind == "address":
-        visible = " ".join(re.sub(r"<[^>]+>", " ", page).replace("&#39;", "'").split())
-        for sentence in (wording.ADDRESS_NO_ACTIVE, wording.ADDRESS_ONLY_INACTIVE, wording.PRINCIPAL_ADDRESS_NOTE, wording.ADDRESS_TOO_MANY,
-                         wording.ADDRESS_NOT_FOUND, wording.count_text(2, wording.ADDRESS_INACTIVE_ONE, wording.ADDRESS_INACTIVE_MANY),
-                         wording.count_text(1, wording.ADDRESS_ACTIVE_ONE, wording.ADDRESS_ACTIVE_MANY)):
-            assert (sentence in visible) == (sentence in talk.everything), (label, sentence)   # every fixed sentence is on both, or on neither
+    for at in numbered:                                                    # each company the terminal lists is followed by its source (rule W1)
+        assert talk.said[at + 2].startswith("   Source: Florida Division of Corporations (Sunbiz) record, document number T"), (label, talk.said[at + 2])
+    visible = html.unescape(" ".join(re.sub(r"<[^>]+>", " ", page).split()))
+    said = "\n".join(talk.said)
+    present = [sentence for sentence in fixed_sentences(fields) if sentence in visible or sentence in said]
+    for sentence in present:
+        assert (sentence in visible) == (sentence in said), (label, sentence)   # every fixed sentence is on both, or on neither
+    assert sorted(present, key=visible.index) == sorted(present, key=said.index), label   # and in the same order
+
+
+def test_the_terminal_reports_on_the_company_picked_from_an_address_list_and_counts_the_others(tmp_path):
+    # Round 1 of leg D4's review: nothing checked which company the terminal reports on after an address list, or its count of the others.
+    talk = Talk(["2"])                                                  # three active companies at one address, each at another suite: pick the second
+    path = run(talk, tmp_path, note="8586 palm pwwy", fields=ADDRESS_NOTE, companies=palm_pkwy(active=3, inactive=0))
+    assert [line for line in talk.said if re.match(r"\d+\. ", line)] == [
+        "1. INVENTED PIZZA 0 LLC  (T26000000200)", "2. INVENTED PIZZA 1 LLC  (T26000000201)", "3. INVENTED PIZZA 2 LLC  (T26000000202)"]
+    assert path == tmp_path / "T26000000201_20261124.md"                # the company typed, and not the first or the last
+    assert "2 other active companies were listed with it." in path.read_text()   # rule W7, as on the report the page opens
+
+
+def test_a_name_added_after_an_address_search_sends_the_note_to_the_name_search(tmp_path):
+    # Rule S16's sentence asks for the business's name. In the terminal what is typed next is added to the note, and the note is read
+    # again: once it names a business, the name search runs (rule S5). Round 1 of leg D4's review found nothing tested that path.
+    notes = []
+
+    def extract(note):
+        notes.append(note)
+        return dict(FIELDS) if "invented air" in note else dict(ADDRESS_NOTE)
+
+    talk = Talk(["invented air conditioning", "1"])
+    path = run(talk, tmp_path, note="8586 palm pwwy", extract=extract, companies=palm_pkwy(active=0, inactive=2))
+    assert notes == ["8586 palm pwwy", "8586 palm pwwy invented air conditioning"]
+    assert "Type the business's name to look for it with the name search, which lists inactive companies too." in talk.said
+    assert talk.asked[0] == "Add the business's full name or its city (press Enter if you don't know): "
+    assert [line for line in talk.said if re.match(r"1\. \[", line)] and path == tmp_path / "T26000000001_20261124.md"

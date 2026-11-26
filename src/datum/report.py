@@ -145,6 +145,8 @@ def run(note: str, extract: Callable[[str], dict], search_backend: SearchBackend
                               wording.FIELD_CITY.format(value=city) if city else "",
                               wording.FIELD_STREET.format(value=street) if street else "") if part)))
         short = shortlist(search_pool(search_backend, business_name, city), city_given=bool(city))
+        if not short.candidates:            # the page's own sentence for a name no company is close to (rule S18: the same sentences)
+            say(wording.NO_COMPANY_FOUND)
         if short.candidates:
             show_shortlist(short, say)
             choice = pick(len(short.candidates), ask, say)
