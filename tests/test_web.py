@@ -580,6 +580,12 @@ def test_a_list_with_a_lower_level_above_a_higher_one_is_in_rank_order_and_says_
     page = client_for(make(companies=in_order, extract=lambda note: dict(acme))[0]).post("/search", data={"note": "acme roofing jacksonville"}).text
     assert [re.search(r"<strong>(Strong|Likely|Possible)</strong>", card).group(1) for card in page.split("<article>")[1:]] == ["Strong", "Likely"]
     assert S12_SENTENCE not in page
+    # The first card can have the best level and the list still be out of order below it: Likely, Possible, Likely. The sentence shows then too.
+    below = [replace(c, entity_name=name, name_key=name, principal_city=city) for c, (name, city) in zip(five_out_of_level_order()[:3], (
+        ("ACME ROOFING OF JACKSONVILLE INC", "JACKSONVILLE"), ("ACME ROOFING AND SIDING INC", "TAMPA"), ("ACME ROOFER INC", "JACKSONVILLE")))]
+    page = client_for(make(companies=below, extract=lambda note: dict(acme))[0]).post("/search", data={"note": "acme roofing jacksonville"}).text
+    assert [re.search(r"<strong>(Strong|Likely|Possible)</strong>", card).group(1) for card in page.split("<article>")[1:]] == ["Likely", "Possible", "Likely"]
+    assert seen(page).count(S12_SENTENCE) == 1
 
 
 def test_a_place_that_is_in_a_companys_name_puts_it_first_and_the_card_and_the_report_say_why():

@@ -322,10 +322,12 @@ def by_city_then_words(candidate: Candidate) -> tuple:
     """The one variant working rule S3 allowed: rule S2 with its first two parts swapped. Not used by the app.
 
     A company in the city given comes first, then one whose name holds every typed word,
-    then the higher similarity, then the document number. "In the city given" is the same
-    test rule S2 uses, city_agrees_for_order(), so that this stays rule S2 with two parts swapped.
+    then the higher similarity, then the document number. It reads the PRINCIPAL city alone,
+    exactly as leg D1 measured it. Rule S14 amended step (2) of rule S2 and nothing else, so
+    a city in a company's name does not count here, and --try-order s2-city-first still
+    scores the variant that was measured on Nov 25, 2026.
     """
-    return (not city_agrees_for_order(candidate), not candidate.every_word, -candidate.similarity, candidate.company.document_number)
+    return (not candidate.city_match, not candidate.every_word, -candidate.similarity, candidate.company.document_number)
 
 
 RANK_ORDER = by_words_then_city
@@ -396,12 +398,14 @@ def match_level(candidate: Candidate, city_given: bool) -> str:
 
 
 def evidence(candidate: Candidate, city_given: bool, status_marked: bool = False) -> list[str]:
-    """The reasons behind the level, in words the contractor can check: the name, the city when one was given, and the status.
+    """What a page says beside a company, in words the contractor can check: the name, the city when one was given, and the status.
 
-    These are the three reasons report.py has given since October. Leg D3 added a fourth
-    line, shown only when it applies: the words of the city given are in the company's name
-    (Phase D rule S14). That one is a reason for the company's PLACE on the list and not
-    for its level, and the line about the principal city is still given beside it. Two gaps in the data are
+    These are the three lines report.py has given since October. Only the first two are
+    behind the match LEVEL: match_level() reads the name and the principal city, and never
+    the status, which is a fact about the company and not about the match. Leg D3 added a
+    fourth line, shown only when it applies: the words of the city given are in the
+    company's name (Phase D rule S14). That one is a reason for the company's PLACE on the
+    list and not for its level, and the line about the principal city is still given beside it. Two gaps in the data are
     said plainly and never filled in (CLAUDE.md rule 3): a company with no principal city on
     record is not "registered in None", and a company with no status on record is not called inactive.
     The words themselves live in wording.py, with every other sentence a contractor can be shown.
@@ -596,6 +600,9 @@ class PostgresBackend:
             "key": key, "limit": limit,
             "words": key.split(),                                  # the typed words, legal endings left out: the words holds_every_word() looks for
             "suffixes": SUFFIX_PATTERN.pattern,                    # the one list of legal endings, sent as a value so that the query and Python cannot drift apart
+            # Two cautions about that value. It is a PATTERN that Postgres runs, so it must always be this module's own constant
+            # and never anything a caller or a contractor supplied. And two engines now read it, Python's and Postgres's: it must
+            # stay in the syntax both read the same way (groups, |, + and $), with nothing only Python knows, such as \Z or a lookbehind.
         }).fetchall()
         return [company_from_row(row) for row in rows]
 

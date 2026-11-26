@@ -159,9 +159,12 @@ EVIDENCE_CITY_IN_NAME = "every word of the city you gave is in the company's nam
 EVIDENCE_ACTIVE = "ACTIVE"
 EVIDENCE_INACTIVE = "INACTIVE with the state"
 EVIDENCE_NO_STATUS = "status not on record"
-# The nine lines above are the reasons search.evidence() gives. Eight are behind a match level:
-# they were written in search.py in leg C2 and moved here unchanged, so that this file holds
-# them all. EVIDENCE_CITY_IN_NAME is leg D3's, and it is behind a company's place on the list.
+# The nine lines above are what search.evidence() says beside a company. Eight were written in
+# search.py in leg C2 and moved here unchanged, so that this file holds them all, and
+# EVIDENCE_CITY_IN_NAME is leg D3's. They are not all reasons for the match LEVEL. Five are:
+# the two about the name and the three about the principal city, which is all match_level()
+# reads. The three about the status are facts about the company. EVIDENCE_CITY_IN_NAME is a
+# reason for the company's place on the list, and the level does not read it (rule S4).
 INACTIVE_MARK = "Inactive with the state"
 # Working rule S10 (leg D2): the shortlist says this BESIDE an inactive company's name. Until
 # then the only sign was the last of its reasons, EVIDENCE_INACTIVE above, which Andres did not

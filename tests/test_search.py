@@ -177,8 +177,27 @@ def test_a_city_is_found_in_a_name_by_whole_words_and_legal_endings_are_not_a_pl
     ], "acme roofing", city="tampa", limit=None)
     assert [(c.city_match, c.city_in_name) for c in (both, name_only, city_only, neither)] == [(True, True), (False, True), (True, False), (False, False)]
     assert by_words_then_city(name_only)[:2] == by_words_then_city(city_only)[:2] == by_words_then_city(both)[:2] == (False, False)
-    assert by_words_then_city(neither)[:2] == (False, True) and by_city_then_words(name_only)[:2] == (False, False)
-    assert by_similarity_then_city(name_only)[1] is True                  # search version 1's order does not read the name for a city
+    assert by_words_then_city(neither)[:2] == (False, True)
+    # Rule S14 amends step (2) of rule S2 and nothing else. The variant leg D1 measured and search version 1's order read the principal city alone.
+    assert by_city_then_words(name_only)[:2] == (True, False) and by_city_then_words(city_only)[:2] == (False, False)
+    assert by_similarity_then_city(name_only)[1] is True and by_similarity_then_city(city_only)[1] is False
+
+
+def test_a_place_that_is_both_in_the_typed_name_and_read_as_the_city_stops_the_principal_city_breaking_the_tie():
+    # Rule S14 as written, on a shape round 1 of the review pointed out. The saved extraction of checked case 5 has it: the place is
+    # in the business name AND came back as the city. Then every company that holds the typed words also holds the city's words, so
+    # all of them "agree on the city", and the principal city no longer tells them apart. Similarity decides. This test pins that
+    # on purpose, so that a change is a decision and not an accident: whether it SHOULD be so is question Q59, and it is Andres's.
+    pool = [
+        company("T00000000001", "CORAL COVE HOMES OF NAPLES LLC", city="CORAL COVE"),   # the principal city IS the city given
+        company("T00000000002", "CORAL COVE HOMES GROUP LLC", city="MIAMI"),            # another principal city, and a name a little closer
+    ]
+    in_the_city, elsewhere = pool
+    ranked = rank(pool, "Coral Cove Homes", city="Coral Cove")
+    assert [(c.every_word, c.city_match, c.city_in_name) for c in ranked] == [(True, False, True), (True, True, True)]
+    assert ranked[0].company.document_number == "T00000000002" and ranked[0].similarity > ranked[1].similarity   # the closer name first, whatever its principal city
+    assert rank(pool, "Coral Cove Homes", city="Coral Cove", order=by_city_then_words)[0].company.document_number == "T00000000001"   # the principal city alone would put this one first
+    assert [match_level(c, city_given=True) for c in ranked] == ["Possible", "Likely"]   # the levels still read the principal city (rule S4)
 
 
 def test_the_reason_about_a_place_in_the_name_is_given_only_when_it_applies_and_never_changes_the_level():
@@ -295,7 +314,7 @@ def test_match_level_follows_the_three_rules():
     # Nor is a place in the name (rule S14): this company is moved up the list by it, and its level is still Possible.
     place_in_name = rank([company("T00000000006", "ACME ROOFING OF JACKSONVILLE INC", city="TAMPA")], "acme roofing", city="jacksonville")[0]
     assert place_in_name.city_in_name is True and match_level(place_in_name, city_given=True) == "Possible"
-    for order in (by_similarity_then_city, by_words_then_city, by_city_then_words):
+    for order in (by_words_then_city, by_city_then_words):
         again = {c.company.document_number: match_level(c, city_given=True) for c in rank([
             company("T00000000001", "ACME ROOFING LLC", city="JACKSONVILLE"), company("T00000000002", "ACME ROOFING INC", city="TAMPA"),
             company("T00000000003", "ACME ROOFING AND SIDING INC", city="JACKSONVILLE"), company("T00000000004", "ACME ROOFERS OF TAMPA INC", city="TAMPA"),
@@ -446,6 +465,11 @@ def test_the_shortlist_shows_its_companies_in_rank_order_each_with_its_level():
     assert listed.lower_level_above_higher is True                        # a Possible stands above a Likely, so a page says the list is in search order
     in_level_order = shortlist(ranked[1:], city_given=True)               # Likely, Likely: nothing stands above a better level
     assert in_level_order.levels == ("Likely", "Likely") and in_level_order.lower_level_above_higher is False
+    # The first card can already have the best level and the list still be out of order further down. Round 1 of the review found
+    # that no test had such a list, so a rule that looked only at the first card passed them all.
+    second_out_of_place = shortlist([ranked[1], ranked[0], ranked[2]], city_given=True)
+    assert second_out_of_place.levels == ("Likely", "Possible", "Likely") and second_out_of_place.lower_level_above_higher is True
+    assert shortlist([ranked[1], ranked[2], ranked[0]], city_given=True).lower_level_above_higher is False   # Likely, Likely, Possible: best to worst
 
 
 FIVE_OUT_OF_LEVEL_ORDER = [
@@ -513,11 +537,9 @@ def test_the_first_step_keeps_the_names_that_hold_every_typed_word_before_the_ne
         "limit %(limit)s) as nearest "
         "join company_search as c using (document_number)"
     )
-    order_by = sql[sql.index("order by ") + len("order by "):sql.index(" limit %(limit)s")]
-    assert order_by.index("@> %(words)s") < order_by.index("<-> %(key)s") < order_by.index("document_number")   # every word, THEN the nearest, then a fixed order
-    # The term's answer is the test on the name WITHOUT its legal endings. The cheaper test on the whole name stands in front of it
-    # only so that the pattern match runs on few names, and "else false" is right because a name that fails the first fails the second.
-    assert order_by.index("when string_to_array(name_key, ' ') @>") < order_by.index("then string_to_array(regexp_replace(") < order_by.index("else false end")
+    # Reading the pinned text: the every-word term comes first, THEN the nearest names, then a fixed order. Inside the term, the
+    # answer is the test on the name WITHOUT its legal endings. The cheaper test on the whole name stands in front of it only so
+    # that the pattern match runs on few names, and "else false" is right because a name that fails the first fails the second.
     # The two values the term reads are the ones holds_every_word() compares: the typed words with the legal endings left out, and
     # the one list of legal endings. A name that is nothing but a legal ending keeps its word, as it does in holds_every_word().
     conn = RecordingConnection()
@@ -526,7 +548,7 @@ def test_the_first_step_keeps_the_names_that_hold_every_typed_word_before_the_ne
     assert conn.asked[-1][1] == {"key": "V PIZZA", "limit": 200, "words": ["V", "PIZZA"], "suffixes": SUFFIX_PATTERN.pattern}
     backend.nearest("LLC", 200)
     assert conn.asked[-1][1]["words"] == ["LLC"]
-    assert holds_every_word("V PIZZA LLC", "V PIZZA LAKE BUENA VISTA LLC") and not holds_every_word("V PIZZA LLC", "PIZZA VILLA INC")   # the Python rule the term copies
+    assert holds_every_word("V PIZZA LLC", "V PIZZA LAKE BUENA VISTA LLC") and not holds_every_word("V PIZZA LLC", "PIZZA QVILLA INC")   # the Python rule the term copies
 
 
 class RecordingConnection:
