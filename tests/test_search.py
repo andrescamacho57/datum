@@ -16,7 +16,7 @@ from pathlib import Path                    # file paths
 import pytest                               # the test runner; parametrize runs one test body over several cases
 
 from datum.search import (
-    ADDRESS_FETCH, CANDIDATE_POOL, COMPANY_COLUMNS, DIRECTIONS, IGNORED_STREET_WORDS, MOST_AT_AN_ADDRESS, STREET_TYPES, Company, FakeBackend, PostgresBackend,
+    ADDRESS_FETCH, CANDIDATE_POOL, COMPANY_COLUMNS, DIRECTIONS, IGNORED_STREET_WORDS, MOST_AT_AN_ADDRESS, STREET_TYPES, SUFFIX_PATTERN, Company, FakeBackend, PostgresBackend,
     RANK_ORDER, address_search, by_city_then_words, by_similarity_then_city, by_words_then_city, company_from_row, evidence, holds_every_word, jaro_winkler_similarity, match_level, name_key, rank, search,
     search_kind, search_pool, shortlist, street_matches, street_parts,
 )
@@ -375,10 +375,12 @@ def test_an_empty_shortlist_has_no_tie():
 
 
 def test_the_postgres_query_sends_what_was_typed_as_a_value_never_as_sql():
-    # Nothing typed by a contractor may be pasted into the SQL text. The query holds two placeholders and no other gap.
+    # Nothing typed by a contractor may be pasted into the SQL text. The query holds four placeholders and no other gap. Its only
+    # quotes are the two fixed pairs of rule S11's term: one holds nothing and one holds a single space.
     sql = PostgresBackend.NEAREST_SQL
-    assert sql.count("%(key)s") == 2 and sql.count("%(limit)s") == 1
-    assert "{" not in sql and "'" not in sql
+    assert [sql.count(f"%({name})s") for name in ("key", "suffixes", "words", "limit")] == [2, 1, 1, 1]
+    assert sql.count("%(") == 5 and "{" not in sql                        # no placeholder besides those five uses, and no gap left by an f-string
+    assert sql.count("'") == 4 and "%(suffixes)s, '')" in sql and "' ') @>" in sql
 
 
 def test_the_postgres_query_finds_names_in_the_narrow_table_and_reads_every_company_from_company_search():
@@ -390,6 +392,33 @@ def test_the_postgres_query_finds_names_in_the_narrow_table_and_reads_every_comp
     assert sql.endswith(") as nearest join company_search as c using (document_number)")
     selected = sql[len("select "):sql.index(" from (")].split(", ")
     assert selected == ["c." + column for column in COMPANY_COLUMNS]      # every field, source_url and fetched_at included, comes from company_search
+
+
+def test_the_first_step_keeps_the_names_that_hold_every_typed_word_before_the_nearest_names():
+    # Phase D rule S11 (leg D3). The rule lives in the query, and no offline test can RUN a query, so its text is pinned word for
+    # word, as the address query's is. Before leg D3 the ORDER BY began with the trigram distance, and this test fails on that text.
+    # What the term DOES is measured on the real data in the leg report: it brought checked case 11's company from "not among 200" to 17th.
+    sql = PostgresBackend.NEAREST_SQL
+    assert sql == (
+        "select " + ", ".join("c." + column for column in COMPANY_COLUMNS) + " "
+        "from (select document_number from company_search_names "
+        "where %(key)s <%% name_key "
+        "order by not (string_to_array(regexp_replace(name_key, %(suffixes)s, ''), ' ') @> %(words)s::text[]), "
+        "name_key <-> %(key)s, document_number "
+        "limit %(limit)s) as nearest "
+        "join company_search as c using (document_number)"
+    )
+    order_by = sql[sql.index("order by ") + len("order by "):sql.index(" limit %(limit)s")]
+    assert order_by.index("@> %(words)s") < order_by.index("<-> %(key)s") < order_by.index("document_number")   # every word, THEN the nearest, then a fixed order
+    # The two values the term reads are the ones holds_every_word() compares: the typed words with the legal endings left out, and
+    # the one list of legal endings. A name that is nothing but a legal ending keeps its word, as it does in holds_every_word().
+    conn = RecordingConnection()
+    backend = PostgresBackend(conn)
+    backend.nearest("V PIZZA LLC", 200)
+    assert conn.asked[-1][1] == {"key": "V PIZZA", "limit": 200, "words": ["V", "PIZZA"], "suffixes": SUFFIX_PATTERN.pattern}
+    backend.nearest("LLC", 200)
+    assert conn.asked[-1][1]["words"] == ["LLC"]
+    assert holds_every_word("V PIZZA LLC", "V PIZZA LAKE BUENA VISTA LLC") and not holds_every_word("V PIZZA LLC", "PIZZA VILLA INC")   # the Python rule the term copies
 
 
 class RecordingConnection:
@@ -412,7 +441,8 @@ def test_the_postgres_backend_passes_the_key_and_limit_as_parameters():
     conn = RecordingConnection()
     rows = PostgresBackend(conn).nearest("ACME'; DROP TABLE company_search; --", 200)
     sql, params = conn.asked[-1]
-    assert params == {"key": "ACME'; DROP TABLE company_search; --", "limit": 200}
+    assert params["key"] == "ACME'; DROP TABLE company_search; --" and params["limit"] == 200
+    assert params["words"] == ["ACME';", "DROP", "TABLE", "company_search;", "--"]   # the typed words travel as a value too, whatever they hold
     assert "DROP TABLE" not in sql
     assert rows == [company("T00000000001", "ACME ROOFING LLC")]          # the columns map onto Company's fields in order
 

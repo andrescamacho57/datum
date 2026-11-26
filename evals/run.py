@@ -8,8 +8,8 @@ every change, so that "is the search better?" is a number and not an impression.
     python -m evals.run --backend postgres --latency 200   # also time the search on 200 random company names
     python -m evals.run --backend postgres --latency 200 --retrieve word    # time the second approach leg C2 tried
     python -m evals.run --backend postgres --latency 200 --retrieve plain   # time the first approach leg C2 tried (slow)
-    python -m evals.run --backend postgres --compare 200   # do the second approach and the app's search give the same five companies?
-    python -m evals.run --backend postgres --before        # also score the search as it was before Phase D, and say which cases moved
+    python -m evals.run --backend postgres --compare 200   # how many searches does the app's search answer differently from leg C2's second approach? (since leg D3 they differ by design)
+    python -m evals.run --backend postgres --before        # also score the search with no search by address, and say which cases the address search moved
     python -m evals.run --backend postgres --try-order s2  # also score another order of the candidates beside the app's, and say which cases it moves
     python -m evals.run --backend postgres --address-latency 200   # also time the search by address on 200 random principal addresses
 
@@ -40,10 +40,12 @@ the active companies at the address in document-number order, so its first five 
 the way the name search's best five are.
 
 Two options score every case twice and compare the two runs:
-    --before          the search as it was before Phase D, against the search as it is. Before
+    --before          the search with NO search by address, against the search as it is. Before
                       Phase D there was no search by address: a note that named no business
-                      was always asked for more. The order of the candidates is the same in
-                      both runs, because leg D1 did not change the order the app uses.
+                      was always asked for more. The NAME search is today's in both runs, so
+                      this shows what the search by address changed and nothing else. It is
+                      not the name search of before Phase D: leg D3 changed that search's
+                      first step (rule S11), and this option does not rebuild the old one.
     --try-order NAME  the search as it is, against the same search with ANOTHER ORDER of the
                       name search's candidates: s2 is Phase D working rule S2 (every typed
                       word, then the city, then similarity), and s2-city-first is the one
@@ -377,8 +379,13 @@ class WideTableBackend(PostgresBackend):
     It asks the same question as the app's search (word similarity at a threshold of 0.75,
     with the legal suffix left out of the lookup) and reads the answer from company_search
     itself, through that table's own trigram index. The app's search, PostgresBackend, reads
-    the narrow table company_search_names. Both tables hold the same names, so the two must
-    return the same companies, and --compare checks that they do. Run it with --retrieve word.
+    the narrow table company_search_names. Run it with --retrieve word.
+
+    Until leg D3 the two kept the same 200 names, because both tables hold the same names and
+    both queries kept the nearest ones, and --compare checked that they did. SINCE LEG D3 THEY
+    DIFFER BY DESIGN. The app's query now keeps the names that hold every typed word first
+    (Phase D rule S11), and this one is left as leg C2 wrote it, as that leg's baseline. So
+    --compare now counts how many searches rule S11 changes, and a difference is not a fault.
     """
 
     NEAREST_SQL = (
@@ -547,7 +554,7 @@ def page_text(result: CaseResult) -> str:
 
 def print_before_and_after(checked_before: list[CaseResult], checked_after: list[CaseResult],
                            drafts_before: list[CaseResult] | None, drafts_after: list[CaseResult] | None,
-                           first: str = "before Phase D", second: str = "now") -> int:
+                           first: str = "with no search by address", second: str = "now") -> int:
     """Two runs side by side, and the exit code: 1 when a CHECKED case was made worse, otherwise 0.
 
     `first` and `second` name the two runs in the headings. The checked cases get a line
@@ -624,7 +631,7 @@ def evaluate(cases: list[Case], drafts: list[Case] | None, backend: SearchBacken
     This is the whole of what decides pass or fail, kept apart from main() so that a test
     can run it with a stand-in backend. The exit code is 0 unless a comparison was asked
     for and it found a CHECKED case made worse, and then it is 1:
-      before     the search before Phase D (no search by address) against the search as it is;
+      before     the search with no search by address against the search as it is (the name search is today's in both);
       try_order  the search as it is against the same search with the candidates in the
                  order ORDERS[try_order].
     The drafts are scored and printed, and never decide anything (working rule S1).
@@ -658,9 +665,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--backend", choices=("postgres", "snowflake"), required=True, help="which database does the retrieve step")
     parser.add_argument("--latency", type=int, default=0, metavar="N", help="also time the search on the test inputs plus N random company names (postgres only)")
     parser.add_argument("--retrieve", choices=tuple(RETRIEVERS), default="narrow", help="postgres only: narrow = the narrow table, the search the app uses; word = the second approach and plain = the first, both for timing only")
-    parser.add_argument("--compare", type=int, default=0, metavar="N", help="postgres only: run the second approach and the app's search on the test inputs plus N random company names, and count the searches whose five companies differ")
+    parser.add_argument("--compare", type=int, default=0, metavar="N", help="postgres only: run leg C2's second approach and the app's search on the test inputs plus N random company names, and count the searches whose companies differ. Since leg D3 the app's search keeps the names that hold every typed word first, so the two differ by design")
     parser.add_argument("--address-latency", type=int, default=0, metavar="N", help="postgres only: also time the search by address on N principal addresses drawn at random")
-    parser.add_argument("--before", action="store_true", help="postgres only: also score the search as it was before Phase D, say which cases moved, and fail when a checked case was made worse")
+    parser.add_argument("--before", action="store_true", help="postgres only: also score the search with no search by address, as it was before Phase D, say which cases the address search moved, and fail when a checked case was made worse. The name search is today's in both runs")
     parser.add_argument("--try-order", choices=tuple(ORDERS), default=None, help="postgres only: also score another order of the name search's candidates beside the app's (s2 = working rule S2, s2-city-first = its variant), and fail when it makes a checked case worse")
     args = parser.parse_args(argv)
     exit_code = 0

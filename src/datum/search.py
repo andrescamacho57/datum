@@ -2,10 +2,12 @@
 
 The search has two steps, and the split is the point of this module:
 
-    1. RETRIEVE   ask the database for the companies whose names are nearest to the one typed.
+    1. RETRIEVE   ask the database for the companies whose names are near the one typed.
                   This step is fast and rough. It reads an index over a narrow table of names,
                   and it brings back a pool of candidates (200 by default) out of 13 million
                   companies, each fetched in full from company_search by its document number.
+                  Since leg D3 the pool is filled first with the names that hold every typed
+                  word, and then with the nearest names (Phase D rule S11).
     2. RERANK     score that small pool carefully, in plain Python, with the same rules as
                   search version 1 (snowflake/11_score_search_v1.sql): Jaro-Winkler
                   similarity first, then a city match, then the document number as a fixed
@@ -20,7 +22,9 @@ uses, and changing it is Andres's call. The evaluation can score either order be
 app's (python -m evals.run --backend postgres --try-order s2).
 
 Step 2 can only order what step 1 brought back. A company that is not in the pool is never
-ranked, whatever the order is. Leg D1's report shows a case where that decides the answer.
+ranked, whatever the order is. Leg D1's report shows a case where that decided the answer:
+for "v pizza orlando" the right company stood 2,861st in step 1's order and was never among
+the 200. Rule S11 is the answer to it, and it lives in step 1's query (NEAREST_SQL).
 
 This pattern is called retrieve-then-rerank. A careful score over 13 million names takes
 Snowflake about a minute. A careful score over 200 names takes Python a millisecond.
@@ -446,6 +450,11 @@ class PostgresBackend:
     The trailing legal suffix is left out of what is sent to the index. LLC and INC are in
     millions of names, so their trigrams cost the most and tell nothing apart. The rerank
     step still scores the full typed name.
+
+    WHICH 200 ARE KEPT (Phase D rule S11, leg D3). Many more names can pass the comparison
+    than the pool holds. The names that hold every typed word are kept first, and then the
+    names nearest to the typed name as a whole, as before. The comments under NEAREST_SQL
+    read the query term by term.
     """
 
     WORD_SIMILARITY_THRESHOLD = 0.75        # how close a stretch of a registered name must be to the typed name
@@ -455,19 +464,46 @@ class PostgresBackend:
         f"select {', '.join('c.' + column for column in COMPANY_COLUMNS)} "
         "from (select document_number from company_search_names "
         "where %(key)s <%% name_key "
-        "order by name_key <-> %(key)s, document_number "
+        "order by not (string_to_array(regexp_replace(name_key, %(suffixes)s, ''), ' ') @> %(words)s::text[]), "
+        "name_key <-> %(key)s, document_number "
         "limit %(limit)s) as nearest "
         "join company_search as c using (document_number)"
     )
     # The part in brackets is a SUBQUERY: it runs first, against the narrow table, and gives back
-    # the document numbers of the nearest names. The join then looks each of those numbers up in
+    # the document numbers of the names it keeps. The join then looks each of those numbers up in
     # company_search through its primary key, which is one quick lookup per company.
-    # %(key)s and %(limit)s are PLACEHOLDERS: the driver sends the values apart from the SQL, so
-    # nothing a contractor types can ever be read as SQL (that is how SQL injection is prevented).
-    # The operator is <% ("is word-similar to"), and because % also marks a placeholder here, a
-    # literal one is typed twice. <-> is the plain trigram DISTANCE between two texts (0 = the
-    # same trigrams), so among the names that pass, the ones closest to the typed name as a
-    # whole come first, and the document number settles a tie the same way on every run.
+    # %(key)s, %(suffixes)s, %(words)s and %(limit)s are PLACEHOLDERS: the driver sends the values
+    # apart from the SQL, so nothing a contractor types can ever be read as SQL (that is how SQL
+    # injection is prevented). The two pairs of quotes in the text hold nothing and one space,
+    # and nothing typed is ever put between them.
+    #
+    # WHERE keeps the names that pass. The operator is <% ("is word-similar to"), and because %
+    # also marks a placeholder here, a literal one is typed twice.
+    #
+    # ORDER BY decides which 200 of the names that pass are kept, and it has three terms.
+    #
+    #   1. not (string_to_array(regexp_replace(name_key, %(suffixes)s, ''), ' ') @> %(words)s::text[])
+    #      Phase D rule S11 (leg D3): the names that hold EVERY TYPED WORD come first. Read it
+    #      from the inside out:
+    #        regexp_replace(name_key, %(suffixes)s, '')   the name with its trailing legal endings
+    #                                                     cut off. %(suffixes)s is SUFFIX_PATTERN,
+    #                                                     the same pattern without_suffixes() uses
+    #        string_to_array(..., ' ')                    that text cut into its words, as an array
+    #        @> %(words)s::text[]                         "contains": true when every typed word is
+    #                                                     one of those words. ::text[] tells
+    #                                                     Postgres the value is an array of texts
+    #        not (...)                                    Postgres sorts false before true, so "not"
+    #                                                     puts the names that hold every word first
+    #      This is holds_every_word(), written a second time so that the database can apply it
+    #      BEFORE the limit. Until leg D3 the 200 kept were simply the nearest names as a whole,
+    #      and a long legal name is far from a short trade name: for the key V PIZZA, 10,062 names
+    #      pass the WHERE, and V PIZZA LAKE BUENA VISTA LLC stood 2,861st among them.
+    #   2. name_key <-> %(key)s
+    #      <-> is the plain trigram DISTANCE between two texts (0 = the same trigrams). Among the
+    #      names that hold every word, and then among the ones that do not, the names closest to
+    #      the typed name as a whole come first, as they did before.
+    #   3. document_number
+    #      It settles a tie the same way on every run.
 
     def __init__(self, conn):
         self.conn = conn                    # an open psycopg connection
@@ -482,7 +518,11 @@ class PostgresBackend:
 
     def nearest(self, search_key: str, limit: int) -> list[Company]:
         key = without_suffixes(search_key) or search_key           # "LLC" alone would leave nothing: then send it as typed
-        rows = self.conn.execute(self.NEAREST_SQL, {"key": key, "limit": limit}).fetchall()
+        rows = self.conn.execute(self.NEAREST_SQL, {
+            "key": key, "limit": limit,
+            "words": key.split(),                                  # the typed words, legal endings left out: the words holds_every_word() looks for
+            "suffixes": SUFFIX_PATTERN.pattern,                    # the one list of legal endings, sent as a value so that the query and Python cannot drift apart
+        }).fetchall()
         return [company_from_row(row) for row in rows]
 
     AT_HOUSE_NUMBER_SQL = (

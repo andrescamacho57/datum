@@ -458,12 +458,12 @@ def test_the_whole_evaluation_fails_only_when_a_checked_case_is_made_worse(tmp_p
     printed = lines()
     assert ["checked", "cases", "made", "worse:", "2"] in printed and ["2", "g", "1", "of", "3", "2", "of", "3", "1", "->", "2", "down"] in printed
     assert evaluate(worse, None, backend, "fake", address_backend=backend) == 0                # with no comparison asked for, nothing can fail
-    assert evaluate(worse, None, backend, "fake", address_backend=backend, before=True) == 0   # before Phase D the ORDER was the same, so this case did not move
+    assert evaluate(worse, None, backend, "fake", address_backend=backend, before=True) == 0   # the order is the same in both runs of --before, so this case did not move
     capsys.readouterr()
     assert evaluate(better, draft_worse, backend, "fake", address_backend=backend, try_order="s2") == 0   # the DRAFT moved down, and the decision does not change
     printed = lines()
     assert ["checked", "cases", "made", "worse:", "none"] in printed and ["brand_and_city", "1", "0", "1", "0"] in printed
-    # "Before Phase D" has no search by address. An address-only case was asked about then and is answered now, so it moved up.
+    # The first run of --before has no search by address. An address-only case is asked about there and answered now, so it moved up.
     by_address = [Case(case_id=3, case_group="g", expected_document_number="T3", business_name="", city="", street="77 quartz pwwy", is_specific=False)]
     assert evaluate(by_address, None, backend, "fake", address_backend=backend, before=True) == 0
     assert ["3", "g", "asked", "1", "of", "1", "asked", "->", "1", "up"] in lines()
@@ -474,6 +474,6 @@ def test_the_whole_evaluation_fails_only_when_a_checked_case_is_made_worse(tmp_p
     capsys.readouterr()                                                   # forget what the call above printed: its own table also holds the row "g 1 0 1 0"
     assert evaluate(by_address, should_ask, backend, "fake", address_backend=backend, before=True) == 0
     printed = capsys.readouterr().out
-    drafts_table = printed[printed.index("before Phase D, and now: draft cases"):]   # only what follows the drafts' own heading
+    drafts_table = printed[printed.index("with no search by address, and now: draft cases"):]   # only what follows the drafts' own heading
     assert ["g", "1", "0", "1", "0"] in [line.split() for line in drafts_table.splitlines()]   # the draft is counted as moved down, in the drafts' own table
     assert ["checked", "cases", "made", "worse:", "none"] in [line.split() for line in printed.splitlines()]
