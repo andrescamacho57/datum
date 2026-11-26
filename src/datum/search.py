@@ -10,8 +10,9 @@ The search has two steps, and the split is the point of this module:
                   word, and then with the nearest names (Phase D rule S11).
     2. RERANK     put that small pool in order, in plain Python, by Phase D rule S2: first
                   the companies whose name holds every typed word, then the ones whose
-                  principal city agrees with the city given, then the higher Jaro-Winkler
-                  similarity, then the document number as a fixed tie-break. Keep the best
+                  principal city agrees with the city given or whose name holds that
+                  city's words (rule S14), then the higher Jaro-Winkler similarity, then
+                  the document number as a fixed tie-break. Keep the best
                   five. Until leg D3 the order was search version 1's
                   (snowflake/11_score_search_v1.sql): similarity first, then the city.
 
@@ -132,6 +133,8 @@ class Candidate:
     city_match: bool                        # True when a city was given and the company's city starts with it
     exact_name: bool                        # True when the two names are equal once legal suffixes are removed
     every_word: bool                        # True when every word of the typed name is among the words of the company's name, legal suffixes aside
+    city_in_name: bool = False              # True when a city was given and every word of it is among the words of the company's NAME (Phase D rule S14).
+                                            # It counts for the ORDER only. The match level never reads it (rule S4)
 
 
 @dataclass(frozen=True)
@@ -261,6 +264,31 @@ def holds_every_word(search_key: str, company_key: str) -> bool:
     return bool(typed) and all(word in words for word in typed)
 
 
+def city_in_name(given_city: str, company_key: str) -> bool:
+    """True when a city was given and every word of it is among the words of the company's name, with trailing legal suffixes left out (Phase D rule S14).
+
+    "Lake Buena Vista" is in "V PIZZA LAKE BUENA VISTA LLC": all three words are there. Why
+    this exists: the extraction step moves a place out of the business name even when the
+    place is part of the registered name. "v pizza lake buena vista" came back as the
+    business "V Pizza" and the city "Lake Buena Vista", and that company's principal city
+    is Orlando, so by city_matches() alone the city could never agree. The city is
+    simplified the way a name is, so "St. Augustine" is the two words ST and AUGUSTINE.
+    Whole words are compared, as in holds_every_word().
+    """
+    wanted = name_key(given_city).split()
+    words = set((without_suffixes(company_key) or company_key).split())
+    return bool(wanted) and all(word in words for word in wanted)
+
+
+def city_agrees_for_order(candidate: Candidate) -> bool:
+    """Step (2) of rule S2, as rule S14 amended it: the company's principal city agrees with the city given, OR the city's words are in its name.
+
+    This is for the ORDER of the candidates and for nothing else. match_level() reads
+    city_match alone, so a place in a company's name never raises its level (rule S4).
+    """
+    return candidate.city_match or candidate.city_in_name
+
+
 def by_similarity_then_city(candidate: Candidate) -> tuple:
     """Search version 1's order, as a sort key: the highest similarity first, then a company in the city given, then the document number.
 
@@ -278,7 +306,8 @@ def by_words_then_city(candidate: Candidate) -> tuple:
     """Working rule S2, as a sort key. THE ORDER THE APP USES since leg D3 (Phase D rule S13; see RANK_ORDER).
 
       1. a company whose name holds every typed word comes first ("not every_word" is False for it);
-      2. then a company whose principal city agrees with the city given;
+      2. then a company whose principal city agrees with the city given, or whose name holds
+         every word of that city (Phase D rule S14, city_agrees_for_order above);
       3. then the higher Jaro-Winkler similarity (the minus sign puts 95 before 88);
       4. then the document number, a fixed order, so a rerun can never flip two equal candidates.
 
@@ -286,16 +315,17 @@ def by_words_then_city(candidate: Candidate) -> tuple:
     ranking active companies first would hide a dissolved client behind an active namesake.
     The extraction step returns no ZIP code, so none is compared.
     """
-    return (not candidate.every_word, not candidate.city_match, -candidate.similarity, candidate.company.document_number)
+    return (not candidate.every_word, not city_agrees_for_order(candidate), -candidate.similarity, candidate.company.document_number)
 
 
 def by_city_then_words(candidate: Candidate) -> tuple:
     """The one variant working rule S3 allowed: rule S2 with its first two parts swapped. Not used by the app.
 
     A company in the city given comes first, then one whose name holds every typed word,
-    then the higher similarity, then the document number.
+    then the higher similarity, then the document number. "In the city given" is the same
+    test rule S2 uses, city_agrees_for_order(), so that this stays rule S2 with two parts swapped.
     """
-    return (not candidate.city_match, not candidate.every_word, -candidate.similarity, candidate.company.document_number)
+    return (not city_agrees_for_order(candidate), not candidate.every_word, -candidate.similarity, candidate.company.document_number)
 
 
 RANK_ORDER = by_words_then_city
@@ -324,6 +354,7 @@ def rank(companies: list[Company], business_name: str, city: str = "", limit: in
             city_match=city_matches(city, company.principal_city),
             exact_name=without_suffixes(company.name_key) == without_suffixes(search_key),
             every_word=holds_every_word(search_key, company.name_key),
+            city_in_name=city_in_name(city, company.name_key),
         )
         for company in companies
     ]
@@ -351,6 +382,9 @@ def match_level(candidate: Candidate, city_given: bool) -> str:
     Strong    the same name, and the city agrees (or no city was given)
     Likely    one of the two signals
     Possible  only a similar-looking name
+    "The city agrees" means the company's PRINCIPAL city (city_match). A city found among
+    the words of a company's name (city_in_name, rule S14) moves the company up the list
+    and never changes its level: rule S4 keeps the levels as they were.
     A level is shown with its evidence and never as a percentage: a percentage would claim
     "right N% of the time", and nothing measured backs that up.
     """
@@ -364,7 +398,10 @@ def match_level(candidate: Candidate, city_given: bool) -> str:
 def evidence(candidate: Candidate, city_given: bool, status_marked: bool = False) -> list[str]:
     """The reasons behind the level, in words the contractor can check: the name, the city when one was given, and the status.
 
-    These are the three reasons report.py has given since October. Two gaps in the data are
+    These are the three reasons report.py has given since October. Leg D3 added a fourth
+    line, shown only when it applies: the words of the city given are in the company's name
+    (Phase D rule S14). That one is a reason for the company's PLACE on the list and not
+    for its level, and the line about the principal city is still given beside it. Two gaps in the data are
     said plainly and never filled in (CLAUDE.md rule 3): a company with no principal city on
     record is not "registered in None", and a company with no status on record is not called inactive.
     The words themselves live in wording.py, with every other sentence a contractor can be shown.
@@ -385,6 +422,8 @@ def evidence(candidate: Candidate, city_given: bool, status_marked: bool = False
             reasons.append(wording.EVIDENCE_OTHER_CITY.format(city=candidate.company.principal_city))
         else:
             reasons.append(wording.EVIDENCE_NO_CITY)
+        if candidate.city_in_name:          # rule S14: said beside the line about the principal city, never in its place. It explains the company's place on the list
+            reasons.append(wording.EVIDENCE_CITY_IN_NAME)
     status = candidate.company.status_code
     if not (status_marked and status == "I"):   # on a shortlist an inactive company's status is the mark beside its name, so it is not said a second time
         reasons.append(wording.EVIDENCE_ACTIVE if status == "A" else wording.EVIDENCE_INACTIVE if status == "I" else wording.EVIDENCE_NO_STATUS)

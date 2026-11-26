@@ -17,7 +17,7 @@ import pytest                               # the test runner; parametrize runs 
 
 from datum.search import (
     ADDRESS_FETCH, CANDIDATE_POOL, COMPANY_COLUMNS, DIRECTIONS, IGNORED_STREET_WORDS, MOST_AT_AN_ADDRESS, STREET_TYPES, SUFFIX_PATTERN, Company, FakeBackend, PostgresBackend,
-    RANK_ORDER, address_search, by_city_then_words, by_similarity_then_city, by_words_then_city, company_from_row, evidence, holds_every_word, jaro_winkler_similarity, match_level, name_key, rank, search,
+    RANK_ORDER, address_search, by_city_then_words, by_similarity_then_city, by_words_then_city, city_in_name, company_from_row, evidence, holds_every_word, jaro_winkler_similarity, match_level, name_key, rank, search,
     search_kind, search_pool, shortlist, street_matches, street_parts,
 )
 
@@ -133,6 +133,71 @@ def test_a_long_legal_name_that_holds_the_typed_trade_name_ranks_above_a_shorter
     assert [c.company.document_number for c in rank(active_twin, "Q Pizza")] == ["T00000000001", "T00000000002"]   # the inactive one is not pushed below its active twin
 
 
+Q_PIZZAS = [
+    company("T00000000001", "Q PIZZA WP LLC", city="WINTER PARK", status="I"),                 # the shortest name: the highest similarity to "Q Pizza"
+    company("T00000000002", "Q PIZZA DURBIN, LLC", city="SAINT JOHNS"),
+    company("T00000000003", "Q PIZZA LAKE BUENA VISTA LLC", city="ORLANDO"),                   # the place is in its NAME, and its principal city is Orlando
+    company("T00000000004", "Q PIZZA TAMPA LLC", city="TAMPA"),
+]
+# Invented companies in the shape of checked case 12. A contractor types the brand and the place the shop is in.
+
+
+@pytest.mark.parametrize("business_name,city", [
+    ("Q Pizza", "Lake Buena Vista"),                                      # the place read as the city: what the saved extraction of checked case 12 holds
+    ("Q Pizza Lake Buena Vista", ""),                                     # the place left in the business name
+    ("Q Pizza", "Buena Vista"),                                           # a third reading, which a live call returned on Nov 25, 2026, with the street "Lake"
+])
+def test_a_place_in_the_company_name_reaches_the_same_company_whichever_way_the_note_was_read(business_name, city):
+    # Phase D rule S14 (leg D3). The extraction step read one note two ways on two calls, so the search has to put the same company
+    # first for both. Before rule S14 the first reading failed: no principal city begins with "Lake Buena Vista", so nothing
+    # agreed on the city, and the shortest name came first on similarity.
+    ranked = rank(Q_PIZZAS, business_name, city=city)
+    assert ranked[0].company.document_number == "T00000000003"
+    if city:
+        assert (ranked[0].city_match, ranked[0].city_in_name) == (False, True)   # its PRINCIPAL city does not agree. The place is in its name
+        assert ranked[0].similarity < ranked[1].similarity                # and it is first although the next company's name is closer
+        assert [c.city_in_name for c in ranked[1:]] == [False, False, False]
+        without_the_rule = sorted(ranked, key=lambda c: (not c.every_word, not c.city_match, -c.similarity, c.company.document_number))   # rule S2 before rule S14
+        assert without_the_rule[0].company.document_number == "T00000000001"   # the inactive namesake in Winter Park, as on Nov 24
+
+
+def test_a_city_is_found_in_a_name_by_whole_words_and_legal_endings_are_not_a_place():
+    assert city_in_name("Lake Buena Vista", "Q PIZZA LAKE BUENA VISTA LLC") is True
+    assert city_in_name("lake  buena-vista", "Q PIZZA LAKE BUENA VISTA LLC") is True       # the city is simplified the way a name is
+    assert city_in_name("Buena Vista Lake", "Q PIZZA LAKE BUENA VISTA LLC") is True        # every word, in any order: exactly what the reason says
+    assert city_in_name("Lake Buena", "Q PIZZA LAKE BUENA VISTA LLC") is True              # a shorter place whose words are all there
+    assert city_in_name("Lake Mary", "Q PIZZA LAKE BUENA VISTA LLC") is False              # one word missing
+    assert city_in_name("Lakeland", "Q PIZZA LAKE BUENA VISTA LLC") is False               # LAKE is not the word LAKELAND
+    assert city_in_name("", "Q PIZZA LAKE BUENA VISTA LLC") is False and city_in_name("  ", "Q PIZZA LLC") is False   # no city given: nothing is in the name
+    assert city_in_name("Co", "ACME ROOFING CO") is False                 # a trailing legal ending is not a word of the name, so it is never a place
+    # The principal city still counts on its own, and a company that has both is ordered as a company that has one.
+    both, name_only, city_only, neither = rank([
+        company("T00000000001", "ACME ROOFING OF TAMPA INC", city="TAMPA"), company("T00000000002", "ACME ROOFING OF TAMPA LLC", city="MIAMI"),
+        company("T00000000003", "ACME ROOFING AND SIDING INC", city="TAMPA"), company("T00000000004", "ACME ROOFING AND SIDING LLC", city="MIAMI"),
+    ], "acme roofing", city="tampa", limit=None)
+    assert [(c.city_match, c.city_in_name) for c in (both, name_only, city_only, neither)] == [(True, True), (False, True), (True, False), (False, False)]
+    assert by_words_then_city(name_only)[:2] == by_words_then_city(city_only)[:2] == by_words_then_city(both)[:2] == (False, False)
+    assert by_words_then_city(neither)[:2] == (False, True) and by_city_then_words(name_only)[:2] == (False, False)
+    assert by_similarity_then_city(name_only)[1] is True                  # search version 1's order does not read the name for a city
+
+
+def test_the_reason_about_a_place_in_the_name_is_given_only_when_it_applies_and_never_changes_the_level():
+    # Rules S14 and S4. The line is one more reason for a company's PLACE. The level is worked out from the name and the principal city, as before.
+    line = "every word of the city you gave is in the company's name"   # typed out, not read from wording.py
+    in_name, elsewhere = rank(Q_PIZZAS[2:], "Q Pizza", city="Lake Buena Vista")
+    assert evidence(in_name, city_given=True) == [
+        "name is similar (85/100)", "principal city on record is ORLANDO, and that spelling does not begin with the city you gave", line, "ACTIVE"]
+    assert line not in evidence(elsewhere, city_given=True)               # TAMPA: the place is not in its name
+    assert line not in evidence(rank(Q_PIZZAS[2:], "Q Pizza")[0], city_given=False)   # no city given: nothing to find in a name
+    assert match_level(in_name, city_given=True) == match_level(replace(in_name, city_in_name=False), city_given=True) == "Possible"   # the same level with and without it
+    assert match_level(elsewhere, city_given=True) == "Possible"          # and the same level as a namesake whose name does not hold the place
+    exact = rank([company("T00000000009", "Q PIZZA LAKE BUENA VISTA LLC", city="ORLANDO")], "Q Pizza Lake Buena Vista", city="Lake Buena Vista")[0]
+    assert (exact.exact_name, exact.city_in_name, match_level(exact, city_given=True)) == (True, True, "Likely")   # the exact name in another principal city stays Likely, not Strong
+    # A company whose principal city agrees AND whose name holds the place gets both lines, each saying what was compared.
+    both = rank([company("T00000000008", "ACME ROOFING OF TAMPA INC", city="TAMPA")], "acme roofing", city="tampa")[0]
+    assert evidence(both, city_given=True)[1:3] == ["principal city on record begins with the city you gave", line]
+
+
 def test_every_word_compares_whole_words_and_leaves_legal_suffixes_out_of_both_names():
     assert holds_every_word("V PIZZA", "V PIZZA LAKE BUENA VISTA LLC") is True
     assert holds_every_word("V PIZZA", "VA PIZZA LLC") is False            # V is not the word VA
@@ -227,7 +292,10 @@ def test_match_level_follows_the_three_rules():
     # another city and has a longer name, and it is still only Possible.
     longer = rank([company("T00000000005", "ACME ROOFING AND SIDING INC", city="TAMPA")], "acme roofing", city="jacksonville")[0]
     assert longer.every_word is True and match_level(longer, city_given=True) == "Possible"
-    for order in (by_words_then_city, by_city_then_words):
+    # Nor is a place in the name (rule S14): this company is moved up the list by it, and its level is still Possible.
+    place_in_name = rank([company("T00000000006", "ACME ROOFING OF JACKSONVILLE INC", city="TAMPA")], "acme roofing", city="jacksonville")[0]
+    assert place_in_name.city_in_name is True and match_level(place_in_name, city_given=True) == "Possible"
+    for order in (by_similarity_then_city, by_words_then_city, by_city_then_words):
         again = {c.company.document_number: match_level(c, city_given=True) for c in rank([
             company("T00000000001", "ACME ROOFING LLC", city="JACKSONVILLE"), company("T00000000002", "ACME ROOFING INC", city="TAMPA"),
             company("T00000000003", "ACME ROOFING AND SIDING INC", city="JACKSONVILLE"), company("T00000000004", "ACME ROOFERS OF TAMPA INC", city="TAMPA"),

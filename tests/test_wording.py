@@ -65,6 +65,13 @@ def test_the_line_under_a_list_that_is_out_of_level_order_is_rule_s12s_sentence_
     assert wording.search_order_text(False) == ""                         # levels that already go from best to worst need no sentence
 
 
+def test_the_reason_about_a_place_in_a_name_says_what_was_compared_and_claims_no_location():
+    # Phase D rule S14. The comparison is "every word of the city is a word of the name", so that is what the reason says.
+    assert wording.EVIDENCE_CITY_IN_NAME == "every word of the city you gave is in the company's name"
+    for claim in ("is in the city", "located", "is in that city", "does business"):
+        assert claim not in wording.EVIDENCE_CITY_IN_NAME, claim           # a name that holds a place does not put the company there
+
+
 def test_the_identification_line_is_built_from_extracted_fields_and_leaves_out_an_empty_one():
     line = wording.identified_text("Acme Roofing", "", "", "Likely", ("name is similar (93/100)", "ACTIVE"), 0)
     assert line == 'from the business name "Acme Roofing" · match level Likely (name is similar (93/100); ACTIVE) · chosen by the user from a shortlist.'

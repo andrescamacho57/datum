@@ -149,11 +149,19 @@ EVIDENCE_OTHER_CITY = "principal city on record is {city}, and that spelling doe
 # contractor the company was in another city. The sentence now says only what was compared.
 # Whether the comparison itself should treat "St." and "ST" alike is question Q41.
 EVIDENCE_NO_CITY = "no principal city on record for this company"   # the principal address is the only one the table holds
+EVIDENCE_CITY_IN_NAME = "every word of the city you gave is in the company's name"
+# Phase D rule S14 (leg D3). The extraction step reads a place out of a note as the city, also
+# when the place is part of the registered name: "v pizza lake buena vista" came back as the
+# business "V Pizza" and the city "Lake Buena Vista". Such a company is moved up the list, and
+# this line says why. It says exactly what was compared (search.city_in_name: whole words, in
+# any order, legal endings left out), and it is given BESIDE the line about the principal city,
+# never in its place. It does not say the company is in that city, and it changes no match level.
 EVIDENCE_ACTIVE = "ACTIVE"
 EVIDENCE_INACTIVE = "INACTIVE with the state"
 EVIDENCE_NO_STATUS = "status not on record"
-# The eight lines above are the reasons search.evidence() gives for a match level. They were
-# written in search.py in leg C2 and moved here unchanged, so that this file holds them all.
+# The nine lines above are the reasons search.evidence() gives. Eight are behind a match level:
+# they were written in search.py in leg C2 and moved here unchanged, so that this file holds
+# them all. EVIDENCE_CITY_IN_NAME is leg D3's, and it is behind a company's place on the list.
 INACTIVE_MARK = "Inactive with the state"
 # Working rule S10 (leg D2): the shortlist says this BESIDE an inactive company's name. Until
 # then the only sign was the last of its reasons, EVIDENCE_INACTIVE above, which Andres did not

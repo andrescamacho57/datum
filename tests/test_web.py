@@ -582,6 +582,24 @@ def test_a_list_with_a_lower_level_above_a_higher_one_is_in_rank_order_and_says_
     assert S12_SENTENCE not in page
 
 
+def test_a_place_that_is_in_a_companys_name_puts_it_first_and_the_card_and_the_report_say_why():
+    # Phase D rule S14 (leg D3), through the web app, on the shape of checked case 12 with invented companies. The extraction step
+    # read the place as the city, and the company's principal city is Orlando. Before rule S14 the shorter namesake came first.
+    in_name = "every word of the city you gave is in the company's name"   # typed out, not read from wording.py
+    base = next(c for c in fx.load_companies() if c.document_number == fx.NO_FLAG_COMPANY)
+    rows = (("Q PIZZA WP LLC", "WINTER PARK"), ("Q PIZZA DURBIN, LLC", "SAINT JOHNS"), ("Q PIZZA LAKE BUENA VISTA LLC", "ORLANDO"))
+    pizzas = [replace(base, document_number=f"T2600000030{n}", entity_name=name, name_key=name.replace(",", ""), principal_city=city) for n, (name, city) in enumerate(rows, start=1)]
+    browser = client_for(make(companies=pizzas, extract=lambda note: {"business_name": "Q Pizza", "city": "Lake Buena Vista", "street": "", "is_specific": True})[0])
+    answer = browser.post("/search", data={"note": "q pizza lake buena vista"})
+    cards = [seen(card) for card in answer.text.split("<article>")[1:]]
+    assert [re.search(r"T\d{11}", card).group(0) for card in cards] == ["T26000000303", "T26000000301", "T26000000302"]   # the company with the place in its name is first
+    assert in_name in cards[0] and in_name not in cards[1] and in_name not in cards[2]
+    assert "principal city on record is ORLANDO, and that spelling does not begin with the city you gave" in cards[0]   # the principal city is still said, beside it
+    assert cards[0].startswith("Q PIZZA LAKE BUENA VISTA LLC Possible ·") and "This is only a POSSIBLE match" in cards[0]   # rule S4: its level did not rise
+    report = seen(browser.get(re.search(r'href="(/company/T26000000303\?from=[^"]+)"', answer.text).group(1)).text)
+    assert "match level Possible (" in report and f"; {in_name}; ACTIVE) · chosen by the user from a shortlist." in report   # the report's line gives the same reasons
+
+
 # --- The search by address (Phase D, leg D1; working rules S5 to S8) -----------------------------------
 
 BY_ADDRESS = {"business_name": "<UNKNOWN>", "city": "", "street": "8586 palm pwwy", "is_specific": False}
