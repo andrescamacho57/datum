@@ -23,8 +23,8 @@ import sqlite3                              # an in-memory database, to run the 
 import pytest                               # the test runner; pytest.raises checks that an error IS raised
 
 from datum.load_postgres import (
-    NAMES, NAMES_CHECK_SQL, NAMES_FILL_SQL, TABLES, ExportError, check_header, create_statement, export_files, index_statements, load,
-    read_expected_counts, swap_statements,
+    ADDRESSES, ADDRESSES_CHECK_SQL, ADDRESSES_FILL_SQL, NAMES, NAMES_CHECK_SQL, NAMES_FILL_SQL, TABLES, ExportError, check_header, create_statement,
+    export_files, index_statements, load, read_expected_counts, swap_statements,
 )
 
 BY_NAME = {table.name: table for table in TABLES}
@@ -64,10 +64,11 @@ def a_full_export(export_dir, counts=None):
 class FakeConnection:
     """Stands in for a psycopg connection: it records every statement and counts the rows copied into each table."""
 
-    def __init__(self, names_check=None):
+    def __init__(self, names_check=None, addresses_check=None):
         self.log = []                       # every statement, in the order it arrived, plus BEGIN and COMMIT markers
         self.rows = {}                      # table name → rows copied into it
         self.names_check = names_check      # what the same-companies check answers. None = the two tables agree
+        self.addresses_check = addresses_check   # the same, for the narrow address table
 
     def execute(self, statement, params=None):
         self.log.append(" ".join(statement.split()))                      # one line per statement, extra spaces removed
@@ -78,6 +79,10 @@ class FakeConnection:
             self.rows["company_search_names_new"] = self.rows["company_search_new"]   # one narrow row per company loaded
         if statement == NAMES_CHECK_SQL:
             return FakeResult(self.names_check or (self.rows["company_search_names_new"], self.rows["company_search_new"], 0, 0))
+        if statement == ADDRESSES_FILL_SQL:
+            self.rows["company_search_addresses_new"] = self.rows["company_search_new"]   # one address row per company loaded
+        if statement == ADDRESSES_CHECK_SQL:
+            return FakeResult(self.addresses_check or (self.rows["company_search_addresses_new"], self.rows["company_search_new"], 0, 0))
         if statement.startswith("select count(*) from "):
             return FakeResult(self.rows[words[-1]])
         return FakeResult(None)
@@ -262,6 +267,7 @@ def test_a_narrow_table_that_differs_from_company_search_stops_the_run_before_th
         assert not [s for s in conn.log if " rename " in s]               # and no table was given a live name
         assert conn.log[-5:] == [f"drop table if exists {table.name}_new" for table in TABLES + (NAMES,)]
         assert not [s for s in conn.log if s.startswith("create index")]  # no index was built on tables that are about to be dropped
+        assert ADDRESSES_FILL_SQL not in conn.log                         # and the address table was not even started
 
 
 def run_names_check(names, companies):
@@ -289,3 +295,82 @@ def test_the_narrow_table_is_never_read_from_a_file_and_holds_only_a_number_and_
     assert NAMES not in TABLES                                            # so no export file and no exported count is expected for it
     assert [name for name, _ in NAMES.columns] == ["document_number", "name_key"]   # nothing a report states is in it
     assert index_statements(NAMES) == ["create index company_search_names_new_name_key_trgm on company_search_names_new using gin (name_key gin_trgm_ops)"]
+
+
+def test_the_address_table_is_built_from_the_loaded_companies_checked_and_swapped_with_the_rest(tmp_path):
+    # Phase D, leg D1: the search by address reads a narrow table of house numbers and street words.
+    a_full_export(tmp_path)
+    conn = FakeConnection()
+    result = load(conn, tmp_path)
+    assert result["addresses"] == {"rows": 3, "company_rows": 3, "only_in_addresses": 0, "only_in_companies": 0}
+    begin, commit = conn.log.index("BEGIN"), conn.log.index("COMMIT")
+    before, inside = conn.log[:begin], conn.log[begin + 1:commit]
+    fill, check = before.index(ADDRESSES_FILL_SQL), before.index(ADDRESSES_CHECK_SQL)
+    assert before.index(NAMES_CHECK_SQL) < fill < check                   # built after the name table passed its check, and then checked itself
+    assert check < before.index(index_statements(ADDRESSES)[0])           # its index is only built on a table that passed the check
+    assert all(statement in inside for statement in swap_statements(ADDRESSES))   # and it goes live in the same transaction as every other table
+    assert "from company_search_new) as simplified" in ADDRESSES_FILL_SQL       # it is cut from the copy being loaded, never from the live table
+    assert "principal_address_1" in ADDRESSES_FILL_SQL and "mail" not in ADDRESSES_FILL_SQL.lower()   # only the principal address is searched (working rule S5)
+
+
+def test_the_statement_that_cuts_an_address_is_pinned_word_for_word():
+    # No offline test can RUN this statement, because it uses functions only Postgres has. So its text is pinned here, and a change
+    # to the cut has to change this test too. The cut must stay the one search.street_parts makes: the simplified address, the
+    # first word as the house number when it begins with a digit and is not a numbered street (4TH), the words after it as the street.
+    assert ADDRESSES_FILL_SQL == (
+        "insert into company_search_addresses_new (document_number, house_number, street_words) "
+        "select document_number, house_number, street_words from ("
+        "select document_number, "
+        "case when words[1] ~ '^[0-9]' and words[1] !~ '^[0-9]+(ST|ND|RD|TH)$' then words[1] end as house_number, "
+        "case when words[1] ~ '^[0-9]' and words[1] !~ '^[0-9]+(ST|ND|RD|TH)$' then array_to_string(words[2:], ' ') else '' end as street_words "
+        "from (select document_number, "
+        "string_to_array(trim(regexp_replace(upper(coalesce(principal_address_1, '')), '[^A-Z0-9]+', ' ', 'g')), ' ') as words "
+        "from company_search_new) as simplified) as cut "
+        'order by house_number collate "C" nulls last, street_words collate "C", document_number'
+    )
+    from datum.search import ORDINAL                                      # the Python side of the same rule
+    assert ORDINAL.pattern == "[0-9]+(ST|ND|RD|TH)" and "'^" + ORDINAL.pattern + "$'" in ADDRESSES_FILL_SQL
+
+
+def test_an_address_table_that_differs_from_company_search_stops_the_run_before_the_swap(tmp_path):
+    # Each answer is (address rows, company rows, only in the address table, only in company_search).
+    for answer, message in (
+        ((2, 3, 0, 1), "0 are only in company_search_addresses and 1 are only in company_search"),   # a company the search by address could never find
+        ((3, 3, 1, 1), "1 are only in company_search_addresses and 1 are only in company_search"),   # a number the app could not show
+        ((4, 3, 0, 0), "company_search_addresses has 4 rows and company_search has 3"),              # the same numbers, one of them twice
+        ((3, 3, 0, 1), "0 are only in company_search_addresses and 1 are only in company_search"),   # equal counts: a number twice hides a missing company
+    ):
+        a_full_export(tmp_path)
+        conn = FakeConnection(addresses_check=answer)
+        with pytest.raises(ExportError, match=message):
+            load(conn, tmp_path)
+        assert "BEGIN" not in conn.log and not [s for s in conn.log if " rename " in s]   # no transaction was opened, and no table was given a live name
+        assert conn.log[-6:] == [f"drop table if exists {table.name}_new" for table in TABLES + (NAMES, ADDRESSES)]   # the name table goes too
+        assert not [s for s in conn.log if s.startswith("create index")]
+
+
+def run_addresses_check(addresses, companies):
+    """Run ADDRESSES_CHECK_SQL, the loader's own text, in SQLite against two small invented tables."""
+    db = sqlite3.connect(":memory:")
+    db.execute("create table company_search_addresses_new (document_number text, house_number text, street_words text)")
+    db.execute("create table company_search_new (document_number text primary key)")
+    db.executemany("insert into company_search_addresses_new values (?, ?, ?)", addresses)
+    db.executemany("insert into company_search_new values (?)", [(number,) for number in companies])
+    return db.execute(ADDRESSES_CHECK_SQL).fetchone()
+
+
+def test_the_check_sees_every_way_the_address_table_can_differ_from_company_search():
+    rows = [("T1", "12", "INVENTED WAY"), ("T2", "34", "MADE UP RD"), ("T3", None, "")]   # T3 has no house number, and still has its row
+    companies = ["T1", "T2", "T3"]
+    assert run_addresses_check(rows, companies) == (3, 3, 0, 0)           # the same companies
+    assert run_addresses_check(rows[:2], companies) == (2, 3, 0, 1)       # T3 is missing: a company with no house number must keep its row
+    assert run_addresses_check(rows + [("T9", "56", "NOWHERE LN")], companies) == (4, 3, 1, 0)   # T9 is in the address table only
+    assert run_addresses_check(rows + [rows[0]], companies) == (4, 3, 0, 0)   # T1 twice and nothing missing: only the row counts show it
+    assert run_addresses_check(rows[:2] + [rows[0]], companies) == (3, 3, 0, 1)   # T1 twice in place of T3: only the last number shows it
+
+
+def test_the_address_table_is_never_read_from_a_file_and_holds_only_a_number_a_house_number_and_street_words():
+    assert ADDRESSES not in TABLES                                        # so no export file and no exported count is expected for it
+    assert [name for name, _ in ADDRESSES.columns] == ["document_number", "house_number", "street_words"]   # no name, no status, nothing a page states
+    assert index_statements(ADDRESSES) == ["create index company_search_addresses_new_house_number on company_search_addresses_new (house_number)"]
+    assert "house_number text," in create_statement(ADDRESSES)            # the house number may be empty: an address such as PO BOX 12 has none

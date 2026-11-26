@@ -73,6 +73,23 @@ FLAG_NEW_TEXT = "On record since {day}"
 FLAG_NEW_CAVEAT = "May be an effective date"
 NEW_COMPANY_MONTHS = 12                     # "Date on record within 12 months", from the same table
 
+# --- The summary at the top of a report (Phase D, leg D2; working rule S9) ----------------
+# A contractor reads the first lines and stops. They answer "is it real, and is anything on the
+# record" from facts the report shows further down, and they give no verdict. The order is the
+# rule's: the status as of the day the state published the record, the entity type and the year
+# of the date on record, the summary line (summary_line below), and then CONFIRMED_ONLY.
+SUMMARY_STATUS = "{status} with the state as of {day}."
+# "As of" the published date, and never "is active": a change after that date is not checked
+# (rule W5 lists it), and a company first seen in a daily file has a later date than the snapshot.
+SUMMARY_NO_STATUS = "No status with the state is on record as of {day}."
+SUMMARY_TYPE_SINCE = "{entity_type}, on record since {year}."
+SUMMARY_TYPE_DATE_AHEAD = "{entity_type}, with a date on record in {year}, which is in the future."
+# 35 companies have a date on record that has not come yet. "On record since 2120" would be false.
+SUMMARY_TYPE_NO_DATE = "{entity_type}, with no date on record."
+SUMMARY_NO_TYPE = "Entity type not on record"                  # stands where the entity type would, when the state has none
+HEADING_RECORDS = "The records behind this summary"            # the company record table and the two lists of sources sit under it
+MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
 # --- A flag card ------------------------------------------------------------------------
 HEADING_FLAGS = "Flags"
 LABEL_FLAG_DATE = "Date on the record"
@@ -137,6 +154,13 @@ EVIDENCE_INACTIVE = "INACTIVE with the state"
 EVIDENCE_NO_STATUS = "status not on record"
 # The eight lines above are the reasons search.evidence() gives for a match level. They were
 # written in search.py in leg C2 and moved here unchanged, so that this file holds them all.
+INACTIVE_MARK = "Inactive with the state"
+# Working rule S10 (leg D2): the shortlist says this BESIDE an inactive company's name. Until
+# then the only sign was the last of its reasons, EVIDENCE_INACTIVE above, which Andres did not
+# see on Nov 24. On a SHORTLIST that reason is left out when the mark is shown, so the list
+# says it once. Everywhere else the reason stays as it was: in the line of a report that says
+# how its company was identified, and in the terminal's question about a Possible match.
+# The mark is the status on the record and nothing more.
 TIE_STRONG = "{count} companies match at the level Strong. Check which one you mean before you open a report."
 TIE_ON_LIST = "{count} companies on this list match at the level {level}. Check which one you mean before you open a report."
 # Shown ABOVE the shortlist when more than one company shares the top level (rule W7). Each
@@ -187,17 +211,78 @@ SEARCH_UNAVAILABLE = "The search is unavailable right now, so no company is show
 APP_NAME = "Datum"
 SEARCH_HEADING = "Check a company"
 SEARCH_LABEL = "Describe the client"
-SEARCH_HINT = "A business name, and a street or a city if you have one."
-# Rule W6: the app asks for a business name, a street or a city, and never for an owner's name.
+SEARCH_HINT = "A business name and its city, or a street address that begins with its house number."
+# Rule W6: the app never asks for an owner's name. Until leg D1 this line asked for "a street or
+# a city", and the search used no street (question Q42). It now says what the two searches use:
+# the name search reads the name and the city, and the address search reads a street that
+# begins with a house number, when the note names no business.
 SEARCH_BUTTON = "Search"
 SEARCH_AGAIN = "Search again"
 SHORTLIST_HEADING = "Which company do you mean?"
-NOTE_EMPTY = "Nothing was typed. Type the business's name, and a street or a city if you have one."
-NOTE_TOO_LONG = "That is too long to search for. Type the business's name, and a street or a city if you have one."
-ASK_FOR_A_BUSINESS_ON_A_PAGE = ASK_FOR_A_BUSINESS + "."      # the terminal's question, as a sentence on a page (acceptance test A2)
+NOTE_EMPTY = "Nothing was typed. Type the business's name and its city, or a street address that begins with its house number."
+NOTE_TOO_LONG = "That is too long to search for. Type the business's name and its city, or a street address that begins with its house number."
+ASK_FOR_A_BUSINESS_ON_A_PAGE = "That describes a business but doesn't name one. Add its name, or its street address beginning with the house number."
+# Acceptance test A2. The terminal's question, ASK_FOR_A_BUSINESS above, still ends "a street or
+# a city": the terminal has no search by address, so its words are left as they were.
 NO_COMPANY_FOUND = "No company with a name close to that was found. Check the spelling of the business's name."
 REPORT_UNAVAILABLE = "The report is unavailable right now."
 REQUEST_NOT_READ = "That could not be read as a search. Type the business's name in the box."   # a form that was not sent by the search box
+
+# --- The search by address (Phase D, leg D1; working rules S5 to S8) ------------------------
+ADDRESS_HEADING = "Companies by principal address"
+ADDRESS_COMPARED = (
+    "A company matches when its principal address on record has the house number {house_number} "
+    "and a street name made only of words you typed. The kind of street, such as ST or PKWY, and a direction, N, S, E or W, are not compared."
+)
+# Exactly the comparison of search.street_matches(). Every line below says "matches" and never
+# "has this address", because the comparison is looser than that: 8586 PALM AVE matches
+# "8586 palm pkwy", and so does a street made of fewer words than were typed. Round 1 of leg
+# D1's review found that the first wording, "has this principal address", claimed more than was
+# checked, above all for the companies that are counted and not shown. Each LISTED company is
+# shown with its own address as the state has it, so the reader can compare.
+ADDRESS_COMPARED_CITY = "Its principal city on record also begins with the city you gave."
+ADDRESS_COMPARED_NO_CITY = "You gave no city, so a match can be in any city."
+ADDRESS_ACTIVE_ONE = "1 active company matches."
+ADDRESS_ACTIVE_MANY = "{count} active companies match. They are in document-number order, which says nothing about which one you mean."
+ADDRESS_NO_ACTIVE = "No active company matches."
+ADDRESS_INACTIVE_ONE = "1 inactive company also matches and is not listed."
+ADDRESS_INACTIVE_MANY = "{count} inactive companies also match and are not listed."
+# Rule S6: an address search lists only the active companies and says how many inactive ones
+# there are, in one sentence. Whether they should be listed is Andres's call (question Q45).
+ADDRESS_NO_STATUS_ONE = "1 company with no status on record also matches and is not listed."
+ADDRESS_NO_STATUS_MANY = "{count} companies with no status on record also match and are not listed."
+# A company with no status on record is not called inactive (CLAUDE.md rule 3). Every company has a status today.
+PRINCIPAL_ADDRESS_NOTE = "A company's principal address is the address it gave the state, which is not always where it does business."
+# Rule S8, word for word: once, under the results of every address search.
+ADDRESS_NOT_FOUND = (
+    "No company matches: none has a principal address on record with that house number and a street name made only of words you typed. "
+    "Check the house number and the spelling of the street's name, and add the suite or unit if the address has one."
+)
+ADDRESS_NOT_FOUND_IN_CITY = (
+    "No company matches: none has a principal address on record with that house number, a street name made only of words you typed, "
+    "and a principal city that begins with the city you gave. "
+    "Check the house number, the spelling of the street's name and the city, and add the suite or unit if the address has one."
+)
+# Each says what was compared, so that it does not read as "no company is at this address". A
+# record that holds a suite only matches when the suite was typed too (question Q47). The
+# second is shown when a city was read from the note: the city is then part of the comparison,
+# and a company with that house number and street in ANOTHER city is not a match. Round 2 of
+# leg D1's review found that one sentence for both cases denied such a company's record.
+ADDRESS_TOO_MANY = "That house number and street name are on the records of too many companies to list them. Add the business's name."
+# It gives no count. The search stops reading at a limit, before the city is compared, so it
+# cannot say how many companies there are, and a sentence with a number would need a source.
+COMPANY_RECORDS_CITATION = "Florida Division of Corporations (Sunbiz) company records"
+# What a count of companies cites. One company cites its own record, with its document number.
+IDENTIFIED_BY_ADDRESS = (
+    "from {fields} · found by its principal address on record (the same house number, and a street name made only of words that were typed) "
+    "· chosen by the user from the active companies listed."
+)
+ADDRESS_OTHERS_ONE = "1 other active company was listed with it."
+ADDRESS_OTHERS_MANY = "{count} other active companies were listed with it."
+# Rule W7 for an address: every company on the list matched equally, so the report of whichever
+# one was picked says how many others were on it. No match level is given, because rule S4
+# keeps the three levels for the name search.
+
 NOT_FOUND_HEADING = "Not found"
 NOT_FOUND = "Nothing was found at this address."
 # One sentence for every 404, whether the address is unknown, the document number has the
@@ -207,6 +292,26 @@ NOT_FOUND = "Nothing was found at this address."
 def day_text(value: date | datetime) -> str:
     """A date the way every page writes it: 2026-11-24. A fetch time is shown as its UTC date."""
     return value.strftime("%Y-%m-%d")
+
+
+def long_day_text(value: date) -> str:
+    """A date the way the summary writes it: Oct 7, 2026. The month names are spelled here, so the text does not depend on the machine's language."""
+    return f"{MONTHS[value.month - 1]} {value.day}, {value.year}"
+
+
+def summary_status_text(status: str | None, published_on: date) -> str:
+    """The summary's first sentence: the status with the state as of the day the record was published. `status` is None when the state has none."""
+    day = long_day_text(published_on)
+    return SUMMARY_STATUS.format(status=status, day=day) if status else SUMMARY_NO_STATUS.format(day=day)
+
+
+def summary_record_text(entity_type: str | None, on_record: date | None, built_on: date) -> str:
+    """The summary's second sentence: the entity type and the year of the date on record. A gap is said, and a date still to come is not called "since"."""
+    entity_type = entity_type or SUMMARY_NO_TYPE
+    if on_record is None:
+        return SUMMARY_TYPE_NO_DATE.format(entity_type=entity_type)
+    sentence = SUMMARY_TYPE_DATE_AHEAD if on_record > built_on else SUMMARY_TYPE_SINCE
+    return sentence.format(entity_type=entity_type, year=on_record.year)
 
 
 def summary_line(flag_count: int, sources_checked: int) -> str:
@@ -250,6 +355,33 @@ def not_shown_text(count: int) -> str:
     if count <= 0:
         return ""
     return SHORTLIST_NOT_SHOWN_ONE if count == 1 else SHORTLIST_NOT_SHOWN_MANY.format(count=count)
+
+
+def count_text(count: int, one: str, many: str) -> str:
+    """One of two sentences about a count of companies: `one` for 1, `many` with the number filled in for more. Empty for none."""
+    if count <= 0:
+        return ""
+    return one if count == 1 else many.format(count=count)
+
+
+def address_compared_text(house_number: str, city_given: bool) -> str:
+    """The sentence that says what an address search compared, and a second one about the city: compared, or not given."""
+    return f"{ADDRESS_COMPARED.format(house_number=house_number)} {ADDRESS_COMPARED_CITY if city_given else ADDRESS_COMPARED_NO_CITY}"
+
+
+def address_not_found_text(city_given: bool) -> str:
+    """The sentence for an address search that matched nobody. It names the city as one of the things compared only when one was given."""
+    return ADDRESS_NOT_FOUND_IN_CITY if city_given else ADDRESS_NOT_FOUND
+
+
+def identified_by_address_text(street: str, city: str, others_listed: int) -> str:
+    """The identification line of a company picked from an address search, built from the EXTRACTED street and city only (rule W6)."""
+    fields = [FIELD_STREET.format(value=street)]
+    if city:
+        fields.append(FIELD_CITY.format(value=city))
+    line = IDENTIFIED_BY_ADDRESS.format(fields=", ".join(fields))
+    others = count_text(others_listed, ADDRESS_OTHERS_ONE, ADDRESS_OTHERS_MANY)
+    return f"{line} {others}" if others else line
 
 
 def identified_text(business_name: str, city: str, street: str, level: str, evidence: tuple[str, ...], tied_others: int) -> str:

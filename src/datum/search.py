@@ -1,4 +1,4 @@
-"""search.py: find the company a contractor means, from an extracted business name and city (Phase C, leg C2).
+"""search.py: find the company a contractor means, from an extracted business name and city (Phase C, leg C2; the search by address added in Phase D, leg D1).
 
 The search has two steps, and the split is the point of this module:
 
@@ -10,6 +10,17 @@ The search has two steps, and the split is the point of this module:
                   search version 1 (snowflake/11_score_search_v1.sql): Jaro-Winkler
                   similarity first, then a city match, then the document number as a fixed
                   tie-break. Keep the best five.
+
+Leg D1 built a second order for step 2, Phase D working rule S2 (by_words_then_city below),
+and its one permitted variant (by_city_then_words). NEITHER IS SWITCHED ON. Working rule S3
+says to keep the old order when the new one and its variant both make a checked case worse,
+and both do: on checked case 9 they move the expected company from first to second on the
+page a contractor sees. RANK_ORDER below is the one line that says which order the app
+uses, and changing it is Andres's call. The evaluation can score either order beside the
+app's (python -m evals.run --backend postgres --try-order s2).
+
+Step 2 can only order what step 1 brought back. A company that is not in the pool is never
+ranked, whatever the order is. Leg D1's report shows a case where that decides the answer.
 
 This pattern is called retrieve-then-rerank. A careful score over 13 million names takes
 Snowflake about a minute. A careful score over 200 names takes Python a millisecond.
@@ -24,10 +35,18 @@ Likely or Possible), the EVIDENCE behind it, and the count of candidates that TI
 top level (working rule W7: a tie is said out loud). They follow the rules src/datum/report.py
 has used since October.
 
+The search by ADDRESS (Phase D, leg D1; working rules S5 to S8) is the second half of this
+module. A contractor often knows a job by its address and not by the client's legal name.
+When a note names no business and its street begins with a house number, the app looks for
+the companies whose PRINCIPAL address has that house number and that street. It lists only
+the active ones, and it says how many inactive ones it left out. search_kind() decides
+which of the two searches a note gets, in one place, for the app and the evaluation alike.
+
 No names of people are involved: every name here is a registered business name.
 """
 
 import re                                   # regular expressions, for the simplified name and the legal suffixes
+from collections.abc import Callable        # the type of "a function that gives a candidate its sort key"
 from dataclasses import dataclass           # writes __init__ and friends for a class of plain fields
 from datetime import date, datetime, timezone   # the types of a company's dates and fetch time, and the UTC zone
 from fractions import Fraction              # exact fractions, so a score never depends on rounding error
@@ -49,6 +68,24 @@ SUFFIX_PATTERN = re.compile(r"( (L L C|LLC|INC|INCORPORATED|CORP|CORPORATION|CO|
 # this one only decides whether to call a typed name an exact match.
 
 LEVELS = ("Strong", "Likely", "Possible")   # the three match levels, best first
+
+STREET_TYPES = frozenset({
+    "PKWY", "PARKWAY", "ST", "STREET", "AVE", "AVENUE", "RD", "ROAD", "BLVD", "BOULEVARD", "DR", "DRIVE", "LN", "LANE",
+    "CT", "COURT", "WAY", "CIR", "CIRCLE", "HWY", "HIGHWAY", "PL", "PLACE", "TER", "TERRACE", "TRL", "TRAIL",
+})
+# The kinds of street, short and spelled out. Working rule S5 lists sixteen of them "and the
+# like". These are those sixteen, the other spelling of each, and three more pairs (PL and
+# PLACE, TER and TERRACE, TRL and TRAIL). The search by address ignores them on both sides,
+# because the street type is where the abbreviations and the typing mistakes are: PKWY,
+# PARKWAY and a mistyped PWWY all name the same street.
+DIRECTIONS = frozenset({"N", "S", "E", "W"})   # the four directions rule S5 lists, and no other (not NE or SW, and not NORTH spelled out)
+IGNORED_STREET_WORDS = STREET_TYPES | DIRECTIONS
+ORDINAL = re.compile(r"[0-9]+(ST|ND|RD|TH)")
+# A numbered street: 1ST, 2ND, 3RD, 4TH, 101ST. It begins with a digit and it is NOT a house
+# number. "4th st south" names a street and no house on it, so it has no house number
+# (working rule S7). "123A" does not fit this pattern, and it is a house number.
+MOST_AT_AN_ADDRESS = 50                     # an address with more companies than this lists none of them (see address_search)
+ADDRESS_FETCH = 1000                        # how many companies with the right house number and street the database may hand over for one search
 
 
 @dataclass(frozen=True)                     # frozen = fields can't change after creation
@@ -86,6 +123,7 @@ class Candidate:
     similarity: int                         # Jaro-Winkler similarity of the two simplified names, 0 to 100
     city_match: bool                        # True when a city was given and the company's city starts with it
     exact_name: bool                        # True when the two names are equal once legal suffixes are removed
+    every_word: bool                        # True when every word of the typed name is among the words of the company's name, legal suffixes aside
 
 
 @dataclass(frozen=True)
@@ -190,13 +228,71 @@ def without_suffixes(key: str) -> str:
     return SUFFIX_PATTERN.sub("", key)
 
 
-def rank(companies: list[Company], business_name: str, city: str = "", limit: int | None = SHORTLIST_SIZE) -> list[Candidate]:
+def holds_every_word(search_key: str, company_key: str) -> bool:
+    """True when every word of the typed name is among the words of the company's name, with trailing legal suffixes left out of both.
+
+    "V PIZZA" is held by "V PIZZA LAKE BUENA VISTA LLC": both of its words are there. It is
+    not held by "VA PIZZA LLC". Whole words are compared, so ROOFING is not held by ROOFINGS.
+    A typed name that is nothing but a legal suffix, such as "LLC", keeps its words, as it
+    does in the index lookup: there would otherwise be no word left to look for.
+    """
+    typed = (without_suffixes(search_key) or search_key).split()
+    words = set((without_suffixes(company_key) or company_key).split())
+    return bool(typed) and all(word in words for word in typed)
+
+
+def by_similarity_then_city(candidate: Candidate) -> tuple:
+    """Search version 1's order, as a sort key: the highest similarity first, then a company in the city given, then the document number.
+
+    Python sorts tuples left to right. The minus sign puts 95 before 88, and False sorts
+    before True, so "not city_match" puts a city match first. The document number is a fixed
+    order, so a rerun can never flip two equal candidates. City breaks a tie and is never a
+    filter: a company's registered city is its principal address, which can differ from the
+    job site. This is the order the app uses (RANK_ORDER below).
+    """
+    return (-candidate.similarity, not candidate.city_match, candidate.company.document_number)
+
+
+def by_words_then_city(candidate: Candidate) -> tuple:
+    """Working rule S2, as a sort key. BUILT AND MEASURED IN LEG D1, AND NOT USED BY THE APP (see RANK_ORDER).
+
+      1. a company whose name holds every typed word comes first ("not every_word" is False for it);
+      2. then a company whose principal city agrees with the city given;
+      3. then the higher Jaro-Winkler similarity (the minus sign puts 95 before 88);
+      4. then the document number, a fixed order, so a rerun can never flip two equal candidates.
+
+    Status is not in the key, on purpose. An inactive company is neither moved up nor down:
+    ranking active companies first would hide a dissolved client behind an active namesake.
+    The extraction step returns no ZIP code, so none is compared.
+    """
+    return (not candidate.every_word, not candidate.city_match, -candidate.similarity, candidate.company.document_number)
+
+
+def by_city_then_words(candidate: Candidate) -> tuple:
+    """The one variant working rule S3 allows: rule S2 with its first two parts swapped. Also not used by the app.
+
+    A company in the city given comes first, then one whose name holds every typed word,
+    then the higher similarity, then the document number.
+    """
+    return (not candidate.city_match, not candidate.every_word, -candidate.similarity, candidate.company.document_number)
+
+
+RANK_ORDER = by_similarity_then_city
+# The order the app's name search uses: search version 1's. Rule S2 and its variant were both
+# measured on Nov 25, 2026. Neither changed any checked case's place by rank. Both moved checked
+# case 9's expected company from first to second ON THE PAGE: a company whose name is exactly
+# the typed name climbs into the best five, and the page shows the five by match level, so
+# that company (Strong) is shown above the expected one (Possible). Rule S3: when S2 and the
+# variant both make a checked case worse, keep the old ranking and let Andres decide.
+
+
+def rank(companies: list[Company], business_name: str, city: str = "", limit: int | None = SHORTLIST_SIZE,
+         order: Callable[[Candidate], tuple] = RANK_ORDER) -> list[Candidate]:
     """Step 2: score a pool of companies against the typed name and keep the best `limit` (all of them when limit is None).
 
-    The order is search version 1's: the highest similarity first, then a company in the
-    given city, then the document number, which is a fixed order so a rerun can't flip two
-    equal candidates. City is a tie-break and never a filter: a company's registered city
-    is its principal address, which can differ from the job site.
+    The order is RANK_ORDER, search version 1's. `order` exists so that the evaluation can
+    sort the same pool by rule S2 or by its variant and show the result beside the app's.
+    The app never passes it.
     """
     search_key = name_key(business_name)
     candidates = [
@@ -205,19 +301,21 @@ def rank(companies: list[Company], business_name: str, city: str = "", limit: in
             similarity=jaro_winkler_similarity(search_key, company.name_key),
             city_match=city_matches(city, company.principal_city),
             exact_name=without_suffixes(company.name_key) == without_suffixes(search_key),
+            every_word=holds_every_word(search_key, company.name_key),
         )
         for company in companies
     ]
-    candidates.sort(key=lambda c: (-c.similarity, not c.city_match, c.company.document_number))   # False sorts before True, so "not city_match" puts a city match first
+    candidates.sort(key=order)
     return candidates[:limit]                                      # a slice up to None is the whole list
 
 
-def search_pool(backend: SearchBackend, business_name: str, city: str = "", pool: int = CANDIDATE_POOL) -> list[Candidate]:
+def search_pool(backend: SearchBackend, business_name: str, city: str = "", pool: int = CANDIDATE_POOL,
+                order: Callable[[Candidate], tuple] = RANK_ORDER) -> list[Candidate]:
     """Both steps, keeping the WHOLE reranked pool. The shortlist is built from this, so that it can see every tie."""
     search_key = name_key(business_name)
     if not search_key:                                             # nothing to search for: no candidates, and no guess
         return []
-    return rank(backend.nearest(search_key, pool), business_name, city, limit=None)
+    return rank(backend.nearest(search_key, pool), business_name, city, limit=None, order=order)
 
 
 def search(backend: SearchBackend, business_name: str, city: str = "", limit: int = SHORTLIST_SIZE, pool: int = CANDIDATE_POOL) -> list[Candidate]:
@@ -241,13 +339,20 @@ def match_level(candidate: Candidate, city_given: bool) -> str:
     return "Possible"
 
 
-def evidence(candidate: Candidate, city_given: bool) -> list[str]:
+def evidence(candidate: Candidate, city_given: bool, status_marked: bool = False) -> list[str]:
     """The reasons behind the level, in words the contractor can check: the name, the city when one was given, and the status.
 
     These are the three reasons report.py has given since October. Two gaps in the data are
     said plainly and never filled in (CLAUDE.md rule 3): a company with no principal city on
     record is not "registered in None", and a company with no status on record is not called inactive.
     The words themselves live in wording.py, with every other sentence a contractor can be shown.
+
+    `status_marked` is for a SHORTLIST (working rule S10, leg D2). A shortlist says "Inactive
+    with the state" beside an inactive company's name, and so it passes True, and that
+    company's status is left out of the reasons: it is said once, where it is seen first.
+    Every other caller leaves it False and gets all three reasons, as before: the line of a
+    report that says how its company was identified, and the terminal's question about a
+    Possible match, keep every fact they had.
     """
     reasons = [wording.EVIDENCE_EXACT_NAME if candidate.exact_name
                else wording.EVIDENCE_SIMILAR_NAME.format(similarity=candidate.similarity)]
@@ -259,7 +364,8 @@ def evidence(candidate: Candidate, city_given: bool) -> list[str]:
         else:
             reasons.append(wording.EVIDENCE_NO_CITY)
     status = candidate.company.status_code
-    reasons.append(wording.EVIDENCE_ACTIVE if status == "A" else wording.EVIDENCE_INACTIVE if status == "I" else wording.EVIDENCE_NO_STATUS)
+    if not (status_marked and status == "I"):   # on a shortlist an inactive company's status is the mark beside its name, so it is not said a second time
+        reasons.append(wording.EVIDENCE_ACTIVE if status == "A" else wording.EVIDENCE_INACTIVE if status == "I" else wording.EVIDENCE_NO_STATUS)
     return reasons
 
 
@@ -379,6 +485,34 @@ class PostgresBackend:
         rows = self.conn.execute(self.NEAREST_SQL, {"key": key, "limit": limit}).fetchall()
         return [company_from_row(row) for row in rows]
 
+    AT_HOUSE_NUMBER_SQL = (
+        f"select {', '.join('c.' + column for column in COMPANY_COLUMNS)}, found.street_words "
+        "from (select document_number, street_words from company_search_addresses "
+        "where house_number = %(house_number)s "
+        "and string_to_array(street_words, ' ') <@ %(allowed)s::text[] "
+        "and not (string_to_array(street_words, ' ') <@ %(ignored)s::text[]) "
+        "order by document_number limit %(limit)s) as found "
+        "join company_search as c using (document_number) "
+        "order by c.document_number"
+    )
+    # The search by address, against company_search_addresses, the narrow table the loader cuts
+    # from every principal address. The index finds the rows with the house number. For each,
+    # string_to_array turns the stored street back into its words, and <@ ("is contained in")
+    # keeps the row when every one of those words is in the list `allowed`: the words that were
+    # typed, plus the street types and directions the search ignores. The second condition
+    # drops a street that is nothing but ignored words. Both conditions are street_matches(),
+    # written a second time so that the database can cut the list before the limit, and
+    # address_search() applies street_matches() itself to every row that comes back.
+    # As in NEAREST_SQL, only document numbers leave the narrow table, and every company is
+    # read in full from company_search. The four values travel as parameters.
+
+    def at_house_number(self, house_number: str, typed_words: tuple[str, ...], limit: int) -> list[tuple[Company, str]]:
+        ignored = sorted(IGNORED_STREET_WORDS)
+        rows = self.conn.execute(self.AT_HOUSE_NUMBER_SQL, {
+            "house_number": house_number, "allowed": list(typed_words) + ignored, "ignored": ignored, "limit": limit,
+        }).fetchall()
+        return [(company_from_row(row[:-1]), row[-1]) for row in rows]   # the last column is the stored street; the rest is the company
+
 
 def company_from_row(row) -> Company:
     """One database row, in COMPANY_COLUMNS order, as a Company whose fetch time is in UTC.
@@ -404,7 +538,135 @@ class FakeBackend:
     def __init__(self, companies: list[Company]):
         self.companies = list(companies)
         self.calls: list[tuple[str, int]] = []                     # every (search key, limit) asked for, so a test can check them
+        self.address_calls: list[tuple[str, tuple[str, ...], int]] = []   # every (house number, typed words, limit) asked for
 
     def nearest(self, search_key: str, limit: int) -> list[Company]:
         self.calls.append((search_key, limit))
         return self.companies[:limit]
+
+    def at_house_number(self, house_number: str, typed_words: tuple[str, ...], limit: int) -> list[tuple[Company, str]]:
+        """Every company it holds whose principal address begins with this house number, with the words after the number.
+
+        The address is cut the way the loader cuts it: simplified like a name, the first word
+        is the house number, the rest is the street. It does NOT compare the street. That is
+        street_matches()'s job, which runs for real in the tests.
+        """
+        self.address_calls.append((house_number, typed_words, limit))
+        found = []
+        for company in self.companies:      # in the order they are held, NOT sorted: putting the answer in document-number order is address_search()'s job
+            words = name_key(company.principal_address_1 or "").split()
+            if words and words[0] == house_number:
+                found.append((company, " ".join(words[1:])))
+        return found[:limit]
+
+
+# --- The search by address (Phase D, leg D1; working rules S5 to S8) ---------------------------
+
+def street_parts(street: str) -> tuple[str | None, tuple[str, ...]]:
+    """(the house number, the street's words that are compared) for a street as the extraction step returned it or as the state has it.
+
+    The text is simplified the way a name is (capitals, anything that is not a letter or a
+    digit becomes a space). The first word is the house number when it begins with a digit:
+    "8586 palm pwwy" gives "8586", and "123A Main St" gives "123A". The one exception is a
+    numbered street: in "4th st south" the first word names the street, so there is no
+    house number. The words after the house number are the street, with the street types
+    and the four directions left out. A street with no house number gives (None, ()).
+    This is the same cut the loader makes when it builds company_search_addresses, which is
+    what lets a typed street and a stored one be compared word for word.
+    """
+    words = name_key(street).split()
+    if not words or not words[0][0].isdigit() or ORDINAL.fullmatch(words[0]):   # name_key leaves only A to Z and 0 to 9, so this is a plain digit
+        return None, ()
+    return words[0], tuple(word for word in words[1:] if word not in IGNORED_STREET_WORDS)
+
+
+def street_matches(stored_street_words: str, typed_words: tuple[str, ...]) -> bool:
+    """True when every word of the stored street, street types and directions aside, is among the words that were typed (working rule S5).
+
+    The stored "PALM PKWY" leaves PALM, and the typed "palm pwwy" leaves PALM and PWWY, so
+    they match: the mistyped street type does no harm, because nothing has to match it. The
+    comparison runs one way only. A typed word the stored street does not have is allowed,
+    and a stored word that was not typed is not, so one word of the stored street left out
+    of what was typed is a miss. A stored street with no word left once the types and directions are gone
+    ("N ST", or no street at all) matches nothing: it would otherwise match every street
+    with that house number.
+    """
+    stored = [word for word in stored_street_words.split() if word not in IGNORED_STREET_WORDS]
+    return bool(stored) and all(word in typed_words for word in stored)
+
+
+def search_kind(business_name: str, street: str, is_specific: bool) -> str:
+    """Which search a note gets, from what the extraction step returned: "name", "address" or "ask" (working rules S5 and S7).
+
+      "name"     the note names a business. The name search runs, also when its street has a house number.
+      "address"  the note names no business, and its street begins with a house number and has
+                 at least one word to compare after it.
+      "ask"      the note names no business, and it has no street, a street with no house number,
+                 or a house number with nothing after it but a street type ("12 parkway").
+                 "the pool guy off race track rd" stays here: a street alone matches thousands of
+                 companies. So does "4th st south", whose first word is a street and not a house.
+    The note itself is never read here, only the extracted fields (working rule W6).
+    """
+    if is_specific and business_name.strip():
+        return "name"
+    house_number, typed_words = street_parts(street)
+    return "address" if house_number and typed_words else "ask"   # with no word to compare, a search would look nothing up, and a page could only say "none found" about nothing
+
+
+@dataclass(frozen=True)
+class AddressMatches:
+    """What a search by address found. Every company here was read from company_search, so each carries its source address and fetch time."""
+
+    house_number: str                       # the house number that was looked up
+    street_words: tuple[str, ...]           # the typed street's words that were compared
+    active: tuple[Company, ...]             # the ACTIVE companies at the address, in document-number order. These are the ones a page lists
+    inactive: tuple[Company, ...]           # the inactive ones. A page says how many there are and does not list them (working rule S6)
+    no_status: tuple[Company, ...]          # companies with no status on record. Counted apart, because no status is not "inactive" (CLAUDE.md rule 3)
+    too_many: bool                          # True when more companies matched than a page may list. The three tuples above are then empty
+
+    # inactive and no_status hold the companies themselves and not only how many there are,
+    # for the reason Shortlist.not_shown does: a count of companies the object does not carry
+    # would be a statement with no source behind it.
+
+
+class AddressBackend(Protocol):
+    """Anything that can hand over the companies whose principal address has a given house number."""
+
+    def at_house_number(self, house_number: str, typed_words: tuple[str, ...], limit: int) -> list[tuple[Company, str]]:
+        """Up to `limit` (company, its stored street words), in any order.
+
+        It must hand over EVERY company with that house number whose street could match the
+        typed words, and it may hand over more: the caller decides, with street_matches().
+        """
+        ...
+
+
+def address_search(backend: AddressBackend, street: str, city: str = "") -> AddressMatches:
+    """The companies whose principal address is the typed one (working rules S5 and S6).
+
+    The house number must be the same. The street matches by street_matches() above. When a
+    city was given, the company's principal city must also agree with it, by city_matches(),
+    the same comparison the name search uses. The matches are split by status and each part
+    is in document-number order, a fixed order that claims nothing about which is likelier.
+
+    TOO MANY. An address where more than MOST_AT_AN_ADDRESS companies match lists none of
+    them. Such an address is an office tower, a mail drop or a registered agent's office,
+    and a list of fifty companies in document-number order would not help anybody find one.
+    The same answer is given when the database handed over ADDRESS_FETCH rows, because then
+    there may be more that were never looked at, and no count could be trusted.
+    """
+    house_number, typed_words = street_parts(street)
+    if house_number is None or not typed_words:                    # no house number, or no street word left to compare: nothing can match
+        return AddressMatches(house_number or "", typed_words, (), (), (), too_many=False)
+    rows = backend.at_house_number(house_number, typed_words, ADDRESS_FETCH)
+    matched = [company for company, stored in rows
+               if street_matches(stored, typed_words) and (not city.strip() or city_matches(city, company.principal_city))]
+    if len(rows) >= ADDRESS_FETCH or len(matched) > MOST_AT_AN_ADDRESS:
+        return AddressMatches(house_number, typed_words, (), (), (), too_many=True)
+    matched.sort(key=lambda company: company.document_number)
+
+    def with_status(wanted: str | None) -> tuple[Company, ...]:
+        return tuple(company for company in matched if company.status_code == wanted)
+
+    other = tuple(company for company in matched if company.status_code not in ("A", "I"))   # no status on record, or a code this module does not know
+    return AddressMatches(house_number, typed_words, with_status("A"), with_status("I"), other, too_many=False)

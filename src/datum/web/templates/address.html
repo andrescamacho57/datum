@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ w.ADDRESS_HEADING }}</h1>
+<p class="as-recorded">{{ read_as }}</p>
+<p>{{ compared }}</p>
+<p><strong>{{ active_line }}</strong></p>
+{% for candidate in candidates %}{% include "_address_candidate.html" %}
+{% endfor %}
+{% for fact in not_listed %}<p>{{ fact.text }} <small>{{ w.LABEL_SOURCE }}: <a href="{{ fact.source_url }}" rel="noopener noreferrer">{{ fact.citation }}</a> · {{ fact.fetched_text }}</small></p>
+{% endfor %}
+<p>{{ w.PRINCIPAL_ADDRESS_NOTE }}</p>
+<h2>{{ w.SEARCH_AGAIN }}</h2>
+{% include "_form.html" %}
+{% endblock %}

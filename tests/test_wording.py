@@ -93,3 +93,60 @@ def test_the_two_company_record_flags_use_the_plans_wording_word_for_word():
     assert wording.FLAG_INACTIVE_CAVEAT == "Data as of the snapshot date; changes since then aren't covered until the events file is loaded"
     assert wording.FLAG_NEW_TEXT.format(day="2026-03-14") == "On record since 2026-03-14" and wording.FLAG_NEW_CAVEAT == "May be an effective date"
     assert wording.DISCLAIMER == "Sourced public-record facts, not advice. Verify on the official record before relying on them."
+
+
+def test_the_sentences_of_an_address_search_are_held_here_as_literal_text():
+    # Phase D, leg D1. Rule S8's sentence is typed out word for word, and so is every sentence that counts companies.
+    assert wording.PRINCIPAL_ADDRESS_NOTE == "A company's principal address is the address it gave the state, which is not always where it does business."
+    assert wording.count_text(0, wording.ADDRESS_INACTIVE_ONE, wording.ADDRESS_INACTIVE_MANY) == ""   # no sentence about no companies
+    assert wording.count_text(1, wording.ADDRESS_INACTIVE_ONE, wording.ADDRESS_INACTIVE_MANY) == "1 inactive company also matches and is not listed."
+    assert wording.count_text(2, wording.ADDRESS_INACTIVE_ONE, wording.ADDRESS_INACTIVE_MANY) == "2 inactive companies also match and are not listed."
+    assert wording.count_text(1, wording.ADDRESS_ACTIVE_ONE, wording.ADDRESS_ACTIVE_MANY) == "1 active company matches."
+    assert wording.count_text(3, wording.ADDRESS_NO_STATUS_ONE, wording.ADDRESS_NO_STATUS_MANY) == "3 companies with no status on record also match and are not listed."
+    assert "inactive" not in wording.ADDRESS_NO_STATUS_ONE + wording.ADDRESS_NO_STATUS_MANY   # no status on record is never called inactive
+    assert wording.ADDRESS_TOO_MANY == "That house number and street name are on the records of too many companies to list them. Add the business's name."
+    assert wording.address_not_found_text(city_given=False) == wording.ADDRESS_NOT_FOUND and "city" not in wording.ADDRESS_NOT_FOUND
+    assert wording.address_not_found_text(city_given=True).startswith("No company matches: none has a principal address on record with that house number, "
+                                                                      "a street name made only of words you typed, and a principal city that begins with the city you gave.")
+    assert wording.address_compared_text("8586", city_given=False).endswith("are not compared. You gave no city, so a match can be in any city.")
+    assert wording.address_compared_text("8586", city_given=True).endswith("are not compared. Its principal city on record also begins with the city you gave.")
+
+
+def test_the_identification_line_of_an_address_search_names_the_street_and_no_match_level():
+    line = wording.identified_by_address_text("8586 palm pwwy", "", 0)
+    assert line == ('from the street "8586 palm pwwy" · found by its principal address on record (the same house number, and a street name made only of '
+                    "words that were typed) · chosen by the user from the active companies listed.")
+    assert "level" not in line                                            # rule S4 keeps the three levels for the name search
+    with_city = wording.identified_by_address_text("8586 palm pwwy", "Orlando", 1)
+    assert 'from the street "8586 palm pwwy", the city "Orlando" ·' in with_city and with_city.endswith(" 1 other active company was listed with it.")
+    assert wording.identified_by_address_text("12 made up rd", "", 4).endswith(" 4 other active companies were listed with it.")
+
+
+def test_the_pages_ask_for_what_the_two_searches_use_and_no_longer_for_a_street_beside_a_name():
+    # Question Q42: until leg D1 the pages asked for "a street or a city", and the search used no street.
+    asked = "the business's name and its city, or a street address that begins with its house number."
+    assert wording.SEARCH_HINT == "A business name and its city, or a street address that begins with its house number."
+    assert wording.NOTE_EMPTY == "Nothing was typed. Type " + asked and wording.NOTE_TOO_LONG == "That is too long to search for. Type " + asked
+    assert wording.ASK_FOR_A_BUSINESS_ON_A_PAGE == "That describes a business but doesn't name one. Add its name, or its street address beginning with the house number."
+    for page_sentence in (wording.SEARCH_HINT, wording.NOTE_EMPTY, wording.NOTE_TOO_LONG, wording.ASK_FOR_A_BUSINESS_ON_A_PAGE):
+        assert "a street or a city" not in page_sentence
+    assert wording.ASK_FOR_A_BUSINESS.endswith("a street or a city")      # the terminal has no search by address, so its question is unchanged
+
+
+def test_the_summary_sentences_say_the_status_as_of_a_date_and_never_fill_a_gap():
+    # Phase D, leg D2 (working rule S9). The example in the brief: "Active with the state as of Oct 7, 2026. Florida limited
+    # liability company, on record since 2022."
+    assert wording.long_day_text(date(2026, 10, 7)) == "Oct 7, 2026" and wording.long_day_text(date(2027, 1, 31)) == "Jan 31, 2027"
+    assert [wording.long_day_text(date(2026, month, 1))[:3] for month in range(1, 13)] == ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    assert wording.summary_status_text("Active", date(2026, 10, 7)) == "Active with the state as of Oct 7, 2026."
+    assert wording.summary_status_text("Inactive", date(2026, 11, 5)) == "Inactive with the state as of Nov 5, 2026."
+    assert wording.summary_status_text(None, date(2026, 10, 7)) == "No status with the state is on record as of Oct 7, 2026."   # a missing status is not "Inactive"
+    today = date(2026, 11, 25)
+    llc = "Florida limited liability company (LLC)"
+    assert wording.summary_record_text(llc, date(2022, 3, 14), today) == "Florida limited liability company (LLC), on record since 2022."
+    assert wording.summary_record_text(llc, today, today) == "Florida limited liability company (LLC), on record since 2026."   # today is not the future
+    assert wording.summary_record_text(llc, date(2120, 1, 1), today) == "Florida limited liability company (LLC), with a date on record in 2120, which is in the future."
+    assert wording.summary_record_text(llc, None, today) == "Florida limited liability company (LLC), with no date on record."
+    assert wording.summary_record_text(None, date(2022, 3, 14), today) == "Entity type not on record, on record since 2022."
+    assert wording.summary_record_text("TRUST", None, today) == "TRUST, with no date on record."   # a code with no label is shown as the state writes it
+    assert wording.HEADING_RECORDS == "The records behind this summary"

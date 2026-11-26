@@ -13,7 +13,7 @@ import pytest                               # the test runner; pytest.raises che
 from pydantic import ValidationError        # the error Pydantic raises when a value breaks a model's rules
 
 from datum import wording
-from datum.models import Candidate, Extracted, Fact, Flag, Identification, Report, read_extracted
+from datum.models import AddressCandidate, Candidate, Extracted, Fact, Flag, Identification, Report, read_extracted
 
 FETCHED = datetime(2026, 10, 22, 19, 31, 31, tzinfo=timezone.utc)
 SUNBIZ = "https://search.sunbiz.org/Inquiry/CorporationSearch/ByDocumentNumber"
@@ -87,6 +87,7 @@ def a_flag():
 def a_report(flags=()):
     return Report(
         document_number="T26000000001", built_on=date(2026, 11, 24), name="INVENTED ROOFING CORP",
+        headline=(a_fact(text="Inactive with the state as of Oct 7, 2026."), a_fact(text="Florida corporation (for profit), on record since 2010.")),
         company=((wording.LABEL_STATUS, a_fact()),), company_source=a_fact(), flags=tuple(flags),
         sources_checked=(a_fact(text="source one"), a_fact(text="source two")), sources_not_checked=("Court cases",),
         identification=a_fact(text=wording.IDENTIFIED_BY_NUMBER), caution="",
@@ -140,3 +141,35 @@ def test_the_extraction_steps_reply_is_checked_and_trimmed_before_anything_uses_
         with pytest.raises((ValidationError, AttributeError, TypeError)):
             read_extracted({**good, field: wrong})                        # a wrong kind of value never becomes a search
     assert "note" not in Extracted.model_fields                           # and the checked reply has no place for the note either
+
+
+def test_a_company_is_identified_by_its_name_or_by_its_address_and_never_by_a_mix_of_the_two():
+    # Phase D, leg D1. A company found by its address has no match level, and the type refuses to give it one (working rule S4).
+    by_address = Identification(found_by="address", street="8586 palm pwwy", city="Orlando", tied_others=2)
+    assert (by_address.level, by_address.business_name, by_address.evidence) == (None, "", ())
+    for mixed in ({"level": "Strong"}, {"business_name": "V Pizza"}, {"evidence": ("ACTIVE",)}, {"street": ""}):
+        with pytest.raises(ValidationError):
+            Identification(**{"found_by": "address", "street": "8586 palm pwwy", **mixed})
+    with pytest.raises(ValidationError):
+        Identification(found_by="name", business_name="V Pizza")          # a company found by its name needs its match level
+    with pytest.raises(ValidationError):
+        Identification(level="Strong", evidence=())                       # and the business name: the default kind is "name"
+    with pytest.raises(ValidationError):
+        Identification(found_by="phone", business_name="V Pizza", level="Strong")   # only the two kinds exist
+    assert "note" not in Identification.model_fields                      # rule W6 still holds: there is nowhere to put the typed note
+
+
+def test_a_company_on_an_address_list_states_its_name_and_its_address_as_facts():
+    candidate = AddressCandidate(document_number="T26000000001", name=a_fact(text="INVENTED PIZZA LLC"), address=a_fact(text="8586 PALM PKWY, ORLANDO, FL 32836"))
+    assert candidate.source.source_url.startswith("https://") and "level" not in AddressCandidate.model_fields
+    with pytest.raises(ValidationError):
+        AddressCandidate(document_number="T26000000001", name=a_fact(text="INVENTED PIZZA LLC"), address="8586 PALM PKWY")   # a bare text is not a fact
+
+
+def test_the_two_sentences_at_the_top_of_a_report_are_facts_and_there_are_exactly_two():
+    # Phase D, leg D2 (working rule S9). The summary states the company's status and its entity type, so both carry their source (rule W1).
+    assert Report.model_fields["headline"].is_required()                  # a report cannot be built without its two sentences
+    for wrong in (("Inactive with the state as of Oct 7, 2026.", "Florida corporation (for profit), on record since 2010."),   # bare texts are not facts
+                  (a_fact(text="only one"),), ()):
+        with pytest.raises(ValidationError):
+            Report(**{**a_report().model_dump(), "headline": wrong})

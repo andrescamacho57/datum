@@ -1,7 +1,9 @@
 """app.py: the web app a contractor uses on a phone (Phase C, leg C4).
 
     GET  /                           the search box
-    POST /search                     the note ─▶ extract fields ─▶ shortlist   (or: ask for a business name, and show no company)
+    POST /search                     the note ─▶ extract fields ─▶ a business is named: the shortlist of the name search
+                                                              ├▶ no business, and a street with a house number: the companies at that address
+                                                              └▶ neither: ask for a business name or an address, and show no company
     GET  /company/{document_number}  the report for one company
     GET  /healthz                    "ok", and nothing else
     GET  /robots.txt                 tells search engines to stay out
@@ -56,8 +58,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException   # wha
 
 from datum import wording
 from datum.models import Identification, read_extracted
-from datum.report_builder import CompanyNotFound, ReportBackend, ReportBuilder, candidate_for_page
-from datum.search import SearchBackend, evidence, search_pool, shortlist
+from datum.report_builder import CompanyNotFound, ReportBackend, ReportBuilder, address_candidate_for_page, candidate_for_page, count_fact
+from datum.search import SearchBackend, address_search, evidence, search_kind, search_pool, shortlist
 
 HERE = Path(__file__).resolve().parent                     # src/datum/web/
 MAX_NOTE = 500                                              # a note longer than this is not sent to the extraction step
@@ -79,6 +81,7 @@ OpenBackends = Callable[[], AbstractContextManager[tuple[SearchBackend, ReportBa
 # "A function that, called with nothing, gives something to open with `with`, which then hands
 # over the search backend and the report backend." The real one opens a Postgres connection
 # for one request and closes it afterwards. A test's one hands over two fakes.
+# The search backend answers both searches: by name (nearest) and by address (at_house_number).
 
 
 class Picks:
@@ -216,6 +219,41 @@ def create_app(access_code: str, extract: Callable[[str], dict], open_backends: 
     def index(request: Request):
         return page(request, "index.html")
 
+    def by_address(request: Request, street: str, city: str) -> Response:
+        """The page for a note that names no business and gives a street with a house number (working rules S5, S6 and S8).
+
+        It lists the ACTIVE companies whose principal address matches, says how many inactive
+        ones it does not list, and says once that a principal address is not always where a
+        company does business. Whatever the extraction step put in the business name is not
+        shown: the note named no business.
+        """
+        try:
+            with open_backends() as (search_backend, _):
+                found = address_search(search_backend, street, city)
+        except Exception as error:          # the database cannot be reached
+            log.warning("the search failed: %s", type(error).__name__)
+            return page(request, "message.html", status=503, heading=wording.SEARCH_HEADING, message=wording.SEARCH_UNAVAILABLE, form=True)
+        read_as = wording.READ_AS.format(fields=", ".join(
+            part for part in (wording.FIELD_STREET.format(value=street), wording.FIELD_CITY.format(value=city) if city else "") if part))
+        if found.too_many:                  # an office tower, a mail drop or an agent's office: no list of fifty would help
+            return page(request, "message.html", heading=wording.SEARCH_HEADING, message=wording.ADDRESS_TOO_MANY, read_as=read_as, form=True)
+        if not (found.active or found.inactive or found.no_status):
+            return page(request, "message.html", heading=wording.SEARCH_HEADING, message=wording.address_not_found_text(city_given=bool(city)), read_as=read_as, form=True)
+        identifications = {
+            company.document_number: Identification(found_by="address", street=street, city=city, tied_others=len(found.active) - 1)
+            for company in found.active     # only a listed company can be opened from this page
+        }
+        not_listed = [fact for fact in (
+            count_fact(wording.count_text(len(found.inactive), wording.ADDRESS_INACTIVE_ONE, wording.ADDRESS_INACTIVE_MANY), found.inactive),
+            count_fact(wording.count_text(len(found.no_status), wording.ADDRESS_NO_STATUS_ONE, wording.ADDRESS_NO_STATUS_MANY), found.no_status),
+        ) if fact is not None]              # each count is a Fact, so it cites the records it was made from
+        return page(
+            request, "address.html", read_as=read_as, token=picks.put(identifications),
+            compared=wording.address_compared_text(found.house_number, city_given=bool(city)),
+            active_line=wording.count_text(len(found.active), wording.ADDRESS_ACTIVE_ONE, wording.ADDRESS_ACTIVE_MANY) or wording.ADDRESS_NO_ACTIVE,
+            candidates=[address_candidate_for_page(company) for company in found.active], not_listed=not_listed,
+        )
+
     @app.post("/search")
     def search(request: Request, note: str = Form("")):
         """The note comes in the BODY of a POST. From here it goes to the extraction step and nowhere else."""
@@ -227,12 +265,14 @@ def create_app(access_code: str, extract: Callable[[str], dict], open_backends: 
         try:
             extracted = read_extracted(extract(note))   # the ONLY use of the note. The reply is checked here, inside the try
             business_name, city, street = extracted.business_name, extracted.city, extracted.street
-            is_specific = extracted.is_specific and bool(business_name)   # a reply with no name names no business
+            kind = search_kind(business_name, street, extracted.is_specific)   # "name", "address" or "ask" (working rules S5 and S7)
         except Exception as error:          # the API is down, the key is wrong, the reply is malformed
             log.warning("the extraction step failed: %s", type(error).__name__)   # the class name only. The message could quote the note
             return page(request, "message.html", status=503, heading=wording.SEARCH_HEADING, message=wording.SEARCH_UNAVAILABLE, form=True)
-        if not is_specific:                 # the note names no business: ask, and show no company at all (acceptance test A2)
+        if kind == "ask":                   # no business, and no street that begins with a house number: ask, and show no company at all (acceptance test A2)
             return page(request, "message.html", heading=wording.SEARCH_HEADING, message=wording.ASK_FOR_A_BUSINESS_ON_A_PAGE, form=True)
+        if kind == "address":               # no business, and a street with a house number: the companies whose principal address that is
+            return by_address(request, street, city)
         try:
             with open_backends() as (search_backend, _):
                 short = shortlist(search_pool(search_backend, business_name, city), city_given=bool(city))

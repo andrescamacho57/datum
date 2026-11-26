@@ -30,7 +30,7 @@ from datetime import date, datetime, timezone   # dates on the record, fetch tim
 from typing import Protocol                 # a Protocol describes an interface: "anything with these methods"
 
 from datum import wording                   # every fixed sentence and label
-from datum.models import Candidate, Fact, Flag, Identification, Report
+from datum.models import AddressCandidate, Candidate, Fact, Flag, Identification, Report
 from datum.search import COMPANY_COLUMNS, Company, company_from_row, evidence
 from datum.search import Candidate as SearchCandidate           # the search's own candidate: a company with its scores
 
@@ -145,7 +145,45 @@ def candidate_for_page(candidate: SearchCandidate, level: str, city_given: bool)
     return Candidate(
         document_number=company.document_number, name=fact(company.entity_name),
         place=fact(place) if company.principal_city else None,   # no city on record: no place is shown, and none is made up
-        level=level, evidence=tuple(fact(reason) for reason in evidence(candidate, city_given)),
+        level=level, evidence=tuple(fact(reason) for reason in evidence(candidate, city_given, status_marked=True)),
+        mark=fact(wording.INACTIVE_MARK) if company.status_code == "I" else None,   # rule S10: said beside the name, as a Fact with the company record's source,
+                                                                                    # and so left out of the reasons above (status_marked)
+    )
+
+
+def address_text(company: Company) -> str:
+    """A company's principal address on one line, as the state has it: street, city, then state and ZIP code. Empty when the state has none."""
+    street_and_city = ", ".join(part for part in (company.principal_address_1, company.principal_city) if part)
+    state_and_zip = " ".join(part for part in (company.principal_state, company.principal_zip) if part)
+    return ", ".join(part for part in (street_and_city, state_and_zip) if part)
+
+
+def address_candidate_for_page(company: Company) -> AddressCandidate:
+    """A company an address search found, as a page shows it: its name and its principal address, both Facts with the company record's source."""
+    def fact(text: str) -> Fact:
+        return Fact(
+            text=text, source_url=company.source_url,
+            citation=wording.COMPANY_CITATION.format(document_number=company.document_number),
+            fetched_at=in_utc(company.fetched_at), fetched_at_is_approximate=company.fetched_at_is_approximate,
+        )
+
+    return AddressCandidate(document_number=company.document_number, name=fact(company.entity_name), address=fact(address_text(company)))
+
+
+def count_fact(text: str, companies: tuple[Company, ...]) -> Fact | None:
+    """A sentence that COUNTS companies without listing them, as a Fact that cites the records the count was made from. None for no companies.
+
+    A count is a derived value, and a derived value carries its inputs' provenance (CLAUDE.md
+    rule 3). The companies all come from the state's company records, so the sentence cites
+    that source. Its fetch time is the OLDEST of the companies' fetch times, and it is marked
+    as an estimate when any of them is one: the count is only as fresh as its oldest input.
+    """
+    if not companies:
+        return None
+    return Fact(
+        text=text, source_url=companies[0].source_url, citation=wording.COMPANY_RECORDS_CITATION,
+        fetched_at=min(in_utc(company.fetched_at) for company in companies),
+        fetched_at_is_approximate=any(company.fetched_at_is_approximate for company in companies),
     )
 
 
@@ -177,12 +215,18 @@ class ReportBuilder:
                 fetched_at=in_utc(company.fetched_at), fetched_at_is_approximate=company.fetched_at_is_approximate,
             )
 
-        status = {"A": wording.STATUS_ACTIVE, "I": wording.STATUS_INACTIVE}.get(company.status_code, wording.NOT_ON_RECORD)
-        entity_type = wording.FILING_TYPES.get(company.filing_type, company.filing_type) or wording.NOT_ON_RECORD
+        status_on_record = {"A": wording.STATUS_ACTIVE, "I": wording.STATUS_INACTIVE}.get(company.status_code)   # None when the state has no status
+        entity_type_on_record = wording.FILING_TYPES.get(company.filing_type, company.filing_type) or None         # None when the state has no type
+        status = status_on_record or wording.NOT_ON_RECORD
+        entity_type = entity_type_on_record or wording.NOT_ON_RECORD
+        # The summary at the top (rule S9) is built here, from the very values the rows below are built from, so the
+        # two cannot say different things: one status, one entity type, one date on record, one published date.
+        headline = (
+            fact(wording.summary_status_text(status_on_record, company.published_on)),
+            fact(wording.summary_record_text(entity_type_on_record, company.file_date, built_on)),
+        )
         on_record = wording.DATE_ON_RECORD.format(day=wording.day_text(company.file_date)) if company.file_date else wording.NOT_ON_RECORD
-        street_and_city = ", ".join(part for part in (company.principal_address_1, company.principal_city) if part)
-        state_and_zip = " ".join(part for part in (company.principal_state, company.principal_zip) if part)
-        address = ", ".join(part for part in (street_and_city, state_and_zip) if part) or wording.NOT_ON_RECORD
+        address = address_text(company) or wording.NOT_ON_RECORD
         rows = (
             (wording.LABEL_LEGAL_NAME, fact(company.entity_name)),
             (wording.LABEL_DOCUMENT_NUMBER, fact(company.document_number)),
@@ -213,6 +257,8 @@ class ReportBuilder:
 
         if identification is None:
             identified = fact(wording.IDENTIFIED_BY_NUMBER)
+        elif identification.found_by == "address":
+            identified = fact(wording.identified_by_address_text(identification.street, identification.city, identification.tied_others))
         else:
             identified = fact(wording.identified_text(
                 identification.business_name, identification.city, identification.street,
@@ -220,7 +266,7 @@ class ReportBuilder:
             ))
         return Report(
             document_number=company.document_number, built_on=built_on, name=company.entity_name,
-            company=rows, company_source=company_source, flags=flags,
+            headline=headline, company=rows, company_source=company_source, flags=flags,
             sources_checked=checked, sources_not_checked=not_checked, identification=identified,
             caution=wording.POSSIBLE_CAUTION if identification is not None and identification.level == "Possible" else "",
         )
@@ -280,13 +326,9 @@ def render_markdown(report: Report) -> str:
         f"# {wording.REPORT_TITLE.format(name=report.name)}", "",
         wording.BUILT_ON.format(day=wording.day_text(report.built_on)), "",
         *([f"**{report.caution}**", ""] if report.caution else []),   # a Possible match says so before anything else is read
-        f"**{report.summary}**", "",
-        report.confirmed_only, "",
-        "| | |", "|---|---|",
+        f"**{' '.join(fact.text for fact in report.headline)} {report.summary}**", "",   # the summary (rule S9): status, type and year, then the count of flags
+        report.confirmed_only, "",          # rule W4's sentence, right after the summary line, on every report
     ]
-    lines += [f"| {label} | {fact.text.replace('|', chr(92) + '|')} |" for label, fact in report.company]   # a "|" in a name would end the table cell, so it is written as \|
-    source = report.company_source          # its text is the citation AND the date the state published the file, so the text is what is shown
-    lines += [f"| {wording.LABEL_COMPANY_SOURCE} | [{source.text}]({source.source_url}) · {source.fetched_text} |", ""]
     if report.flags:
         lines += [f"## {wording.HEADING_FLAGS}", ""]
         for flag in report.flags:
@@ -301,9 +343,13 @@ def render_markdown(report: Report) -> str:
             lines.append(f"- {flag.caveat}")
             lines.append(f"- {wording.LABEL_SOURCE}: {cited(flag.fact)}")
             lines.append("")
-    lines += [f"## {wording.HEADING_CHECKED}", ""]
+    lines += [f"## {wording.HEADING_RECORDS}", "", "| | |", "|---|---|"]   # the details: the company's record, then what was and was not checked
+    lines += [f"| {label} | {fact.text.replace('|', chr(92) + '|')} |" for label, fact in report.company]   # a "|" in a name would end the table cell, so it is written as \|
+    source = report.company_source          # its text is the citation AND the date the state published the file, so the text is what is shown
+    lines += [f"| {wording.LABEL_COMPANY_SOURCE} | [{source.text}]({source.source_url}) · {source.fetched_text} |", ""]
+    lines += [f"### {wording.HEADING_CHECKED}", ""]
     lines += [f"- {fact.text} {wording.LABEL_SOURCE}: {cited(fact)}" for fact in report.sources_checked]
-    lines += ["", f"## {wording.HEADING_NOT_CHECKED}", ""]
+    lines += ["", f"### {wording.HEADING_NOT_CHECKED}", ""]
     lines += [f"- {item}" for item in report.sources_not_checked]
     lines += ["", f"**{wording.LABEL_IDENTIFIED}:** {report.identification.text}", "", f"*{report.disclaimer}*", ""]
     return "\n".join(lines)
