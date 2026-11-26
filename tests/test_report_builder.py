@@ -307,7 +307,8 @@ def test_the_functions_that_lay_out_a_report_or_talk_in_the_terminal_hold_no_sen
     a_sentence = re.compile(r"[A-Za-z]{2,}\s+[A-Za-z]{2,}")                # two words with a space between
     functions = (render_markdown, ReportBuilder.build, ReportBuilder.company_record_flags, ReportBuilder.linked_flags, candidate_for_page,
                  address_candidate_for_page, address_text, count_fact,
-                 terminal.run, terminal.show_shortlist, terminal.source_line, terminal.pick, terminal.read_note, terminal.others_at_the_same_level)
+                 terminal.run, terminal.show_shortlist, terminal.source_line, terminal.pick, terminal.read_note, terminal.others_at_the_same_level,
+                 terminal.save_report)
     for function in functions:
         written = [text for text in texts(function.__code__) if text != function.__doc__ and a_sentence.search(text)]
         assert written == [], (function.__name__, written)

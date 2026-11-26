@@ -141,14 +141,7 @@ def run(note: str, extract: Callable[[str], dict], search_backend: SearchBackend
                         business_name=business_name, city=city, street=street, level=level, evidence=tuple(reasons),
                         tied_others=others_at_the_same_level(short, choice - 1),
                     )
-                    report = ReportBuilder(report_backend, today).build(chosen.company.document_number, identification)
-                    text = render_markdown(report)
-                    reports_dir.mkdir(parents=True, exist_ok=True)          # create data/reports/ if it doesn't exist
-                    path = reports_dir / f"{report.document_number}_{report.built_on:%Y%m%d}.md"
-                    path.write_text(text)   # save as a Markdown file
-                    say("\n" + text)
-                    say(wording.SAVED_TO.format(path=path))
-                    return path             # done: a report was written
+                    return save_report(chosen.company.document_number, identification, report_backend, say, today, reports_dir)   # done: a report was written
         extra = ask_for_more(wording.ASK_FOR_MORE)
         if extra is None:
             break
@@ -156,6 +149,19 @@ def run(note: str, extract: Callable[[str], dict], search_backend: SearchBackend
 
     say("\n" + wording.GIVING_UP)
     return None
+
+
+def save_report(document_number: str, identification: Identification, report_backend: ReportBackend,
+                say: Callable[[str], None], today: Callable[[], date], reports_dir: Path) -> Path:
+    """Build the report for one company, print it, save it as a Markdown file under reports_dir, and return where it was saved."""
+    report = ReportBuilder(report_backend, today).build(document_number, identification)
+    text = render_markdown(report)
+    reports_dir.mkdir(parents=True, exist_ok=True)          # create data/reports/ if it doesn't exist
+    path = reports_dir / f"{report.document_number}_{report.built_on:%Y%m%d}.md"
+    path.write_text(text)                                   # save as a Markdown file
+    say("\n" + text)
+    say(wording.SAVED_TO.format(path=path))
+    return path
 
 
 def pick(count: int, ask: Callable[[str], str], say: Callable[[str], None]) -> int:
