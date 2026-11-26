@@ -244,7 +244,9 @@ ADDRESSES_FILL_SQL = (
 # OFFICE UNITS ARE LEFT OUT HERE (Phase D rule S15, leg D4). regexp_replace removes, from the
 # street's words, every office unit word (STE, SUITE, BLDG, FL, FLOOR, RM, ROOM) together with
 # the one word after it, which is its number or letter. So "PALM PKWY STE 200" is stored as
-# PALM PKWY, and one typed address finds the companies of every suite in the building. APT,
+# PALM PKWY, and one typed address finds the companies of the building's suites. A unit whose number
+# is written with a hyphen keeps the second part ("STE 400-B" leaves B), and a unit word glued to its
+# number ("STE200") is not a unit word, so those suites are still compared (question Q61). APT,
 # UNIT and LOT are NOT removed, and a unit word is never taken as another unit word's number:
 # "OCEAN DR BLDG 2 APT 305" is stored as OCEAN DR APT 305. The pattern is
 # search.OFFICE_UNIT_PATTERN, typed out here because this module does not import the search,

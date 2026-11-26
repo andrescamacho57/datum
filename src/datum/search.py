@@ -106,7 +106,12 @@ OFFICE_UNIT_PATTERN = (
 )
 # The same rule as without_office_units() below, as a pattern for a street written with one space before every word. The loader
 # holds this very text inside the statement that fills company_search_addresses, so that Postgres can cut 13 million addresses
-# once. A test checks that the loader's text is this one, and another that the pattern and the function give the same words.
+# once. A test checks that the loader's text is this one, and another that the pattern and the function give the same TEXT,
+# spaces included: AT_HOUSE_NUMBER_SQL splits a stored street on single spaces, so a stray space would become an empty word.
+# A CAUTION FOR WHOEVER EDITS IT: two engines read this pattern, Python's re in that test and Postgres's own in the loader, and
+# the test can only run Python's. Keep to what both read the same way: (?:...), (?!...), (?=...), |, ? and $. Postgres reads \b
+# as a backspace, for example, so a pattern that uses it would pass the test and cut nothing in the database. After any change,
+# run the pattern through Postgres too (leg D4's report, check 3, shows how) before the table is rebuilt.
 # Reading it: a space and an office unit word; then, if there is one, a space and one more word that is NOT itself a unit word
 # ((?!...) means "not followed by"); and the match must end at a space or at the end ((?=...) means "followed by").
 ORDINAL = re.compile(r"[0-9]+(ST|ND|RD|TH)")

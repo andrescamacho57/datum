@@ -197,11 +197,12 @@ SHORTLIST_NOT_SHOWN_MANY = "{count} more companies match at the level Strong and
 # Each of those companies is then shown with its own reasons, as the companies on the list are.
 ASK_FOR_MORE = "Add the business's full name or its city"
 # The terminal's question after a search that ended without a report. What is typed here is ADDED
-# to the note, and the note is read again. A name or a city helps after either search: after the
-# name search, a fuller name or the city ranks the companies better; after an address search, a
-# name sends the note to the name search, and a city narrows the address search. A street does
-# not help here: once the note names a business, the name search runs and the street is not used
-# (rule S5). Until leg D4 this asked for "a street or a city". The terminal's question for a note
+# to the note, and the note is read again. After the name search, a fuller name or the city ranks
+# the companies better. After an address search, a name sends the note to the name search, and a
+# city narrows the companies, which helps only when there were too many to list: after an address
+# search that found nobody, a city cannot help (round 1 of leg D4's review), and the sentence
+# printed just above it advises checking the address instead. A street does not help here: once
+# the note names a business, the name search runs and the street is not used (rule S5). Until leg D4 this asked for "a street or a city". The terminal's question for a note
 # that names no business is the web page's own, ASK_FOR_A_BUSINESS_ON_A_PAGE below (rule S18), and
 # the terminal's old version of it, ASK_FOR_A_BUSINESS, was removed in leg D4 because nothing used it.
 POSSIBLE_ONLY = (
@@ -260,12 +261,18 @@ ADDRESS_COMPARED = (
     "A company matches when its principal address on record has the house number {house_number} "
     "and a street name made only of words you typed. Three things are not compared: the kind of street, such as ST or PKWY; "
     "a direction (N, S, E, W, NORTH, SOUTH, EAST, WEST, NE, NW, SE or SW); "
-    "and an office unit (STE, SUITE, BLDG, FL, FLOOR, RM or ROOM) with the number or letter after it. "
+    "and an office unit word (STE, SUITE, BLDG, FL, FLOOR, RM or ROOM) with the one word after it, its number or letter. "
+    "A hyphen counts as a space, so in STE 400-B the B is still compared, and so is a unit written as one word, such as STE200. "
     "An apartment, unit or lot number on the record is compared, so it has to be typed too."
 )
 # Phase D rule S15 (leg D4) changed the comparison, and so this sentence: it names all twelve
 # directions and the seven office unit words, because those are exactly the words
 # search.street_parts() leaves out, and it says that APT, UNIT and LOT are still compared.
+# "The one word after it" is exactly the cut (search.without_office_units). Round 1 of leg D4's
+# review found that the first version, "with the number or letter after it", claimed more: a
+# unit number written with a hyphen is two words once punctuation is read as a space, so its
+# second part stays and is compared, and a unit word glued to its number, such as STE200, is
+# one word that is not a unit word, so it is compared. The sentence now names both.
 # Exactly the comparison of search.street_matches(). Every line below says "matches" and never
 # "has this address", because the comparison is looser than that: 8586 PALM AVE matches
 # "8586 palm pkwy", and so does a street made of fewer words than were typed. Round 1 of leg
@@ -295,15 +302,23 @@ ADDRESS_NO_STATUS_MANY = "{count} companies with no status on record also match 
 PRINCIPAL_ADDRESS_NOTE = "A company's principal address is the address it gave the state, which is not always where it does business."
 # Rule S8, word for word: once, under the results of every address search.
 ADDRESS_NOT_FOUND = (
-    "No company matches: none has a principal address on record with that house number and a street name made only of words you typed. "
+    "No company matches: none has a principal address on record with that house number and a street name whose words are all among "
+    "the words you typed, once the kind of street, a direction, and an office unit word with the one word after it are left out of both. "
     "Check the house number and the spelling of the street's name, and add the apartment, unit or lot number if the address has one."
 )
 ADDRESS_NOT_FOUND_IN_CITY = (
-    "No company matches: none has a principal address on record with that house number, a street name made only of words you typed, "
+    "No company matches: none has a principal address on record with that house number, a street name whose words are all among "
+    "the words you typed, once the kind of street, a direction, and an office unit word with the one word after it are left out of both, "
     "and a principal city that begins with the city you gave. "
     "Check the house number, the spelling of the street's name and the city, and add the apartment, unit or lot number if the address has one."
 )
 # Each says what was compared, so that it does not read as "no company is at this address".
+# Round 1 of leg D4's review found a record that the first version denied: a note that types
+# "suite 200" leaves SUITE and 200 out (rule S15, the typed side), and a record that writes the
+# same unit as "#200" keeps 200, because a number after # is still compared. That record is
+# not matched, and yet its street IS made only of words that were typed. So each sentence now
+# says that the words are compared once the left-out words are gone from BOTH sides, which is
+# true of that record too. Whether the typed side should keep the unit's number is question Q62.
 # Until leg D4 both advised adding "the suite or unit". A suite is no longer compared (rule
 # S15), so that advice could not help. A record that holds an apartment, a unit or a lot still
 # matches only when it was typed too, and so the advice is now about those three. The
