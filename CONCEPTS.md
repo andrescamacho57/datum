@@ -988,3 +988,22 @@ Source: Anthropic, "Building Effective Agents" (the evaluator-optimizer workflow
   and with the new ranking (rule S2) switched on, to 1st.
 - The same pattern appears in search engines and in RAG (retrieval-augmented generation), where a model can only
   use the passages the retriever found.
+
+---
+
+## Normalizing Data Can Widen What It Exposes (Nov 26)
+
+- Normalizing means rewriting values into one standard form so that different spellings compare as equal: PKWY and
+  PARKWAY become the same word, and "1551 ATLANTIC BLVD STE 200" can be read as "1551 ATLANTIC BLVD". It is usually
+  treated as plain cleaning, with no risk attached.
+- On Nov 26 I agreed that the address search should ignore the unit on a record (question Q47), so that a contractor
+  who types a building's address still finds a company in Suite 200. A reviewer on the brief pointed out what that
+  does to APT, UNIT and LOT: those usually mark a home, and ignoring them would let one typed address list the
+  companies registered in every apartment or mobile-home lot there.
+- So the rule was narrowed. Office units (STE, SUITE, BLDG, FL, FLOOR, RM, ROOM) are ignored, and home units are still
+  compared exactly, until a lawyer answers whether a home address should be searchable at all (question Q54).
+- **The lesson.** A matching rule decides who can be found, not only what counts as equal. Every widening of a match
+  ("treat these as the same") is also a widening of what one search reveals, so a privacy check belongs next to
+  every normalization rule, not only next to new data sources.
+- **The tradeoff.** A company registered at "APT 4" is still found only when the note has APT 4. That is a missed
+  match, which Datum accepts, because a missed match is the cheap error and exposing a home is the expensive one.
