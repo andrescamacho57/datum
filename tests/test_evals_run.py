@@ -345,12 +345,15 @@ def test_a_case_is_worse_when_its_company_drops_leaves_the_candidates_or_an_ask_
 
 
 def test_another_order_is_scored_on_the_same_pool_and_can_disagree_with_the_apps():
-    # The same candidates, sorted two ways. Under the app's order the near-miss ROOFINGS comes first, and under rule S2 it comes last.
+    # The same candidates, sorted two ways. Under search version 1's order the near-miss ROOFINGS comes first. Under rule S2, which
+    # is the app's order since leg D3 (Phase D rule S13), the name that holds both typed words does. run_cases() with no order is the app's.
     backend = FakeBackend([company("T1", "ACME ROOFINGS"), company("T2", "ACME ROOFING AND SIDING INC")])
-    (app,), (tried,) = run_cases([a_case("T2")], backend), run_cases([a_case("T2")], backend, order=by_words_then_city)
-    assert (app.place, tried.place, app.page_place, tried.page_place, moved(app, tried)) == (2, 1, 2, 1, "up")
-    assert movement([app], [tried]) == [("g", 1, 1, 0, 0), ("ALL", 1, 1, 0, 0)]
-    assert ORDERS == {"s2": by_words_then_city, "s2-city-first": by_city_then_words}   # the two orders --try-order can name: rule S2 and its one variant
+    (app,), (old,) = run_cases([a_case("T2")], backend), run_cases([a_case("T2")], backend, order=by_similarity_then_city)
+    assert (old.place, app.place, old.page_place, app.page_place, moved(old, app)) == (2, 1, 2, 1, "up")
+    assert run_cases([a_case("T2")], backend, order=by_words_then_city) == [app]      # the app's order IS rule S2
+    assert movement([old], [app]) == [("g", 1, 1, 0, 0), ("ALL", 1, 1, 0, 0)]
+    # The orders --try-order can name: version 1's, rule S2 (the app's own now, so trying it moves nothing) and rule S2's one variant.
+    assert ORDERS == {"v1": by_similarity_then_city, "s2": by_words_then_city, "s2-city-first": by_city_then_words}
 
 
 def test_a_company_that_keeps_its_rank_and_drops_on_the_page_counts_as_worse():
@@ -459,7 +462,8 @@ def test_the_address_timing_draws_addresses_that_begin_with_a_digit_and_counts_t
 
 def test_the_whole_evaluation_fails_only_when_a_checked_case_is_made_worse(tmp_path, capsys):
     # Round 1 of leg D1's review: the helpers were tested, and the wiring that feeds them was not. evaluate() is that wiring. The two
-    # companies are ranked in opposite orders by the app (ROOFINGS first, on similarity) and by rule S2 (the name that holds every word first).
+    # companies are ranked in opposite orders by the app (rule S2: the name that holds every word first) and by search version 1's
+    # order (ROOFINGS first, on similarity), which --try-order v1 scores beside the app's.
     backend = FakeBackend([company("T1", "ACME ROOFINGS"), company("T2", "ACME ROOFING AND SIDING INC"), company("T3", "ZEBRA GLASS LLC", address="77 QUARTZ PKWY")])
 
     def cases(rows, name):
@@ -468,18 +472,19 @@ def test_the_whole_evaluation_fails_only_when_a_checked_case_is_made_worse(tmp_p
     def lines():
         return [line.split() for line in capsys.readouterr().out.splitlines()]
 
-    better = cases([("1", "g", "acme roofing", "T2", "2026-11-24")], "better.csv")          # T2 is second for the app and first under rule S2
-    worse = cases([("2", "g", "acme roofing", "T1", "2026-11-24")], "worse.csv")            # T1 is first for the app and second under rule S2
-    draft_worse = cases([("101", "brand_and_city", "acme roofing", "T1", "")], "draft_worse.csv")
-    assert evaluate(better, None, backend, "fake", address_backend=backend, try_order="s2") == 0
+    better = cases([("1", "g", "acme roofing", "T1", "2026-11-24")], "better.csv")          # T1 is second for the app and first under version 1's order
+    worse = cases([("2", "g", "acme roofing", "T2", "2026-11-24")], "worse.csv")            # T2 is first for the app and second under version 1's order
+    draft_worse = cases([("101", "brand_and_city", "acme roofing", "T2", "")], "draft_worse.csv")
+    assert evaluate(better, None, backend, "fake", address_backend=backend, try_order="v1") == 0
     assert ["1", "g", "2", "of", "3", "1", "of", "3", "2", "->", "1", "up"] in lines()         # by rank and on the page: second, then first
-    assert evaluate(worse, None, backend, "fake", address_backend=backend, try_order="s2") == 1    # a checked case moved down: the command fails
+    assert evaluate(worse, None, backend, "fake", address_backend=backend, try_order="v1") == 1    # a checked case moved down: the command fails
     printed = lines()
     assert ["checked", "cases", "made", "worse:", "2"] in printed and ["2", "g", "1", "of", "3", "2", "of", "3", "1", "->", "2", "down"] in printed
     assert evaluate(worse, None, backend, "fake", address_backend=backend) == 0                # with no comparison asked for, nothing can fail
     assert evaluate(worse, None, backend, "fake", address_backend=backend, before=True) == 0   # the order is the same in both runs of --before, so this case did not move
-    capsys.readouterr()
-    assert evaluate(better, draft_worse, backend, "fake", address_backend=backend, try_order="s2") == 0   # the DRAFT moved down, and the decision does not change
+    assert evaluate(worse, None, backend, "fake", address_backend=backend, try_order="s2") == 0   # rule S2 IS the app's order since leg D3, so trying it moves nothing
+    assert ["2", "g", "1", "of", "3", "1", "of", "3", "1", "->", "1", "stayed"] in lines()
+    assert evaluate(better, draft_worse, backend, "fake", address_backend=backend, try_order="v1") == 0   # the DRAFT moved down, and the decision does not change
     printed = lines()
     assert ["checked", "cases", "made", "worse:", "none"] in printed and ["brand_and_city", "1", "0", "1", "0"] in printed
     # The first run of --before has no search by address. An address-only case is asked about there and answered now, so it moved up.

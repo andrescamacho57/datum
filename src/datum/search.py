@@ -8,20 +8,22 @@ The search has two steps, and the split is the point of this module:
                   companies, each fetched in full from company_search by its document number.
                   Since leg D3 the pool is filled first with the names that hold every typed
                   word, and then with the nearest names (Phase D rule S11).
-    2. RERANK     score that small pool carefully, in plain Python, with the same rules as
-                  search version 1 (snowflake/11_score_search_v1.sql): Jaro-Winkler
-                  similarity first, then a city match, then the document number as a fixed
-                  tie-break. Keep the best five.
+    2. RERANK     put that small pool in order, in plain Python, by Phase D rule S2: first
+                  the companies whose name holds every typed word, then the ones whose
+                  principal city agrees with the city given, then the higher Jaro-Winkler
+                  similarity, then the document number as a fixed tie-break. Keep the best
+                  five. Until leg D3 the order was search version 1's
+                  (snowflake/11_score_search_v1.sql): similarity first, then the city.
 
-Leg D1 built a second order for step 2, Phase D working rule S2 (by_words_then_city below),
-and its one permitted variant (by_city_then_words). NEITHER IS SWITCHED ON HERE. Working
-rule S3 said to keep the old order when the new one and its variant both made a checked
-case worse, and on Nov 25, 2026 both did: on checked case 9 they moved the expected company
-from first to second on the page a contractor saw, because the page then showed its five
-companies by match level. Leg D3 took that cause away: the page is now in rank order (rule
-S12, in shortlist() below). RANK_ORDER below is the one line that says which order the app
-uses. The evaluation can score either order beside the app's
-(python -m evals.run --backend postgres --try-order s2).
+How rule S2 came to be the order (RANK_ORDER below is the one line that says which order
+the app uses). Leg D1 built it (by_words_then_city) and its one permitted variant
+(by_city_then_words), and switched neither on: on Nov 25, 2026 both moved checked case 9's
+expected company from first to second on the page a contractor saw, because the page then
+showed its five companies by match level. Leg D3 took that cause away (rule S12: the page
+is in rank order, in shortlist() below) and then switched rule S2 on (rule S13), after
+measuring that no checked case was worse than on main, by rank or on the page (rule S17).
+The evaluation can still score search version 1's order, or the variant, beside the app's
+(python -m evals.run --backend postgres --try-order v1).
 
 Step 2 can only order what step 1 brought back. A company that is not in the pool is never
 ranked, whatever the order is. Leg D1's report shows a case where that decided the answer:
@@ -266,13 +268,14 @@ def by_similarity_then_city(candidate: Candidate) -> tuple:
     before True, so "not city_match" puts a city match first. The document number is a fixed
     order, so a rerun can never flip two equal candidates. City breaks a tie and is never a
     filter: a company's registered city is its principal address, which can differ from the
-    job site. This is the order the app uses (RANK_ORDER below).
+    job site. The app used this order until leg D3, and it is kept so that the evaluation
+    can score it beside the app's (--try-order v1) and so that its tests still run.
     """
     return (-candidate.similarity, not candidate.city_match, candidate.company.document_number)
 
 
 def by_words_then_city(candidate: Candidate) -> tuple:
-    """Working rule S2, as a sort key. BUILT AND MEASURED IN LEG D1, AND NOT USED BY THE APP (see RANK_ORDER).
+    """Working rule S2, as a sort key. THE ORDER THE APP USES since leg D3 (Phase D rule S13; see RANK_ORDER).
 
       1. a company whose name holds every typed word comes first ("not every_word" is False for it);
       2. then a company whose principal city agrees with the city given;
@@ -287,7 +290,7 @@ def by_words_then_city(candidate: Candidate) -> tuple:
 
 
 def by_city_then_words(candidate: Candidate) -> tuple:
-    """The one variant working rule S3 allows: rule S2 with its first two parts swapped. Also not used by the app.
+    """The one variant working rule S3 allowed: rule S2 with its first two parts swapped. Not used by the app.
 
     A company in the city given comes first, then one whose name holds every typed word,
     then the higher similarity, then the document number.
@@ -295,23 +298,23 @@ def by_city_then_words(candidate: Candidate) -> tuple:
     return (not candidate.city_match, not candidate.every_word, -candidate.similarity, candidate.company.document_number)
 
 
-RANK_ORDER = by_similarity_then_city
-# The order the app's name search uses: search version 1's. Rule S2 and its variant were both
-# measured on Nov 25, 2026. Neither changed any checked case's place by rank. Both moved checked
-# case 9's expected company from first to second ON THE PAGE: a company whose name is exactly
-# the typed name climbed into the best five, and the page then showed the five by match level,
-# so that company (Strong) was shown above the expected one (Possible). Rule S3: when S2 and the
-# variant both make a checked case worse, keep the old ranking and let Andres decide. Since
-# leg D3 the page is in rank order (rule S12), which removes that cause.
+RANK_ORDER = by_words_then_city
+# The order the app's name search uses: rule S2, switched on in leg D3 by Phase D rule S13
+# (question Q52, answered by Andres on Nov 26, 2026: yes, if it passes the gate of rule S17).
+# It passed. With rules S11 and S12 built, the scratch script of rule S17 found no checked case
+# worse than on main at 051a928, by rank or on the page, and checked case 11 ("v pizza orlando")
+# went from 17th to first. Until then this line named search version 1's order: on Nov 25, 2026
+# rule S2 had moved checked case 9's expected company from first to second ON THE PAGE, because
+# the page then showed its five companies by match level, and rule S12 removed that cause.
 
 
 def rank(companies: list[Company], business_name: str, city: str = "", limit: int | None = SHORTLIST_SIZE,
          order: Callable[[Candidate], tuple] = RANK_ORDER) -> list[Candidate]:
     """Step 2: score a pool of companies against the typed name and keep the best `limit` (all of them when limit is None).
 
-    The order is RANK_ORDER, search version 1's. `order` exists so that the evaluation can
-    sort the same pool by rule S2 or by its variant and show the result beside the app's.
-    The app never passes it.
+    The order is RANK_ORDER, rule S2's. `order` exists so that the evaluation can sort the
+    same pool by search version 1's order or by rule S2's variant and show the result beside
+    the app's. The app never passes it.
     """
     search_key = name_key(business_name)
     candidates = [
@@ -338,7 +341,7 @@ def search_pool(backend: SearchBackend, business_name: str, city: str = "", pool
 
 
 def search(backend: SearchBackend, business_name: str, city: str = "", limit: int = SHORTLIST_SIZE, pool: int = CANDIDATE_POOL) -> list[Candidate]:
-    """Both steps, keeping the best `limit` candidates in rank order. This is what the evaluation scores (search version 1's top five)."""
+    """Both steps, keeping the best `limit` candidates in rank order. These are the five a page shows, top to bottom, and what the evaluation scores."""
     return search_pool(backend, business_name, city, pool)[:limit]
 
 

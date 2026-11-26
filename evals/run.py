@@ -10,7 +10,7 @@ every change, so that "is the search better?" is a number and not an impression.
     python -m evals.run --backend postgres --latency 200 --retrieve plain   # time the first approach leg C2 tried (slow)
     python -m evals.run --backend postgres --compare 200   # how many searches does the app's search answer differently from leg C2's second approach? (since leg D3 they differ by design)
     python -m evals.run --backend postgres --before        # also score the search with no search by address, and say which cases the address search moved
-    python -m evals.run --backend postgres --try-order s2  # also score another order of the candidates beside the app's, and say which cases it moves
+    python -m evals.run --backend postgres --try-order v1  # also score another order of the candidates beside the app's, and say which cases it moves
     python -m evals.run --backend postgres --address-latency 200   # also time the search by address on 200 random principal addresses
 
 Run from ~/datum with the project's virtual environment active.
@@ -47,9 +47,11 @@ Two options score every case twice and compare the two runs:
                       not the name search of before Phase D: leg D3 changed that search's
                       first step (rule S11), and this option does not rebuild the old one.
     --try-order NAME  the search as it is, against the same search with ANOTHER ORDER of the
-                      name search's candidates: s2 is Phase D working rule S2 (every typed
-                      word, then the city, then similarity), and s2-city-first is the one
-                      variant rule S3 allows. Neither is used by the app.
+                      name search's candidates. v1 is search version 1's order (similarity,
+                      then the city), which the app used until leg D3. s2-city-first is the
+                      one variant rule S3 allowed of rule S2. s2 is rule S2 itself (every
+                      typed word, then the city, then similarity), which IS the app's order
+                      since leg D3 (rule S13), so trying it moves nothing.
 Each says, case by case for the checked cases and by count for the drafts, whether the
 expected company moved up, moved down or stayed. A checked case that moved down is the one
 thing that makes the command fail (exit code 1). That is working rule S3's test: a case is
@@ -107,7 +109,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))                 # so `import datum.se
 
 from datum.search import (  # noqa: E402  (the path line above has to come first)
     COMPANY_COLUMNS, CANDIDATE_POOL, RANK_ORDER, SHORTLIST_SIZE, AddressBackend, Candidate, Company, PostgresBackend, SearchBackend, address_search,
-    by_city_then_words, by_words_then_city, company_from_row, search, search_kind, search_pool, shortlist,
+    by_city_then_words, by_similarity_then_city, by_words_then_city, company_from_row, search, search_kind, search_pool, shortlist,
 )
 
 TEST_SET = REPO_ROOT / "pipeline" / "seeds" / "test_set.csv"
@@ -207,8 +209,9 @@ def score_case(case: Case, answered: list[str], place: int | None = None, candid
 
 
 ORDERS = {                                  # --try-order: another order of the name search's candidates, scored beside the app's
-    "s2": by_words_then_city,               # Phase D working rule S2
-    "s2-city-first": by_city_then_words,    # the one variant rule S3 allows: S2 with its first two parts swapped
+    "v1": by_similarity_then_city,          # search version 1's order, the app's until leg D3
+    "s2": by_words_then_city,               # Phase D working rule S2, the app's order since leg D3 (rule S13): trying it moves nothing
+    "s2-city-first": by_city_then_words,    # the one variant rule S3 allowed: S2 with its first two parts swapped
 }
 
 
@@ -224,7 +227,7 @@ def run_cases(cases: list[Case], backend: SearchBackend, order: Callable[[Candid
       "address"  the search by address. It answers with the active companies at the address
                  in document-number order, and the first five of those are scored.
       "ask"      no search runs and no company is shown.
-    `order` is the app's own order unless --try-order asks for another. With no
+    `order` is the app's own order (rule S2 since leg D3) unless --try-order asks for another. With no
     address_backend there is no search by address, and a note that names no business is
     asked about, as every such note was before Phase D.
 
@@ -340,9 +343,17 @@ class SnowflakeBackend:
     The pool is every company whose score is one of the FIVE HIGHEST DISTINCT scores. The
     best five companies of snowflake/11_score_search_v1.sql can only come from those score
     levels, whatever the city tie-break does inside a level, so the pool always holds them.
-    datum.search.rank() then applies version 1's full order in Python. A fixed count would
-    not be safe: the score is a whole number, so hundreds of companies can share one score,
-    and a cut at 200 could drop a company in the right city (the review of leg C2 found this).
+    A fixed count would not be safe: the score is a whole number, so hundreds of companies
+    can share one score, and a cut at 200 could drop a company in the right city (the review
+    of leg C2 found this).
+
+    SINCE LEG D3 THIS BACKEND NO LONGER REPRODUCES THE APP. datum.search.rank() then orders
+    the pool, and until leg D3 its order was version 1's, so the pool and the order belonged
+    together. rank() now uses rule S2 (every typed word, then the city, then similarity),
+    and this pool was built for version 1: a company that holds every typed word and has a
+    lower similarity than the five best scores is not in it. Phase D uses no Snowflake, so
+    this backend has not been run since leg C2. Before its numbers are set beside Postgres's
+    again, it needs version 1's order passed to run_cases(), or a pool built for rule S2.
     """
 
     MOST_ROWS = 5000                        # a ceiling on the pool, far above any tie seen, so one odd name can't pull back a million rows. Reaching it is an error, not a quiet cut
@@ -675,7 +686,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--compare", type=int, default=0, metavar="N", help="postgres only: run leg C2's second approach and the app's search on the test inputs plus N random company names, and count the searches whose companies differ. Since leg D3 the app's search keeps the names that hold every typed word first, so the two differ by design")
     parser.add_argument("--address-latency", type=int, default=0, metavar="N", help="postgres only: also time the search by address on N principal addresses drawn at random")
     parser.add_argument("--before", action="store_true", help="postgres only: also score the search with no search by address, as it was before Phase D, say which cases the address search moved, and fail when a checked case was made worse. The name search is today's in both runs")
-    parser.add_argument("--try-order", choices=tuple(ORDERS), default=None, help="postgres only: also score another order of the name search's candidates beside the app's (s2 = working rule S2, s2-city-first = its variant), and fail when it makes a checked case worse")
+    parser.add_argument("--try-order", choices=tuple(ORDERS), default=None, help="postgres only: also score another order of the name search's candidates beside the app's (v1 = search version 1's order, the app's until leg D3; s2-city-first = the variant of rule S2; s2 = rule S2, which is the app's order now, so it moves nothing), and fail when it makes a checked case worse")
     args = parser.parse_args(argv)
     exit_code = 0
     cases = read_cases()
