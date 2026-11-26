@@ -16,9 +16,10 @@ from pathlib import Path                    # file paths
 import pytest                               # the test runner; parametrize runs one test body over several cases
 
 from datum.search import (
-    ADDRESS_FETCH, CANDIDATE_POOL, COMPANY_COLUMNS, DIRECTIONS, IGNORED_STREET_WORDS, MOST_AT_AN_ADDRESS, STREET_TYPES, SUFFIX_PATTERN, Company, FakeBackend, PostgresBackend,
+    ADDRESS_FETCH, CANDIDATE_POOL, COMPANY_COLUMNS, DIRECTIONS, HOME_UNIT_WORDS, IGNORED_STREET_WORDS, MOST_AT_AN_ADDRESS, OFFICE_UNIT_PATTERN, OFFICE_UNIT_WORDS, STREET_TYPES, SUFFIX_PATTERN,
+    Company, FakeBackend, PostgresBackend,
     RANK_ORDER, address_search, by_city_then_words, by_similarity_then_city, by_words_then_city, city_in_name, company_from_row, evidence, holds_every_word, jaro_winkler_similarity, match_level, name_key, rank, search,
-    search_kind, search_pool, shortlist, street_matches, street_parts,
+    search_kind, search_pool, shortlist, street_matches, street_parts, without_office_units,
 )
 
 PAIRS = Path(__file__).parent / "fixtures" / "search" / "jarowinkler_pairs.csv"
@@ -628,16 +629,18 @@ def test_a_street_is_cut_into_a_house_number_and_the_words_that_are_compared():
     assert street_parts("8586 Palm Pkwy.") == ("8586", ("PALM",))         # PKWY is a street type: left out
     assert street_parts("77 N. Quartz Rd") == ("77", ("QUARTZ",))   # a direction and a street type: both left out
     assert street_parts("12 US-1 N") == ("12", ("US", "1"))               # punctuation becomes a space, as it does in a name
-    assert street_parts("123A Main Street, Suite 4") == ("123A", ("MAIN", "SUITE", "4"))   # a number with a letter is the whole house number. A suite is not ignored
-    assert street_parts("115 SE 1st St") == ("115", ("SE", "1ST"))        # SE is not one of the four directions the rule lists
+    assert street_parts("123A Main Street, Suite 4") == ("123A", ("MAIN",))   # a number with a letter is the whole house number. The suite and its number are left out (rule S15)
+    assert street_parts("123A Main Street, Apt 4") == ("123A", ("MAIN", "APT", "4"))   # an apartment is not: it is still compared
+    assert street_parts("115 SE 1st St") == ("115", ("1ST",))             # SE is a direction since rule S15
     for no_number in ("Race Track Rd", "race track rd 12", "PO Box 12", "One Main St", "", "   "):
         assert street_parts(no_number) == (None, ()), no_number           # a street that does not BEGIN with a digit has no house number here
     for numbered_street in ("4th st south", "1st ave", "2ND STREET N", "3rd Ave", "101st street", "22nd"):
         assert street_parts(numbered_street) == (None, ()), numbered_street   # 4TH is the street's name, not a house on it (rule S7). Round 1 of the review found this
-    assert street_parts("12 4th st south") == ("12", ("4TH", "SOUTH"))           # the same street WITH a house number
+    assert street_parts("12 4th st south") == ("12", ("4TH",))                   # the same street WITH a house number. SOUTH is a direction since rule S15
     assert street_parts("4 th st") == ("4", ("TH",)) and street_parts("1 st") == ("1", ())   # a number standing alone is a house number, whatever follows it
     assert {"PKWY", "PARKWAY", "ST", "STREET", "AVE", "AVENUE", "RD", "ROAD", "BLVD", "DR", "DRIVE", "LN", "CT", "WAY", "CIR", "HWY"} <= STREET_TYPES   # the sixteen the brief names
-    assert DIRECTIONS == {"N", "S", "E", "W"} and IGNORED_STREET_WORDS == STREET_TYPES | DIRECTIONS
+    assert DIRECTIONS == {"N", "S", "E", "W", "NORTH", "SOUTH", "EAST", "WEST", "NE", "NW", "SE", "SW"}   # the twelve of rule S15
+    assert IGNORED_STREET_WORDS == STREET_TYPES | DIRECTIONS and not (set(OFFICE_UNIT_WORDS) | set(HOME_UNIT_WORDS)) & IGNORED_STREET_WORDS   # a unit word is never simply ignored
 
 
 def test_a_stored_street_matches_when_all_its_words_were_typed_whatever_the_street_type():
@@ -645,11 +648,65 @@ def test_a_stored_street_matches_when_all_its_words_were_typed_whatever_the_stre
     assert street_matches("PALM PKWY", typed) and street_matches("PALM PARKWAY", typed) and street_matches("N PALM AVE", typed)   # the type and the direction are ignored
     assert not street_matches("PALM BEACH PKWY", typed)                   # BEACH is a word of the stored street that was not typed
     assert not street_matches("PALMETTO PKWY", typed)                     # whole words are compared
-    assert not street_matches("PALM PKWY STE 200", typed)                 # a suite on the record that was not typed is a miss: a suite is not a street type
+    assert street_matches("PALM PKWY STE 200", typed)                     # a suite on the record no longer has to be typed (rule S15). Until leg D4 this was a miss
     assert street_matches("PALM PKWY STE 200", street_parts("8586 palm pkwy ste 200")[1])
+    assert not street_matches("PALM PKWY APT 200", typed)                 # an apartment on the record that was not typed is still a miss
     assert not street_matches("", typed) and not street_matches("N ST", typed) and not street_matches("PKWY", typed)   # nothing left to compare matches nothing
     assert not street_matches("PALM PKWY", ())                            # and nothing typed matches nothing
     assert not street_matches("ZEBRA GLASS MEMORIAL HWY", street_parts("12 w zebra glass hwy")[1])   # one word of the stored street left out: a miss
+
+
+def test_an_office_unit_is_left_out_on_both_sides_and_an_apartment_a_unit_or_a_lot_is_still_compared():
+    # Phase D rule S15 (leg D4). Until then every word of the stored street had to be typed, a suite included, so the first, the
+    # second and the last line below were misses, and this test fails on that behavior.
+    def matches(stored, note):
+        return street_matches(stored, street_parts(note)[1])
+
+    assert matches("OCEAN DR STE 200", "100 ocean dr")                    # a stored STE matches a note without it
+    assert matches("OCEAN DR", "100 ocean dr suite 200")                  # a note with SUITE matches a stored address without it
+    assert matches("OCEAN DR STE 200", "100 ocean dr suite 300")          # and another suite of the same building: the suites are one address now
+    assert not matches("OCEAN DR APT 305", "100 ocean dr")                # a stored APT still needs the note's APT
+    assert matches("OCEAN DR APT 305", "100 ocean dr apt 305") and not matches("OCEAN DR APT 305", "100 ocean dr apt 306")
+    assert not matches("OCEAN DR BLDG 2 APT 305", "100 ocean dr") and not matches("OCEAN DR BLDG 2 APT 305", "100 ocean dr bldg 2")   # BLDG 2 goes, APT 305 stays
+    assert matches("OCEAN DR BLDG 2 APT 305", "100 ocean dr apt 305")     # and the note need not say which building
+    assert not matches("OCEAN DR UNIT 7", "100 ocean dr") and not matches("OCEAN DR LOT 7", "100 ocean dr")   # UNIT and LOT are compared like APT
+    assert not matches("OCEAN DR 200", "100 ocean dr")                    # a number that stood after a # sign is a plain word, and it is compared
+    assert matches("SOUTH OCEAN DR", "100 s ocean dr") and matches("S OCEAN DR", "100 ocean dr se")   # a stored SOUTH matches a typed S: all twelve are directions
+    assert matches("OCEAN DR NW", "100 west ocean drive") and not matches("OCEAN DR", "100 dr nw")   # directions alone never make a street
+
+
+def test_the_cut_of_an_office_unit_takes_the_unit_word_and_the_one_word_after_it():
+    def cut(street):
+        return " ".join(without_office_units(street.split()))
+
+    assert cut("PALM PKWY STE 200") == "PALM PKWY" and cut("PALM PKWY SUITE B") == "PALM PKWY"
+    assert cut("OCEAN DR BLDG 2 APT 305") == "OCEAN DR APT 305"           # the rule's own example
+    assert cut("MAIN ST FL STE 300") == "MAIN ST"                         # a unit word is never another unit word's number: FL goes alone, then STE 300
+    assert cut("MAIN ST BLDG APT 5") == "MAIN ST APT 5"                   # nor is APT, UNIT or LOT swallowed as a building's number
+    assert cut("MAIN ST 2ND FL") == "MAIN ST 2ND"                         # the known gap the rule names: the ordinal stays
+    assert cut("MAIN ST FLOOR 3 RM 12 ROOM 4") == "MAIN ST" and cut("MAIN ST STE") == "MAIN ST"   # every office unit word, and one at the very end
+    assert cut("FLOORING WAY") == "FLOORING WAY" and cut("SUITES BLVD") == "SUITES BLVD"   # whole words only
+    assert cut("STE 5 MAIN ST") == "MAIN ST" and cut("") == ""
+    assert OFFICE_UNIT_WORDS == ("STE", "SUITE", "BLDG", "FL", "FLOOR", "RM", "ROOM") and HOME_UNIT_WORDS == ("APT", "UNIT", "LOT")   # the rule's two lists
+    for street in ("PALM PKWY STE 200", "OCEAN DR BLDG 2 APT 305", "MAIN ST FL STE 300", "STE STE 5 FL", "MAIN ST 2ND FL"):
+        once = without_office_units(street.split())
+        assert without_office_units(once) == once and not set(once) & set(OFFICE_UNIT_WORDS), street   # cutting twice changes nothing: the loader cuts, and street_matches() cuts again
+
+
+def test_the_loaders_pattern_and_the_python_rule_cut_every_street_the_same_way():
+    # The loader cuts the stored streets with OFFICE_UNIT_PATTERN, inside Postgres, and the search cuts a typed street with
+    # without_office_units(). If the two disagreed, a street would be stored one way and looked for another. Python can run the
+    # pattern too, so this test does, on every street of up to four words made from a small vocabulary and on every five-word street of unit words: 47,748 in all.
+    # (Postgres reads the pattern with its own engine. Leg D4's report compares the two on real addresses.)
+    import itertools
+    import re
+    vocabulary = ("STE", "FL", "FLOOR", "BLDG", "APT", "LOT", "MAIN", "2ND", "200", "A", "ST", "N", "FLOORING")
+    streets = [list(words) for size in range(5) for words in itertools.product(vocabulary, repeat=size)]
+    streets += [list(words) for words in itertools.product(("STE", "SUITE", "RM", "ROOM", "UNIT", "MAIN", "5"), repeat=5)]
+    assert len(streets) == 47_748
+    for words in streets:
+        by_pattern = re.sub(OFFICE_UNIT_PATTERN, "", " " + " ".join(words)).split()   # the loader's expression: a space in front, then the pattern
+        assert by_pattern == without_office_units(words), words
 
 
 def test_a_note_gets_the_name_search_the_address_search_or_a_question():
@@ -693,6 +750,21 @@ def test_an_address_search_lists_the_active_companies_and_only_counts_the_inacti
     assert address_search(backend, "8586 palm pwwy", "Tampa").active == ()   # a city that no match is in: the Tampa company is on another street
     assert [c.document_number for c in address_search(backend, "8587 palm parkway").active] == ["T00000000005"]   # the house number must be the same
     assert address_search(backend, "858 palm pkwy").active == () and address_search(backend, "8586 pkwy").active == ()   # a shorter number, and no street name
+
+
+def test_an_address_search_lists_the_companies_of_every_suite_and_keeps_an_apartment_apart():
+    # Rule S15 through address_search(): three suites of one building are one address, and an apartment there is not part of it.
+    backend = FakeBackend([
+        at("T00000000001", "INVENTED CO 1 LLC", "12 MADE UP RD STE 100"), at("T00000000002", "INVENTED CO 2 LLC", "12 Made Up Road, Suite 200"),
+        at("T00000000003", "INVENTED CO 3 LLC", "12 MADE UP RD"), at("T00000000004", "INVENTED CO 4 LLC", "12 MADE UP RD APT 4"),
+        at("T00000000005", "INVENTED CO 5 LLC", "12 SOUTH MADE UP RD BLDG B FL 2"),
+    ])
+    assert [c.document_number for c in address_search(backend, "12 made up rd").active] == ["T00000000001", "T00000000002", "T00000000003", "T00000000005"]
+    assert [c.document_number for c in address_search(backend, "12 made up rd ste 100").active] == ["T00000000001", "T00000000002", "T00000000003", "T00000000005"]   # a typed suite is left out too
+    assert [c.document_number for c in address_search(backend, "12 made up rd apt 4").active] == ["T00000000001", "T00000000002", "T00000000003", "T00000000004", "T00000000005"]
+    assert backend.address_calls[0] == ("12", ("MADE", "UP"), ADDRESS_FETCH) and backend.address_calls[1] == ("12", ("MADE", "UP"), ADDRESS_FETCH)   # the suite never reaches the lookup
+    assert search_kind("", "12 ste 100", False) == "ask" and address_search(backend, "12 suite 100").active == ()   # a house number and a suite alone name no street
+    assert search_kind("", "12 south", False) == "ask" and search_kind("", "12 south st", False) == "ask"   # nor does a direction: SOUTH is one since rule S15
 
 
 def test_an_address_search_is_in_document_number_order_and_status_never_reorders_it():

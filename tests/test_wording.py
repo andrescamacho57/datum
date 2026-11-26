@@ -121,8 +121,28 @@ def test_the_sentences_of_an_address_search_are_held_here_as_literal_text():
     assert wording.address_not_found_text(city_given=False) == wording.ADDRESS_NOT_FOUND and "city" not in wording.ADDRESS_NOT_FOUND
     assert wording.address_not_found_text(city_given=True).startswith("No company matches: none has a principal address on record with that house number, "
                                                                       "a street name made only of words you typed, and a principal city that begins with the city you gave.")
-    assert wording.address_compared_text("8586", city_given=False).endswith("are not compared. You gave no city, so a match can be in any city.")
-    assert wording.address_compared_text("8586", city_given=True).endswith("are not compared. Its principal city on record also begins with the city you gave.")
+    assert wording.address_compared_text("8586", city_given=False).endswith("so it has to be typed too. You gave no city, so a match can be in any city.")
+    assert wording.address_compared_text("8586", city_given=True).endswith("so it has to be typed too. Its principal city on record also begins with the city you gave.")
+
+
+def test_the_sentence_about_what_an_address_search_compares_names_exactly_the_words_the_search_leaves_out():
+    # Phase D rule S15 (leg D4). The sentence is typed out, and then checked against the search's own lists, so that it cannot
+    # name a direction or a unit word the search does not leave out, or leave one out that it does. Until leg D4 it named four
+    # directions and no unit, and the two sentences for "no match" advised adding a suite, which is no longer compared.
+    import re
+    from datum.search import DIRECTIONS, HOME_UNIT_WORDS, OFFICE_UNIT_WORDS
+    assert wording.ADDRESS_COMPARED == (
+        "A company matches when its principal address on record has the house number {house_number} and a street name made only of words you typed. "
+        "Three things are not compared: the kind of street, such as ST or PKWY; a direction (N, S, E, W, NORTH, SOUTH, EAST, WEST, NE, NW, SE or SW); "
+        "and an office unit (STE, SUITE, BLDG, FL, FLOOR, RM or ROOM) with the number or letter after it. "
+        "An apartment, unit or lot number on the record is compared, so it has to be typed too."
+    )
+    named = re.findall(r"\(([^)]*)\)", wording.ADDRESS_COMPARED)          # the two lists in brackets
+    assert set(re.findall(r"[A-Z]+", named[0])) == set(DIRECTIONS) and len(DIRECTIONS) == 12
+    assert tuple(re.findall(r"[A-Z]+", named[1])) == OFFICE_UNIT_WORDS
+    assert HOME_UNIT_WORDS == ("APT", "UNIT", "LOT")                      # the three the last sentence says are still compared
+    for sentence in (wording.ADDRESS_NOT_FOUND, wording.ADDRESS_NOT_FOUND_IN_CITY):
+        assert sentence.endswith("and add the apartment, unit or lot number if the address has one.") and "suite" not in sentence.lower()
 
 
 def test_the_identification_line_of_an_address_search_names_the_street_and_no_match_level():

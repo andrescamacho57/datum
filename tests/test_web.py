@@ -641,8 +641,12 @@ def test_an_address_alone_lists_the_one_active_company_there_and_says_two_inacti
     assert ("2 inactive companies also match and are not listed. "
             "Source: Florida Division of Corporations (Sunbiz) company records · fetched about 2026-10-22") in text   # the count cites the records it was made from
     assert "Document number T26000000200 · Principal address 8586 PALM PKWY, ORLANDO, FL 32836" in text   # the address as the state has it, to compare with what was typed
+    # The sentence that says what was compared, typed out. Since rule S15 (leg D4) it names all twelve directions and the office
+    # units, which are not compared, and says that an apartment, unit or lot number still is.
     assert ("A company matches when its principal address on record has the house number 8586 and a street name made only of words you typed. "
-            "The kind of street, such as ST or PKWY, and a direction, N, S, E or W, are not compared. You gave no city, so a match can be in any city.") in text
+            "Three things are not compared: the kind of street, such as ST or PKWY; a direction (N, S, E, W, NORTH, SOUTH, EAST, WEST, NE, NW, SE or SW); "
+            "and an office unit (STE, SUITE, BLDG, FL, FLOOR, RM or ROOM) with the number or letter after it. "
+            "An apartment, unit or lot number on the record is compared, so it has to be typed too. You gave no city, so a match can be in any city.") in text
     assert "also begins with the city you gave" not in text               # no city was given, and the page says that none was compared
     assert "this principal address" not in text and "at this address" not in text   # the page says "matches", which is all the comparison shows (round 1 of the review)
     assert text.count(S8_SENTENCE) == 1                                   # rule S8: once ...
@@ -684,7 +688,7 @@ def test_a_city_given_with_an_address_keeps_only_the_companies_in_that_city_and_
     text = seen(client_for(with_city).post("/search", data={"note": "8586 palm pwwy orlando"}).text)
     assert 'I read that as: the street "8586 palm pwwy", the city "Orlando"' in text
     assert "INVENTED PIZZA 0 LLC" in text and "MIAMI" not in text and "1 active company matches." in text
-    assert "The kind of street, such as ST or PKWY, and a direction, N, S, E or W, are not compared. Its principal city on record also begins with the city you gave." in text
+    assert "An apartment, unit or lot number on the record is compared, so it has to be typed too. Its principal city on record also begins with the city you gave." in text
     no_city, _ = make(extract=lambda note: dict(BY_ADDRESS), companies=companies + [elsewhere])
     both = seen(client_for(no_city).post("/search", data={"note": "8586 palm pwwy"}).text)
     assert "2 active companies match." in both      # with no city, 8586 PALM AVE in Miami matches too ...
@@ -697,7 +701,8 @@ def test_an_address_search_that_lists_nobody_says_why_and_shows_no_company():
     answer = client_for(nobody).post("/search", data={"note": "8586 palm pwwy"})
     text = seen(answer.text)
     assert answer.status_code == 200 and "/company/" not in answer.text and 'I read that as: the street "8586 palm pwwy"' in text
-    assert "No company matches: none has a principal address on record with that house number and a street name made only of words you typed. Check the house number and the spelling of the street's name, and add the suite or unit if the address has one." in text
+    assert "No company matches: none has a principal address on record with that house number and a street name made only of words you typed. Check the house number and the spelling of the street's name, and add the apartment, unit or lot number if the address has one." in text
+    assert "suite" not in text.lower()                                    # a suite is not compared since rule S15, so the page no longer advises adding one
     assert S8_SENTENCE not in text                                        # there are no results for it to stand under
     # With a city given, the city is one of the things compared. Companies DO have that house number and street, in Orlando, so the
     # page may not say that none has: it has to say that the city was part of the comparison (round 2 of the review).

@@ -87,8 +87,28 @@ STREET_TYPES = frozenset({
 # PLACE, TER and TERRACE, TRL and TRAIL). The search by address ignores them on both sides,
 # because the street type is where the abbreviations and the typing mistakes are: PKWY,
 # PARKWAY and a mistyped PWWY all name the same street.
-DIRECTIONS = frozenset({"N", "S", "E", "W"})   # the four directions rule S5 lists, and no other (not NE or SW, and not NORTH spelled out)
+DIRECTIONS = frozenset({"N", "S", "E", "W", "NORTH", "SOUTH", "EAST", "WEST", "NE", "NW", "SE", "SW"})
+# Twelve directions. Rule S5 listed N, S, E and W, and Phase D rule S15 (leg D4) added the four spelled out and the four between
+# them. Until then a record that said SOUTH or SE matched only a note that said the same.
 IGNORED_STREET_WORDS = STREET_TYPES | DIRECTIONS
+OFFICE_UNIT_WORDS = ("STE", "SUITE", "BLDG", "FL", "FLOOR", "RM", "ROOM")
+# Phase D rule S15 (leg D4): an OFFICE unit word and the one word right after it, its number or letter, are left out when streets
+# are compared, on the stored side and on the typed side. A contractor types a building's address and not its suite, and until
+# leg D4 a record that said "STE 200" was found only when the note said it too.
+HOME_UNIT_WORDS = ("APT", "UNIT", "LOT")
+# These three are NOT left out, and neither is a number that stood after a # sign (name_key turns # into a space, so #200 is
+# compared as the word 200). They often mark an apartment or a mobile-home lot, which is a home, and leaving them out would let
+# one typed address list the companies of every apartment or lot there. That waits for the lawyer (question Q54). They are named
+# here for one reason only: a unit word is never taken as another unit word's number, so "BLDG APT 305" keeps APT 305.
+OFFICE_UNIT_PATTERN = (
+    " (?:" + "|".join(OFFICE_UNIT_WORDS) + ")"
+    "(?: (?!(?:" + "|".join(OFFICE_UNIT_WORDS + HOME_UNIT_WORDS) + ")(?: |$))[A-Z0-9]+)?(?= |$)"
+)
+# The same rule as without_office_units() below, as a pattern for a street written with one space before every word. The loader
+# holds this very text inside the statement that fills company_search_addresses, so that Postgres can cut 13 million addresses
+# once. A test checks that the loader's text is this one, and another that the pattern and the function give the same words.
+# Reading it: a space and an office unit word; then, if there is one, a space and one more word that is NOT itself a unit word
+# ((?!...) means "not followed by"); and the match must end at a space or at the end ((?=...) means "followed by").
 ORDINAL = re.compile(r"[0-9]+(ST|ND|RD|TH)")
 # A numbered street: 1ST, 2ND, 3RD, 4TH, 101ST. It begins with a digit and it is NOT a house
 # number. "4th st south" names a street and no house on it, so it has no house number
@@ -624,6 +644,12 @@ class PostgresBackend:
     # drops a street that is nothing but ignored words. Both conditions are street_matches(),
     # written a second time so that the database can cut the list before the limit, and
     # address_search() applies street_matches() itself to every row that comes back.
+    # Rule S15 (leg D4) did not change this text. The office units are left out of the STORED
+    # street by the loader, when it fills the table, and out of the TYPED words by
+    # street_parts(), before they are sent. The eight new directions arrive in the two lists.
+    # So the query compares what is left on both sides, as before. Against a table that was
+    # filled before leg D4 it is only stricter than the rule, never looser: a stored "STE 200"
+    # is then still there, and it is not among the allowed words.
     # As in NEAREST_SQL, only document numbers leave the narrow table, and every company is
     # read in full from company_search. The four values travel as parameters.
 
@@ -669,19 +695,47 @@ class FakeBackend:
         """Every company it holds whose principal address begins with this house number, with the words after the number.
 
         The address is cut the way the loader cuts it: simplified like a name, the first word
-        is the house number, the rest is the street. It does NOT compare the street. That is
-        street_matches()'s job, which runs for real in the tests.
+        is the house number, the rest is the street with its office units left out (rule
+        S15). It does NOT compare the street. That is street_matches()'s job, which runs for
+        real in the tests.
         """
         self.address_calls.append((house_number, typed_words, limit))
         found = []
         for company in self.companies:      # in the order they are held, NOT sorted: putting the answer in document-number order is address_search()'s job
             words = name_key(company.principal_address_1 or "").split()
             if words and words[0] == house_number:
-                found.append((company, " ".join(words[1:])))
+                found.append((company, " ".join(without_office_units(words[1:]))))
         return found[:limit]
 
 
 # --- The search by address (Phase D, leg D1; working rules S5 to S8) ---------------------------
+
+def without_office_units(words: list[str]) -> list[str]:
+    """A street's words with every office unit left out: the unit word, and the one word right after it (Phase D rule S15).
+
+    "PALM PKWY STE 200" gives PALM PKWY. "OCEAN DR BLDG 2 APT 305" gives OCEAN DR APT 305:
+    the building is left out, and the apartment stays, because APT, UNIT and LOT are still
+    compared. A unit word is never taken as another unit word's number, so "FL STE 300"
+    leaves out FL alone and then STE 300, and "BLDG APT 305" leaves out BLDG alone.
+
+    One known gap, which the rule names: a floor written number first, as in "2ND FL",
+    loses FL and keeps 2ND, so a note has to hold 2ND to match it.
+
+    No office unit word is left in what this returns, so running it twice changes nothing.
+    That matters: the loader has already cut the stored streets, and street_matches() cuts
+    whatever it is handed again.
+    """
+    kept, at = [], 0
+    while at < len(words):
+        if words[at] in OFFICE_UNIT_WORDS:
+            at += 1                                                # the unit word itself
+            if at < len(words) and words[at] not in OFFICE_UNIT_WORDS and words[at] not in HOME_UNIT_WORDS:
+                at += 1                                            # and the one word after it: its number or letter
+            continue
+        kept.append(words[at])
+        at += 1
+    return kept
+
 
 def street_parts(street: str) -> tuple[str | None, tuple[str, ...]]:
     """(the house number, the street's words that are compared) for a street as the extraction step returned it or as the state has it.
@@ -690,29 +744,34 @@ def street_parts(street: str) -> tuple[str | None, tuple[str, ...]]:
     digit becomes a space). The first word is the house number when it begins with a digit:
     "8586 palm pwwy" gives "8586", and "123A Main St" gives "123A". The one exception is a
     numbered street: in "4th st south" the first word names the street, so there is no
-    house number. The words after the house number are the street, with the street types
-    and the four directions left out. A street with no house number gives (None, ()).
-    This is the same cut the loader makes when it builds company_search_addresses, which is
-    what lets a typed street and a stored one be compared word for word.
+    house number. The words after the house number are the street. Office units are left
+    out of them first (rule S15: "ste 200" goes, "apt 5" stays), and then the street types
+    and the twelve directions. A street with no house number gives (None, ()).
+    The loader makes the same cut of the house number and the office units when it builds
+    company_search_addresses, which is what lets a typed street and a stored one be
+    compared word for word.
     """
     words = name_key(street).split()
     if not words or not words[0][0].isdigit() or ORDINAL.fullmatch(words[0]):   # name_key leaves only A to Z and 0 to 9, so this is a plain digit
         return None, ()
-    return words[0], tuple(word for word in words[1:] if word not in IGNORED_STREET_WORDS)
+    return words[0], tuple(word for word in without_office_units(words[1:]) if word not in IGNORED_STREET_WORDS)
 
 
 def street_matches(stored_street_words: str, typed_words: tuple[str, ...]) -> bool:
-    """True when every word of the stored street, street types and directions aside, is among the words that were typed (working rule S5).
+    """True when every word of the stored street, office units, street types and directions aside, is among the words that were typed (working rules S5 and S15).
 
     The stored "PALM PKWY" leaves PALM, and the typed "palm pwwy" leaves PALM and PWWY, so
     they match: the mistyped street type does no harm, because nothing has to match it. The
     comparison runs one way only. A typed word the stored street does not have is allowed,
     and a stored word that was not typed is not, so one word of the stored street left out
-    of what was typed is a miss. A stored street with no word left once the types and directions are gone
-    ("N ST", or no street at all) matches nothing: it would otherwise match every street
-    with that house number.
+    of what was typed is a miss. Since leg D4 a suite on the record is no longer such a
+    word: the stored "PALM PKWY STE 200" leaves PALM too. An apartment, a unit or a lot
+    still is: the stored "OCEAN DR APT 305" leaves OCEAN, APT and 305, and all three have
+    to be typed. A stored street with no word left once the units, types and directions
+    are gone ("N ST", or no street at all) matches nothing: it would otherwise match every
+    street with that house number.
     """
-    stored = [word for word in stored_street_words.split() if word not in IGNORED_STREET_WORDS]
+    stored = [word for word in without_office_units(stored_street_words.split()) if word not in IGNORED_STREET_WORDS]
     return bool(stored) and all(word in typed_words for word in stored)
 
 
@@ -723,7 +782,9 @@ def search_kind(business_name: str, street: str, is_specific: bool) -> str:
       "address"  the note names no business, and its street begins with a house number and has
                  at least one word to compare after it.
       "ask"      the note names no business, and it has no street, a street with no house number,
-                 or a house number with nothing after it but a street type ("12 parkway").
+                 or a house number with nothing after it but words the comparison leaves out: a
+                 street type ("12 parkway"), a direction ("12 south", since rule S15 makes SOUTH
+                 a direction) or an office unit ("12 ste 100").
                  "the pool guy off race track rd" stays here: a street alone matches thousands of
                  companies. So does "4th st south", whose first word is a street and not a house.
     The note itself is never read here, only the extracted fields (working rule W6).

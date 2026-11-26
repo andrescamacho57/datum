@@ -249,8 +249,14 @@ REQUEST_NOT_READ = "That could not be read as a search. Type the business's name
 ADDRESS_HEADING = "Companies by principal address"
 ADDRESS_COMPARED = (
     "A company matches when its principal address on record has the house number {house_number} "
-    "and a street name made only of words you typed. The kind of street, such as ST or PKWY, and a direction, N, S, E or W, are not compared."
+    "and a street name made only of words you typed. Three things are not compared: the kind of street, such as ST or PKWY; "
+    "a direction (N, S, E, W, NORTH, SOUTH, EAST, WEST, NE, NW, SE or SW); "
+    "and an office unit (STE, SUITE, BLDG, FL, FLOOR, RM or ROOM) with the number or letter after it. "
+    "An apartment, unit or lot number on the record is compared, so it has to be typed too."
 )
+# Phase D rule S15 (leg D4) changed the comparison, and so this sentence: it names all twelve
+# directions and the seven office unit words, because those are exactly the words
+# search.street_parts() leaves out, and it says that APT, UNIT and LOT are still compared.
 # Exactly the comparison of search.street_matches(). Every line below says "matches" and never
 # "has this address", because the comparison is looser than that: 8586 PALM AVE matches
 # "8586 palm pkwy", and so does a street made of fewer words than were typed. Round 1 of leg
@@ -273,15 +279,17 @@ PRINCIPAL_ADDRESS_NOTE = "A company's principal address is the address it gave t
 # Rule S8, word for word: once, under the results of every address search.
 ADDRESS_NOT_FOUND = (
     "No company matches: none has a principal address on record with that house number and a street name made only of words you typed. "
-    "Check the house number and the spelling of the street's name, and add the suite or unit if the address has one."
+    "Check the house number and the spelling of the street's name, and add the apartment, unit or lot number if the address has one."
 )
 ADDRESS_NOT_FOUND_IN_CITY = (
     "No company matches: none has a principal address on record with that house number, a street name made only of words you typed, "
     "and a principal city that begins with the city you gave. "
-    "Check the house number, the spelling of the street's name and the city, and add the suite or unit if the address has one."
+    "Check the house number, the spelling of the street's name and the city, and add the apartment, unit or lot number if the address has one."
 )
-# Each says what was compared, so that it does not read as "no company is at this address". A
-# record that holds a suite only matches when the suite was typed too (question Q47). The
+# Each says what was compared, so that it does not read as "no company is at this address".
+# Until leg D4 both advised adding "the suite or unit". A suite is no longer compared (rule
+# S15), so that advice could not help. A record that holds an apartment, a unit or a lot still
+# matches only when it was typed too, and so the advice is now about those three. The
 # second is shown when a city was read from the note: the city is then part of the comparison,
 # and a company with that house number and street in ANOTHER city is not a match. Round 2 of
 # leg D1's review found that one sentence for both cases denied such a company's record.

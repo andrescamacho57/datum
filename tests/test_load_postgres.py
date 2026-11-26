@@ -322,14 +322,21 @@ def test_the_statement_that_cuts_an_address_is_pinned_word_for_word():
         "select document_number, house_number, street_words from ("
         "select document_number, "
         "case when words[1] ~ '^[0-9]' and words[1] !~ '^[0-9]+(ST|ND|RD|TH)$' then words[1] end as house_number, "
-        "case when words[1] ~ '^[0-9]' and words[1] !~ '^[0-9]+(ST|ND|RD|TH)$' then array_to_string(words[2:], ' ') else '' end as street_words "
+        "case when words[1] ~ '^[0-9]' and words[1] !~ '^[0-9]+(ST|ND|RD|TH)$' "
+        "then ltrim(regexp_replace(' ' || array_to_string(words[2:], ' '), "
+        "' (?:STE|SUITE|BLDG|FL|FLOOR|RM|ROOM)(?: (?!(?:STE|SUITE|BLDG|FL|FLOOR|RM|ROOM|APT|UNIT|LOT)(?: |$))[A-Z0-9]+)?(?= |$)', '', 'g')) "
+        "else '' end as street_words "
         "from (select document_number, "
         "string_to_array(trim(regexp_replace(upper(coalesce(principal_address_1, '')), '[^A-Z0-9]+', ' ', 'g')), ' ') as words "
         "from company_search_new) as simplified) as cut "
         'order by house_number collate "C" nulls last, street_words collate "C", document_number'
     )
-    from datum.search import ORDINAL                                      # the Python side of the same rule
+    from datum.search import OFFICE_UNIT_PATTERN, ORDINAL                 # the Python side of the same two rules
     assert ORDINAL.pattern == "[0-9]+(ST|ND|RD|TH)" and "'^" + ORDINAL.pattern + "$'" in ADDRESSES_FILL_SQL
+    # Phase D rule S15 (leg D4): the loader leaves office units out of the stored street, with the very pattern the search module
+    # holds. Before leg D4 the statement kept every word after the house number, and this test fails on that text.
+    assert f"ltrim(regexp_replace(' ' || array_to_string(words[2:], ' '), '{OFFICE_UNIT_PATTERN}', '', 'g'))" in ADDRESSES_FILL_SQL
+    assert ADDRESSES_FILL_SQL.count("regexp_replace(") == 2 and "%" not in ADDRESSES_FILL_SQL   # the simplifying step and this one. The statement takes no values, so a % would be read as text
 
 
 def test_an_address_table_that_differs_from_company_search_stops_the_run_before_the_swap(tmp_path):
