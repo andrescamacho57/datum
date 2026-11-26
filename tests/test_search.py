@@ -657,9 +657,10 @@ def test_a_stored_street_matches_when_all_its_words_were_typed_whatever_the_stre
 
 
 def test_an_office_unit_is_left_out_on_both_sides_and_an_apartment_a_unit_or_a_lot_is_still_compared():
-    # Phase D rule S15 (leg D4). Until then every word of the stored street had to be typed, a suite included, so the first, the
-    # third and the last line below were misses, and this test fails on that behavior. The second line was already true before leg D4,
-    # because a typed word the record lacks was always allowed (round 1 of the review): the line under it checks the typed side's cut.
+    # Phase D rule S15 (leg D4). Until then every word of the stored street had to be typed, a suite included, and only N, S, E and W
+    # were directions, so the lines about a stored STE, another suite, a building and the new directions were misses, and this test
+    # fails on that behavior. The line about a typed SUITE was already true before leg D4, because a typed word the record lacks was
+    # always allowed (round 1 of the review): the line under it checks the typed side's own cut, which did not exist before.
     def matches(stored, note):
         return street_matches(stored, street_parts(note)[1])
 

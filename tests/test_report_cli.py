@@ -536,7 +536,9 @@ def test_the_terminal_and_the_web_app_give_the_same_kind_of_answer_and_the_same_
         assert talk.said[at + 2].startswith("   Source: Florida Division of Corporations (Sunbiz) record, document number T"), (label, talk.said[at + 2])
     visible = html.unescape(" ".join(re.sub(r"<[^>]+>", " ", page).split()))
     said = "\n".join(talk.said)
-    present = [sentence for sentence in fixed_sentences(fields) if sentence in visible or sentence in said]
+    names = {c.document_number: c.entity_name for c in companies}
+    listed_names = [names[number] for number in on_the_page]              # the listed companies take part in the order too (round 2 of the review)
+    present = [sentence for sentence in fixed_sentences(fields) + listed_names if sentence in visible or sentence in said]
     for sentence in present:
         assert (sentence in visible) == (sentence in said), (label, sentence)   # every fixed sentence is on both, or on neither
     assert sorted(present, key=visible.index) == sorted(present, key=said.index), label   # and in the same order
@@ -544,7 +546,7 @@ def test_the_terminal_and_the_web_app_give_the_same_kind_of_answer_and_the_same_
 
 def test_the_terminal_reports_on_the_company_picked_from_an_address_list_and_counts_the_others(tmp_path):
     # Round 1 of leg D4's review: nothing checked which company the terminal reports on after an address list, or its count of the others.
-    talk = Talk(["2"])                                                  # three active companies at one address, each at another suite: pick the second
+    talk = Talk(["2"])                                                  # three active companies at one address, two of them at suites: pick the second
     path = run(talk, tmp_path, note="8586 palm pwwy", fields=ADDRESS_NOTE, companies=palm_pkwy(active=3, inactive=0))
     assert [line for line in talk.said if re.match(r"\d+\. ", line)] == [
         "1. INVENTED PIZZA 0 LLC  (T26000000200)", "2. INVENTED PIZZA 1 LLC  (T26000000201)", "3. INVENTED PIZZA 2 LLC  (T26000000202)"]
