@@ -658,12 +658,14 @@ def test_a_stored_street_matches_when_all_its_words_were_typed_whatever_the_stre
 
 def test_an_office_unit_is_left_out_on_both_sides_and_an_apartment_a_unit_or_a_lot_is_still_compared():
     # Phase D rule S15 (leg D4). Until then every word of the stored street had to be typed, a suite included, so the first, the
-    # second and the last line below were misses, and this test fails on that behavior.
+    # third and the last line below were misses, and this test fails on that behavior. The second line was already true before leg D4,
+    # because a typed word the record lacks was always allowed (round 1 of the review): the line under it checks the typed side's cut.
     def matches(stored, note):
         return street_matches(stored, street_parts(note)[1])
 
     assert matches("OCEAN DR STE 200", "100 ocean dr")                    # a stored STE matches a note without it
     assert matches("OCEAN DR", "100 ocean dr suite 200")                  # a note with SUITE matches a stored address without it
+    assert street_parts("100 ocean dr suite 200") == ("100", ("OCEAN",))  # because the typed suite and its number are left out too (rule S15, the typed side)
     assert matches("OCEAN DR STE 200", "100 ocean dr suite 300")          # and another suite of the same building: the suites are one address now
     assert not matches("OCEAN DR APT 305", "100 ocean dr")                # a stored APT still needs the note's APT
     assert matches("OCEAN DR APT 305", "100 ocean dr apt 305") and not matches("OCEAN DR APT 305", "100 ocean dr apt 306")
@@ -696,17 +698,21 @@ def test_the_cut_of_an_office_unit_takes_the_unit_word_and_the_one_word_after_it
 def test_the_loaders_pattern_and_the_python_rule_cut_every_street_the_same_way():
     # The loader cuts the stored streets with OFFICE_UNIT_PATTERN, inside Postgres, and the search cuts a typed street with
     # without_office_units(). If the two disagreed, a street would be stored one way and looked for another. Python can run the
-    # pattern too, so this test does, on every street of up to four words made from a small vocabulary and on every five-word street of unit words: 47,748 in all.
-    # (Postgres reads the pattern with its own engine. Leg D4's report compares the two on real addresses.)
+    # pattern too, so this test does, on every street of up to four words made from a small vocabulary and on every five-word
+    # street of unit words: 71,048 in all. FARM and ESTE END in a unit word, so a pattern without its leading space fails here.
+    # The two are compared as TEXT, spaces included, and not as lists of words: AT_HOUSE_NUMBER_SQL splits a stored street on
+    # single spaces, so a doubled or trailing space would be an empty word to it (round 1 of leg D4's review).
+    # (Postgres reads the pattern with its own engine, which this test cannot run. Leg D4's report, check 3, runs these same
+    # streets through Postgres, and compares the two on real addresses.)
     import itertools
     import re
-    vocabulary = ("STE", "FL", "FLOOR", "BLDG", "APT", "LOT", "MAIN", "2ND", "200", "A", "ST", "N", "FLOORING")
+    vocabulary = ("STE", "FL", "FLOOR", "BLDG", "APT", "LOT", "MAIN", "2ND", "200", "A", "ST", "N", "FLOORING", "FARM", "ESTE")
     streets = [list(words) for size in range(5) for words in itertools.product(vocabulary, repeat=size)]
     streets += [list(words) for words in itertools.product(("STE", "SUITE", "RM", "ROOM", "UNIT", "MAIN", "5"), repeat=5)]
-    assert len(streets) == 47_748
+    assert len(streets) == 71_048
     for words in streets:
-        by_pattern = re.sub(OFFICE_UNIT_PATTERN, "", " " + " ".join(words)).split()   # the loader's expression: a space in front, then the pattern
-        assert by_pattern == without_office_units(words), words
+        by_pattern = re.sub(OFFICE_UNIT_PATTERN, "", " " + " ".join(words)).lstrip(" ")   # the loader's expression: a space in front, the pattern, then ltrim
+        assert by_pattern == " ".join(without_office_units(words)), words
 
 
 def test_a_note_gets_the_name_search_the_address_search_or_a_question():
@@ -765,6 +771,20 @@ def test_an_address_search_lists_the_companies_of_every_suite_and_keeps_an_apart
     assert backend.address_calls[0] == ("12", ("MADE", "UP"), ADDRESS_FETCH) and backend.address_calls[1] == ("12", ("MADE", "UP"), ADDRESS_FETCH)   # the suite never reaches the lookup
     assert search_kind("", "12 ste 100", False) == "ask" and address_search(backend, "12 suite 100").active == ()   # a house number and a suite alone name no street
     assert search_kind("", "12 south", False) == "ask" and search_kind("", "12 south st", False) == "ask"   # nor does a direction: SOUTH is one since rule S15
+
+
+def test_a_typed_suite_is_left_out_even_when_the_record_writes_the_same_unit_after_a_hash_sign():
+    # Rule S15 as written, on a shape round 1 of leg D4's review found. The typed side leaves "suite 200" out, and a record that writes
+    # the same unit as "#200" keeps 200, because a number after a # sign is still compared. So that record is not matched, where it was
+    # before leg D4. This pins what the code does, so that a change is a decision: whether the typed side should keep the unit's number
+    # is question Q62. The page's sentence for "no match" says the left-out words are gone from both sides, which is true here.
+    hashed = at("T00000000001", "INVENTED CO 1 LLC", "100 MADE UP RD #200")
+    suite = at("T00000000002", "INVENTED CO 2 LLC", "100 MADE UP RD STE 300")
+    backend = FakeBackend([hashed, suite])
+    assert street_parts("100 made up rd suite 200") == ("100", ("MADE", "UP"))
+    assert [c.document_number for c in address_search(backend, "100 made up rd suite 200").active] == ["T00000000002"]
+    assert [c.document_number for c in address_search(backend, "100 made up rd #200").active] == ["T00000000001", "T00000000002"]   # typed after a # sign, 200 is compared, and it matches
+    assert address_search(FakeBackend([hashed]), "100 made up rd suite 200").active == ()
 
 
 def test_an_address_search_is_in_document_number_order_and_status_never_reorders_it():
