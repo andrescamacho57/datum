@@ -479,11 +479,11 @@ def test_an_empty_shortlist_has_no_tie():
 
 def test_the_postgres_query_sends_what_was_typed_as_a_value_never_as_sql():
     # Nothing typed by a contractor may be pasted into the SQL text. The query holds four placeholders and no other gap. Its only
-    # quotes are the two fixed pairs of rule S11's term: one holds nothing and one holds a single space.
+    # quotes are the three fixed pairs of rule S11's term: one holds nothing and two hold a single space.
     sql = PostgresBackend.NEAREST_SQL
-    assert [sql.count(f"%({name})s") for name in ("key", "suffixes", "words", "limit")] == [2, 1, 1, 1]
-    assert sql.count("%(") == 5 and "{" not in sql                        # no placeholder besides those five uses, and no gap left by an f-string
-    assert sql.count("'") == 4 and "%(suffixes)s, '')" in sql and "' ') @>" in sql
+    assert [sql.count(f"%({name})s") for name in ("key", "suffixes", "words", "limit")] == [2, 1, 2, 1]
+    assert sql.count("%(") == 6 and "{" not in sql                        # no placeholder besides those six uses, and no gap left by an f-string
+    assert sql.count("'") == 6 and sql.count("' ') @>") == 2 and "%(suffixes)s, '')" in sql
 
 
 def test_the_postgres_query_finds_names_in_the_narrow_table_and_reads_every_company_from_company_search():
@@ -506,13 +506,18 @@ def test_the_first_step_keeps_the_names_that_hold_every_typed_word_before_the_ne
         "select " + ", ".join("c." + column for column in COMPANY_COLUMNS) + " "
         "from (select document_number from company_search_names "
         "where %(key)s <%% name_key "
-        "order by not (string_to_array(regexp_replace(name_key, %(suffixes)s, ''), ' ') @> %(words)s::text[]), "
+        "order by not (case when string_to_array(name_key, ' ') @> %(words)s::text[] "
+        "then string_to_array(regexp_replace(name_key, %(suffixes)s, ''), ' ') @> %(words)s::text[] "
+        "else false end), "
         "name_key <-> %(key)s, document_number "
         "limit %(limit)s) as nearest "
         "join company_search as c using (document_number)"
     )
     order_by = sql[sql.index("order by ") + len("order by "):sql.index(" limit %(limit)s")]
     assert order_by.index("@> %(words)s") < order_by.index("<-> %(key)s") < order_by.index("document_number")   # every word, THEN the nearest, then a fixed order
+    # The term's answer is the test on the name WITHOUT its legal endings. The cheaper test on the whole name stands in front of it
+    # only so that the pattern match runs on few names, and "else false" is right because a name that fails the first fails the second.
+    assert order_by.index("when string_to_array(name_key, ' ') @>") < order_by.index("then string_to_array(regexp_replace(") < order_by.index("else false end")
     # The two values the term reads are the ones holds_every_word() compares: the typed words with the legal endings left out, and
     # the one list of legal endings. A name that is nothing but a legal ending keeps its word, as it does in holds_every_word().
     conn = RecordingConnection()

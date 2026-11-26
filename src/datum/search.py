@@ -526,7 +526,9 @@ class PostgresBackend:
         f"select {', '.join('c.' + column for column in COMPANY_COLUMNS)} "
         "from (select document_number from company_search_names "
         "where %(key)s <%% name_key "
-        "order by not (string_to_array(regexp_replace(name_key, %(suffixes)s, ''), ' ') @> %(words)s::text[]), "
+        "order by not (case when string_to_array(name_key, ' ') @> %(words)s::text[] "
+        "then string_to_array(regexp_replace(name_key, %(suffixes)s, ''), ' ') @> %(words)s::text[] "
+        "else false end), "
         "name_key <-> %(key)s, document_number "
         "limit %(limit)s) as nearest "
         "join company_search as c using (document_number)"
@@ -536,7 +538,7 @@ class PostgresBackend:
     # company_search through its primary key, which is one quick lookup per company.
     # %(key)s, %(suffixes)s, %(words)s and %(limit)s are PLACEHOLDERS: the driver sends the values
     # apart from the SQL, so nothing a contractor types can ever be read as SQL (that is how SQL
-    # injection is prevented). The two pairs of quotes in the text hold nothing and one space,
+    # injection is prevented). The three pairs of quotes in the text hold nothing or one space,
     # and nothing typed is ever put between them.
     #
     # WHERE keeps the names that pass. The operator is <% ("is word-similar to"), and because %
@@ -544,22 +546,32 @@ class PostgresBackend:
     #
     # ORDER BY decides which 200 of the names that pass are kept, and it has three terms.
     #
-    #   1. not (string_to_array(regexp_replace(name_key, %(suffixes)s, ''), ' ') @> %(words)s::text[])
-    #      Phase D rule S11 (leg D3): the names that hold EVERY TYPED WORD come first. Read it
-    #      from the inside out:
-    #        regexp_replace(name_key, %(suffixes)s, '')   the name with its trailing legal endings
-    #                                                     cut off. %(suffixes)s is SUFFIX_PATTERN,
-    #                                                     the same pattern without_suffixes() uses
-    #        string_to_array(..., ' ')                    that text cut into its words, as an array
+    #   1. not (case when string_to_array(name_key, ' ') @> %(words)s::text[]
+    #                 then string_to_array(regexp_replace(name_key, %(suffixes)s, ''), ' ') @> %(words)s::text[]
+    #                 else false end)
+    #      Phase D rule S11 (leg D3): the names that hold EVERY TYPED WORD come first. Piece by piece:
+    #        string_to_array(name_key, ' ')               the name cut into its words, as an array
     #        @> %(words)s::text[]                         "contains": true when every typed word is
     #                                                     one of those words. ::text[] tells
     #                                                     Postgres the value is an array of texts
+    #        regexp_replace(name_key, %(suffixes)s, '')   the name with its trailing legal endings
+    #                                                     cut off. %(suffixes)s is SUFFIX_PATTERN,
+    #                                                     the same pattern without_suffixes() uses
+    #        case when A then B else false end            B is worked out only for a name where A
+    #                                                     is true. CASE is how SQL promises that order
     #        not (...)                                    Postgres sorts false before true, so "not"
     #                                                     puts the names that hold every word first
-    #      This is holds_every_word(), written a second time so that the database can apply it
-    #      BEFORE the limit. Until leg D3 the 200 kept were simply the nearest names as a whole,
-    #      and a long legal name is far from a short trade name: for the key V PIZZA, 10,062 names
-    #      pass the WHERE, and V PIZZA LAKE BUENA VISTA LLC stood 2,861st among them.
+    #      B alone is the rule: it is holds_every_word(), written a second time so that the
+    #      database can apply it BEFORE the limit. A is the same test on the whole name, legal
+    #      endings included. Cutting the endings off only removes words, so a name that fails A
+    #      fails B too, and the answer is B's for every name. A is there for speed. It is cheap,
+    #      and the pattern match in B is not: for a common word tens of thousands of names pass
+    #      the WHERE, and a first version that ran the pattern on every one of them took the
+    #      search past its one-second target. With A in front, the pattern runs only on the few
+    #      names that hold the typed words (3,876 of 558,647 over the 210 searches of the speed check).
+    #      Until leg D3 the 200 kept were simply the nearest names as a whole, and a long legal
+    #      name is far from a short trade name: for the key V PIZZA, 10,062 names pass the WHERE,
+    #      and V PIZZA LAKE BUENA VISTA LLC stood 2,861st among them.
     #   2. name_key <-> %(key)s
     #      <-> is the plain trigram DISTANCE between two texts (0 = the same trigrams). Among the
     #      names that hold every word, and then among the ones that do not, the names closest to
