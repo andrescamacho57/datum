@@ -1,6 +1,6 @@
 # Leg D4: the address search, finished
 
-Branch `leg/d4-address-search` (from `leg/d3-name-search`) · pull request not opened yet · run on Nov 26, 2026 · risk tier **High** · status: **built and reviewed, with every check passing. Rounds 1 and 2 of the Deep review are answered, and round 3, the last, is next. Nothing is merged.**
+Branch `leg/d4-address-search` (from `leg/d3-name-search`) · pull request [#30](https://github.com/andrescamacho57/datum/pull/30) · run on Nov 26, 2026 · risk tier **High** · status: **built and reviewed, with every check passing. The Deep review ran its three rounds, and every Important finding is fixed. The fixes of round 3, which rewrote the description of the address comparison, were not reviewed, because no fourth round is allowed. Nothing is merged.**
 
 This is the fourth and last leg of Phase D. Leg D1 built the search by address, and on Nov 26 Andres answered the questions it raised about it. The brief turned his answers into three rules, S15, S16 and S18, and this leg builds them behind the same gate as leg D3, rule S17.
 
@@ -16,9 +16,9 @@ This is the fourth and last leg of Phase D. Leg D1 built the search by address, 
 - **More addresses are crowded.** Because the suites of a building are one address now, 10,177 addresses hold more than 50 companies, where 9,059 did, and 51 of 200 random addresses get the "too many" answer, where 46 did.
 - **The address search meets the speed target:** a p95 of **256 milliseconds**, against 175 in leg D1 and a target of under 1 second. The p95 is the time that 95 of every 100 searches beat.
 - The database went from 6,367 MB to **6,362 MB**, because the address table is a little smaller.
-- The offline tests pass with Postgres stopped: **568**, of which 23 are new in this leg.
+- The offline tests pass with Postgres stopped: **575**, of which 30 are new in this leg.
 - The leg made **3** live extraction calls. Legs D3 and D4 together made 8 of the 10 they share. It used **no Snowflake**.
-- Rounds 1 and 2 of the Deep review found 18 problems, 7 of them Important. Sixteen are fixed, and two are calls for Andres, recorded under questions Q54 and Q60. Round 3 is next.
+- The Deep review ran three rounds and found 22 problems, 9 of them Important. All are answered: 20 fixed and 2 recorded as calls for Andres. Three rounds in a row found a record that the "no match" sentence described wrongly, so after round 3 the comparison got one description, used everywhere. That last fix was not reviewed; my own check found it agrees with the search on 162,285 random pairs.
 
 **What is left for Andres**
 
@@ -43,7 +43,7 @@ This is the fourth and last leg of Phase D. Leg D1 built the search by address, 
 | Nov 26, a stop | A usage limit stopped the run after the tables were rebuilt. It picked up again from git and the saved outputs |
 | Nov 26, review round 1 | Three reviewers and a security review read the leg, and a fourth reviewer confirmed all 12 findings. The fixes rewrote three sentences about the comparison, made the terminal say when no company is close to a name, and added the tests the reviewers asked for |
 | Nov 26, review round 2 | One reviewer found that the reworded "no match" sentences still denied a street with no word left, that Q62 hid a cost for homes, and that the section's diagram misstated the loader. All fixed |
-
+| Nov 26, review round 3 | One reviewer found four more records the "no match" sentences described wrongly, and a third effect missing from Q62. The comparison got one description, used on every address answer, which no round reviewed |
 
 ---
 
@@ -100,16 +100,16 @@ This is the fourth and last leg of Phase D. Leg D1 built the search by address, 
 
 | Name in `wording.py` | The text | Where it shows |
 |---|---|---|
-| `ADDRESS_COMPARED` (changed) | A company matches when its principal address on record has the house number {house_number} and a street name made only of words you typed. Three things are not compared: the kind of street, such as ST or PKWY; a direction (N, S, E, W, NORTH, SOUTH, EAST, WEST, NE, NW, SE or SW); and an office unit word (STE, SUITE, BLDG, FL, FLOOR, RM or ROOM) with the one word after it, its number or letter. A street name with no word left once those are left out matches nothing. A hyphen counts as a space, so in STE 400-B the B is still compared, and so is a unit written as one word, such as STE200. An apartment, unit or lot number on the record is compared, so it has to be typed too. | Under every address search that found a company, on the page and in the terminal |
-| `ADDRESS_NOT_FOUND` (changed) | No company matches. A company matches when its principal address on record has that house number and a street name that keeps at least one word once the kind of street, a direction, and an office unit word with the one word after it are left out, and when every word it keeps is among the words you typed, with the same words left out of those. Check the house number and the spelling of the street's name, and add the apartment, unit or lot number if the address has one. | When an address search with no city found nobody |
-| `ADDRESS_NOT_FOUND_IN_CITY` (changed) | No company matches. A company matches when its principal address on record has that house number and a street name that keeps at least one word once the kind of street, a direction, and an office unit word with the one word after it are left out, when every word it keeps is among the words you typed, with the same words left out of those, and when its principal city begins with the city you gave. Check the house number, the spelling of the street's name and the city, and add the apartment, unit or lot number if the address has one. | The same, when a city was given |
+| `ADDRESS_COMPARED` (changed) | A company matches when its principal address on record begins with the house number {house_number}, and every word of its street name is among the words you typed once three things are left out of both: the kind of street, such as ST or PKWY; a direction (N, S, E, W, NORTH, SOUTH, EAST, WEST, NE, NW, SE or SW); and an office unit word (STE, SUITE, BLDG, FL, FLOOR, RM or ROOM) with the one word after it, unless that word is a unit word too. A street name with no word left after that matches nothing. Punctuation counts as a space, so in STE 400-B the B is still compared, and so is a unit written as one word, such as STE200. An apartment, unit or lot on the record is compared, the word and its number, so both have to be typed too. | Under every address search, on the page and in the terminal: under the results, and inside the sentences for "no match" |
+| `ADDRESS_NOT_FOUND` (changed) | No company matches. {compared} Check the house number and the spelling of the street's name, and add the apartment, unit or lot number if the address has one. | When an address search with no city found nobody. `{compared}` is `ADDRESS_COMPARED` itself, followed by "You gave no city, so a match can be in any city." |
+| `ADDRESS_NOT_FOUND_IN_CITY` (changed) | No company matches. {compared} Check the house number, the spelling of the street's name and the city, and add the apartment, unit or lot number if the address has one. | The same, when a city was given. `{compared}` is followed by "Its principal city on record also begins with the city you gave." |
 | `ADDRESS_ONLY_INACTIVE` (new, rule S16; the words are mine) | Type the business's name to look for it with the name search, which lists inactive companies too. | After the count, when no active company and at least one inactive one match |
 | `ASK_FOR_MORE` (changed; the words are mine) | Add the business's full name or its city | The terminal's question after a search that ended without a report |
 | `GIVING_UP` (changed) | I can't identify this business from what I have, so I won't guess. Run it again when you have its name and its city, or its street address beginning with the house number. | The terminal's last line when it gives up |
 | `NO_COMPANY_FOUND` (not changed; now said in the terminal too) | No company with a name close to that was found. Check the spelling of the business's name. | The terminal says it when the name search finds no company, as the page always has. Round 1 of the review found the terminal said nothing there |
 | `ASK_FOR_A_BUSINESS` (removed) | That describes a business but doesn't name one. Add its name, a street or a city | The terminal now asks the page's own `ASK_FOR_A_BUSINESS_ON_A_PAGE`, unchanged: "That describes a business but doesn't name one. Add its name, or its street address beginning with the house number." |
 
-Rounds 1 and 2 of the review changed three of these sentences after the live check of check 8 had run: `ADDRESS_COMPARED`, `ADDRESS_NOT_FOUND` and `ADDRESS_NOT_FOUND_IN_CITY`. The table holds the final words. The first versions said that an office unit is left out "with the number or letter after it", which claimed more than the one-word cut does, and that no record had "a street name made only of words you typed", which a record that writes its unit after `#` could contradict. The second versions of the two "no match" sentences still denied a record whose street keeps no word at all, such as SOUTH ST, so they now say "No company matches." and state the rule a match follows.
+Rounds 1 and 2 of the review changed three of these sentences after the live check of check 8 had run: `ADDRESS_COMPARED`, `ADDRESS_NOT_FOUND` and `ADDRESS_NOT_FOUND_IN_CITY`. The table holds the final words. The first versions said that an office unit is left out "with the number or letter after it", which claimed more than the one-word cut does, and that no record had "a street name made only of words you typed", which a record that writes its unit after `#` could contradict. The second versions of the two "no match" sentences still denied a record whose street keeps no word at all, such as SOUTH ST. Round 3 found four more records the third versions described wrongly, because each version restated the comparison in fewer words than `ADDRESS_COMPARED` does. So there is now one description, `ADDRESS_COMPARED`, written clause by clause from the code, and the "no match" sentences show it (decision 15).
 
 ### Files
 
@@ -118,7 +118,7 @@ Rounds 1 and 2 of the review changed three of these sentences after the live che
 | `src/datum/search.py`, `tests/test_search.py` | Changed. 119 tests, 5 of them new |
 | `src/datum/load_postgres.py`, `tests/test_load_postgres.py` | Changed: the statement that fills the address table. 19 tests, none new: the pinned statement's test changed with it |
 | `src/datum/wording.py`, `tests/test_wording.py` | Changed. 17 tests, 2 of them new |
-| `src/datum/web/app.py`, `src/datum/web/templates/address.html`, `tests/test_web.py` | Changed: one line each. 105 tests, 2 of them new |
+| `src/datum/web/app.py`, `src/datum/web/templates/address.html`, `tests/test_web.py` | Changed: a few lines in the app, one in the template. 112 tests, 9 of them new |
 | `src/datum/report_builder.py`, `tests/test_report_builder.py` | Changed: `address_counts()` moved here. 39 tests, none new |
 | `src/datum/report.py`, `tests/test_report_cli.py` | Changed: the terminal's address path. 46 tests, 14 of them new |
 | `docs/open_questions.md` | Changed |
@@ -363,7 +363,7 @@ principal addresses that begin with a digit and hold an office unit word: 640,02
 | A unit word glued to its number, such as `STE200` | 864 | It is one word that is not a unit word, so it is compared (question Q61) |
 | A house number with no street word left at all | 5,945, where there were 4,883 | Mostly an address that was only a unit after the house number. It cannot be found by address |
 
-Each gap shows less, never more: a company is missed, and no extra company is listed.
+On the record's side each gap shows less: a company is missed. On the typed side a gap can also list a company the note does not describe: a typed `2nd fl` keeps 2ND, which matches a record on `2ND ST` (round 3 of the review).
 
 ### Check 6: the database, before and after
 
@@ -474,13 +474,13 @@ leg D4's rule, note of the kind 'the building's street with another suite': 3 ac
 ```
 brew services stop postgresql@17      → Successfully stopped `postgresql@17` (label: sh.brew.postgresql@17)
 pg_isready                            → /tmp:5432 - no response
-pytest                                → 560 passed in 3.38s
+pytest                                → 575 passed in 3.91s
 ruff check src tests                  → All checks passed!
 brew services start postgresql@17     → Successfully started `postgresql@17` (label: sh.brew.postgresql@17)
 pg_isready                            → /tmp:5432 - accepting connections
 ```
 
-✅ With the database server stopped, all 568 tests pass, so the suite needs no database. 545 existed at the end of leg D3, and 23 are new.
+✅ With the database server stopped, all 575 tests pass, so the suite needs no database. 545 existed at the end of leg D3, and 30 are new.
 
 **The tests the brief asks for by name**
 
@@ -498,23 +498,24 @@ pg_isready                            → /tmp:5432 - accepting connections
 ✅ The deliberate breaks I made before the review, one at a time, each of which fails at least one test:
 
 ```
-office units never left out:                                    9 failed
-only the unit word left out, and its number kept:               9 failed
-an APT, UNIT or LOT taken as a building's number:               2 failed
-APT, UNIT and LOT left out like an office unit:                 7 failed
-the four old directions only:                                   4 failed
-street_matches() not cutting the stored street:                 2 failed
-street_parts() not cutting the typed street:                    2 failed
-the loader's pattern not cutting a BLDG:                        1 failed
-the loader's statement keeping every word, as before leg D4:    1 failed
-the page's sentence about what is compared left as it was:      4 failed
-rule S16's sentence never handed to the page:                   2 failed
-rule S16's sentence shown beside an active company too:         2 failed
-the terminal asking for an address-only note, as before leg D4: 6 failed
-the terminal listing the inactive companies at an address too:  4 failed
-the terminal leaving out rule S16's sentence:                   2 failed
-the terminal leaving out rule S8's note:                        3 failed
-with every file put back:                                       560 passed in 2.98s
+office units never left out:                                                     14 failed
+only the unit word left out, and its number kept:                                14 failed
+an APT, UNIT or LOT taken as a building's number:                                5 failed
+APT, UNIT and LOT left out like an office unit:                                  9 failed
+the four old directions only:                                                    6 failed
+street_matches() not cutting the stored street:                                  2 failed
+street_parts() not cutting the typed street:                                     6 failed
+the loader's pattern not cutting a BLDG:                                         1 failed
+the loader's statement keeping every word, as before leg D4:                     1 failed
+the description of the comparison claiming more than the cut, as before round 3: 5 failed
+the no-match sentence without the description of the comparison:                 11 failed
+rule S16's sentence never handed to the page:                                    2 failed
+rule S16's sentence shown beside an active company too:                          2 failed
+the terminal asking for an address-only note, as before leg D4:                  11 failed
+the terminal listing the inactive companies at an address too:                   5 failed
+the terminal leaving out rule S16's sentence:                                    3 failed
+the terminal leaving out rule S8's note:                                         5 failed
+with every file put back:                                                        575 passed in 3.29s
 ```
 
 ✅ Round 1 of the review named ten more changes that passed every test then. After the fixes, each fails at least one:
@@ -530,7 +531,13 @@ no source line under a listed company:                    2 failed
 rule S8's note printed before the list:                   5 failed
 the terminal silent when no company is close to the name: 1 failed
 the pattern without its leading space:                    2 failed
-with every file put back:                                 567 passed in 3.18s
+with every file put back:                                 575 passed in 3.09s
+```
+
+✅ **The one description of the comparison, checked against the code.** No review round reads the fixes of round 3, so I checked the rewritten `ADDRESS_COMPARED` in another way. A scratch script writes the sentence's rule as its own small function, built from the sentence's words and lists and not from the search's code, and compares it with `address_search()` on random invented records and notes. The records mix street names, street types, directions, office and home units, numbers after `#`, hyphenated and glued units, and records whose first word is not a house number.
+
+```
+162,285 random pairs of an invented record and an address note: the sentence read literally and address_search() agree on 162,285, differ on 0
 ```
 
 ### Check 10: the live extraction calls
@@ -563,6 +570,7 @@ with every file put back:                                 567 passed in 3.18s
 | 12 | The typed side of the cut follows rule S15 as written, although it can only lose matches | The rule says "on the stored side and on the typed side", and it is binding. Following it is the reading that shows less | 🟡 A note that types "suite 200" no longer matches a record that writes `#200` (question Q62). The page's sentences for "no match" were reworded so that they stay true about such a record |
 | 13 | The terminal says `NO_COMPANY_FOUND` when the name search finds no company | Rule S18 asks for the same sentences, and the page has always said it. Round 1 of the review found the terminal said nothing there | It is a change in the terminal's name path, which rule S18 does not name |
 | 14 | The shell's `ANTHROPIC_API_KEY` was unset for the one command that started the app, as in leg D3 | The app reads its own key with `load_dotenv()`, and the shell's value, which the API rejects, stood in the way | I worked around a setting on Andres's Mac and did not fix it. I read no key |
+| 15 | One description of the comparison, `ADDRESS_COMPARED`, written clause by clause from the code, and the "no match" sentences show it instead of a sentence of their own | Three review rounds in a row each found a record that a "no match" sentence described wrongly, because each version restated the comparison in fewer words. `REVIEW.md` says such a run means the approach needs rethinking | The "no match" answer is longer. No review round read this change, so I checked it against the code on 162,285 random pairs (check 9) |
 
 ---
 
@@ -583,6 +591,7 @@ with every file put back:                                 567 passed in 3.18s
 11. 🟡 **How often a note types a suite that the record writes after `#`** (question Q62). 324,005 principal addresses write a unit after `#`, and since this leg a note that types such a unit as "suite N" does not match them. How many notes would do that is not known. Keeping the typed number would bring them back, and it would also let a typed `bldg 2 apt 305` list a record `APT 2`, another apartment.
 12. 🟡 **Two privacy consequences of rule S15 as written** (question Q54, for the lawyer): a typed `bldg 2 apt 305` also lists another building's apartment 305, and a one-person company that writes its apartment as a suite is listed for anyone who types the building's street. Neither was counted.
 13. 🟡 **The terminal on a database failure.** The terminal's address path, like its name path before it, prints Python's error report when Postgres cannot be reached, where the page shows a fixed sentence. The security review traced it and found no way for that report to quote the note.
+14. 🟡 **The fixes of review round 3 were not reviewed**, because three rounds is the most the rules allow. They rewrote `ADDRESS_COMPARED`, made the "no match" sentences show it, added a test of seven records, and corrected questions Q61 and Q62. My own check compared the rewritten sentence, read literally, with the search on 162,285 random invented pairs, and they agreed on all of them (check 9). Andres should read those sentences line by line.
 
 ### Questions added to `docs/open_questions.md`
 
@@ -599,7 +608,7 @@ with every file put back:                                 567 passed in 3.18s
 - **Tier:** High. The leg changes `src/datum/report.py`, which is a High path in `REVIEW.md`, and the wording on the pages and in the terminal. The brief names both legs D3 and D4 as High.
 - **Depth:** Deep. In round 1, three `reviewer` subagents ran in parallel, each with one of the hunts the brief sets for Phase D, and a fourth then checked every finding against the code. A security review ran alongside, because `src/` changed.
 - **Rounds:** three, which is the most the rules allow. Round 3 reads the fixes of round 2 and the Human review section.
-- **Findings over the rounds:** Round 1 had 12: 4 Important, 5 Nit, 1 Pre-existing and 2 calls for Andres. Round 2 had 6: 3 Important and 3 Nit. Round 3 is next.
+- **Findings over the rounds:** Round 1 had 12: 4 Important, 5 Nit, 1 Pre-existing and 2 calls for Andres. Round 2 had 6: 3 Important and 3 Nit. Round 3 had 4: 2 Important, 1 Nit and 1 Pre-existing. All 22 are answered: 20 fixed, and 2 closed with a reason as calls for Andres (recorded under Q54 and Q60).
 - **What was not reviewed:** the commits after round 3, which change this report and add the pull request's row to `docs/review_log.csv`, and no code. Reviewers are told to skip leg reports, so this report's own text was checked only where the Human review section repeats it.
 
 **Round 1** (three reviewers, then a fourth that checked their findings, on the leg's first six commits, and the security review).
@@ -646,7 +655,21 @@ The security review read the leg's diff and traced a typed note to Postgres, to 
 | Three comments said something false: about "the one word after it" in `wording.py`, the count of lines that were misses before this leg in the rule S15 test, and "each at another suite" in a terminal test | Nit | Fixed |
 | The Human review section quoted two conclusions that are answers to the three questions, left four terms unexplained, and two decisions did not say what the other choice would change | Nit | Fixed in the section |
 
-Round 3 is next, and it reads the two commits that answer round 2 and the corrected Human review section.
+**Round 3** (one reviewer on the two commits that answered round 2, doing all three hunts on that diff, then reading the corrected Human review section and trying the three questions on it).
+
+**2 Important, 1 Nit and 1 Pre-existing.**
+
+- ✅ The reviewer ran the tests and got 568 passed, with every connection to Postgres pointed at nothing, and broke each of round 2's test fixes in a copy: each fails a test.
+- ✅ All three questions could be answered from the section alone, all 13 items of "What I couldn't verify" were under "What is not proven", and the round 2 fixes to the section held.
+
+| Finding | Tag | Answer |
+|---|---|---|
+| The "no match" sentences, as reworded in round 2, still described four invented records wrongly: a unit number with a hyphen on the record or in the note, a BLDG followed by APT, and a record whose first word is not its house number. This was the third round running in which such a record was found | Important | Fixed by a rethink, which no round reviewed (decision 15). There is one description of the comparison, `ADDRESS_COMPARED`, written clause by clause from the code, and the "no match" sentences show it. A test puts all seven records the three rounds found on the page. The description read literally agreed with the search on 162,285 random pairs |
+| Question Q62 and the section's decision 2 still left out an effect of keeping the typed unit's number: the kept number would match the same number anywhere in a record, such as another numbered road | Important | Fixed in both. Not reviewed |
+| Question Q61 said each gap shows less and never more, and on the typed side a gap can list a company the note does not describe | Pre-existing | Fixed in Q61, in this report and in the section. Not reviewed |
+| The section's decision 6, about the API key in Andres's terminal, named no choice | Nit | Fixed. Not reviewed |
+
+No Important finding is open, and the fixes of round 3 were not reviewed, because three rounds is the most the rules allow. The Human review section says so, and item 14 of "What I couldn't verify" lists what they changed.
 
 ---
 
