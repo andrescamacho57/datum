@@ -26,7 +26,7 @@ agent builds the leg -> done-when checks pass -> tier set from REVIEW.md
    -> row added to docs/review_log.csv
 ```
 
-### The Human review section (added Nov 23, 2026, rewritten Nov 24)
+### The Human review section (added Nov 23, 2026, rewritten Nov 24, one rule added Nov 26)
 
 Every pull request body starts with a section called `## Human review`. It exists because a leg report is long on purpose, so that a later agent can see exactly what was done, and that length is too much for a person to review well. The section is the account for Andres. He reads it in under 5 minutes, and it tells him everything he needs without opening the leg report: enough to explain the change back, answer the three questions and make his decisions.
 
@@ -35,6 +35,7 @@ Every pull request body starts with a section called `## Human review`. It exist
 - The first version, on Nov 23, capped the section at 250 words. Three pull requests showed that the cap produced fragments such as "Your decisions. Dropping the old 588 MB index, and a host for 5.5 GB.", and so on Nov 24 the cap was raised and the style rule was added.
 - The author writes it, and so the AI reviewer checks it against the diff in the last review round. A sentence the diff does not support is an `Important` finding, because a wrong summary is the one part of the pull request a person is sure to read.
 - It does not replace reading the diff on a High-tier change. It tells Andres what the change does and where in the diff to read.
+- Each of the three questions must be answerable from the section alone (added Nov 26, 2026). On Nov 25 Andres could answer only one of pull request 24's three questions from its section, because review rounds 2 and 3 had changed the address search after the section was written. So the last review round is also given the three questions, and the reviewer that checks the section (at High tier, the fourth agent) answers each one using only the section. A question that needs any other file to answer is an `Important` finding, and the fix is to add the missing idea to the section, not to make the question easier. The reviewer's answers stay out of the pull request, the leg report and the review log, so the questions remain a check of Andres's understanding.
 - For a pull request with no leg report, the section draws its facts from the diff and the template. At High tier the author adds a `## Three questions` section at the end of the pull request body, with the questions and not their answers, because `REVIEW.md` asks Andres to answer three questions and there is no leg report to hold them.
 - The full rules are in `docs/prompts/florida_master.md`, under "Human review section".
 
