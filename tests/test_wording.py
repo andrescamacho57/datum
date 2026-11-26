@@ -145,6 +145,13 @@ def test_the_sentence_about_what_an_address_search_compares_names_exactly_the_wo
         assert sentence.endswith("and add the apartment, unit or lot number if the address has one.") and "suite" not in sentence.lower()
 
 
+def test_the_sentence_for_an_address_with_only_inactive_companies_asks_for_the_name_and_says_no_number():
+    # Phase D rule S16. Typed out here, so that a change to the words is a change to this test too.
+    assert wording.ADDRESS_ONLY_INACTIVE == "Type the business's name to look for it with the name search, which lists inactive companies too."
+    assert wording.only_inactive_text(0, 1) == wording.only_inactive_text(0, 7) == wording.ADDRESS_ONLY_INACTIVE   # no active company, and at least one inactive one
+    assert wording.only_inactive_text(1, 2) == wording.only_inactive_text(0, 0) == wording.only_inactive_text(3, 0) == ""   # an active one, or no inactive one: nothing
+
+
 def test_the_identification_line_of_an_address_search_names_the_street_and_no_match_level():
     line = wording.identified_by_address_text("8586 palm pwwy", "", 0)
     assert line == ('from the street "8586 palm pwwy" · found by its principal address on record (the same house number, and a street name made only of '

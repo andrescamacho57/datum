@@ -608,6 +608,8 @@ def test_a_place_that_is_in_a_companys_name_puts_it_first_and_the_card_and_the_r
 
 # --- The search by address (Phase D, leg D1; working rules S5 to S8) -----------------------------------
 
+S16_SENTENCE = "Type the business's name to look for it with the name search, which lists inactive companies too."   # typed out, not read from wording.py
+
 BY_ADDRESS = {"business_name": "<UNKNOWN>", "city": "", "street": "8586 palm pwwy", "is_specific": False}
 # What the extraction step returned for the note "8586 palm pwwy" on Nov 25, 2026: no business, and the street exactly as typed.
 S8_SENTENCE = "A company's principal address is the address it gave the state, which is not always where it does business."   # typed out, not read from wording.py
@@ -732,6 +734,29 @@ def test_an_address_search_that_lists_nobody_says_why_and_shows_no_company():
     down, _ = make(extract=lambda note: dict(BY_ADDRESS), failing_database=True)
     answer = client_for(down).post("/search", data={"note": "8586 palm pwwy"})
     assert answer.status_code == 503 and "The search is unavailable right now, so no company is shown." in seen(answer.text) and "/company/" not in answer.text
+
+
+def test_an_address_with_only_inactive_companies_asks_for_the_business_name_after_the_count_and_lists_none():
+    # Phase D rule S16 (leg D4). Until then the page stopped at "No active company matches." and the count, with no next step, and
+    # this test fails on that page. The sentence comes once, after the count, repeats no number and names no company.
+    answer = client_for(make(extract=lambda note: dict(BY_ADDRESS), companies=at_palm_pkwy(active=0, inactive=2))[0]).post("/search", data={"note": "8586 palm pwwy"})
+    text = seen(answer.text)
+    count = "2 inactive companies also match and are not listed."
+    assert text.count(S16_SENTENCE) == 1 and text.count(count) == 1 and text.count("No active company matches.") == 1
+    assert text.index("No active company matches.") < text.index(count) < text.index(S16_SENTENCE) < text.index(S8_SENTENCE) < text.index("Search again")
+    assert "/company/" not in answer.text and "TILE" not in answer.text and "T260000003" not in answer.text   # still none of them is listed or can be opened
+    assert not re.search(r"\d", S16_SENTENCE)                                # the sentence says no number: the count is said once, above it
+    # It is shown only when no active company and at least one inactive one match. Not beside an active company, not with nothing
+    # inactive, and not for companies with no status on record, which are never called inactive (CLAUDE.md rule 3).
+    with_active = seen(client_for(make(extract=lambda note: dict(BY_ADDRESS), companies=at_palm_pkwy(active=1, inactive=2))[0]).post("/search", data={"note": "8586 palm pwwy"}).text)
+    assert "1 active company matches." in with_active and S16_SENTENCE not in with_active
+    base = next(c for c in fx.load_companies() if c.document_number == fx.NO_FLAG_COMPANY)
+    no_status = [replace(base, document_number="T26000000401", entity_name="INVENTED GLASS LLC", name_key="INVENTED GLASS LLC", status_code=None,
+                         principal_address_1="8586 PALM PKWY", principal_city="ORLANDO")]
+    unknown = seen(client_for(make(extract=lambda note: dict(BY_ADDRESS), companies=fx.load_companies() + no_status)[0]).post("/search", data={"note": "8586 palm pwwy"}).text)
+    assert "1 company with no status on record also matches and is not listed." in unknown and S16_SENTENCE not in unknown
+    nobody = seen(client_for(make(extract=lambda note: dict(BY_ADDRESS))[0]).post("/search", data={"note": "8586 palm pwwy"}).text)
+    assert S16_SENTENCE not in nobody                                     # no company matched at all: there is no inactive company to look for
 
 
 def test_a_company_with_no_status_on_record_is_counted_apart_and_never_called_inactive():

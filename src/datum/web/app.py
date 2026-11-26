@@ -224,8 +224,10 @@ def create_app(access_code: str, extract: Callable[[str], dict], open_backends: 
 
         It lists the ACTIVE companies whose principal address matches, says how many inactive
         ones it does not list, and says once that a principal address is not always where a
-        company does business. Whatever the extraction step put in the business name is not
-        shown: the note named no business.
+        company does business. When no active company matches and at least one inactive one
+        does, it also asks for the business's name, so that the name search can look for it
+        (rule S16). Whatever the extraction step put in the business name is not shown: the
+        note named no business.
         """
         try:
             with open_backends() as (search_backend, _):
@@ -252,6 +254,7 @@ def create_app(access_code: str, extract: Callable[[str], dict], open_backends: 
             compared=wording.address_compared_text(found.house_number, city_given=bool(city)),
             active_line=wording.count_text(len(found.active), wording.ADDRESS_ACTIVE_ONE, wording.ADDRESS_ACTIVE_MANY) or wording.ADDRESS_NO_ACTIVE,
             candidates=[address_candidate_for_page(company) for company in found.active], not_listed=not_listed,
+            only_inactive=wording.only_inactive_text(len(found.active), len(found.inactive)),   # rule S16: no active company and at least one inactive one
         )
 
     @app.post("/search")

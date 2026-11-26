@@ -272,6 +272,14 @@ ADDRESS_INACTIVE_ONE = "1 inactive company also matches and is not listed."
 ADDRESS_INACTIVE_MANY = "{count} inactive companies also match and are not listed."
 # Rule S6: an address search lists only the active companies and says how many inactive ones
 # there are, in one sentence. Whether they should be listed is Andres's call (question Q45).
+ADDRESS_ONLY_INACTIVE = "Type the business's name to look for it with the name search, which lists inactive companies too."
+# Phase D rule S16 (leg D4; question Q45). When an address search finds no active company and at
+# least one inactive one, the page says "No active company matches." and gives the count of
+# inactive ones, and until leg D4 it stopped there. A contractor whose client is inactive got no
+# next step. This sentence comes after the count and asks for the business's name, because the
+# name search does not filter by status (rule S2) and marks an inactive company beside its name
+# (rule S10). It does not repeat the count, and it names none of the companies: an address can
+# be a home, and rule S6 lists none of the inactive companies there.
 ADDRESS_NO_STATUS_ONE = "1 company with no status on record also matches and is not listed."
 ADDRESS_NO_STATUS_MANY = "{count} companies with no status on record also match and are not listed."
 # A company with no status on record is not called inactive (CLAUDE.md rule 3). Every company has a status today.
@@ -397,6 +405,11 @@ def count_text(count: int, one: str, many: str) -> str:
 def address_compared_text(house_number: str, city_given: bool) -> str:
     """The sentence that says what an address search compared, and a second one about the city: compared, or not given."""
     return f"{ADDRESS_COMPARED.format(house_number=house_number)} {ADDRESS_COMPARED_CITY if city_given else ADDRESS_COMPARED_NO_CITY}"
+
+
+def only_inactive_text(active: int, inactive: int) -> str:
+    """Rule S16's sentence, for an address search with no active match and at least one inactive one. Empty in every other case."""
+    return ADDRESS_ONLY_INACTIVE if inactive > 0 and active == 0 else ""
 
 
 def address_not_found_text(city_given: bool) -> str:
