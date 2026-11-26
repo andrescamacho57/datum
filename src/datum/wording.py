@@ -169,6 +169,12 @@ TIE_ON_LIST = "{count} companies on this list match at the level {level}. Check 
 # it, from October, read "These look about equally likely ... A street or a city would help
 # tell them apart": it stood under the whole list, so "these" took in companies that were not
 # tied, and it asked for a city when one had been given and for a street the search never uses.
+SHORTLIST_SEARCH_ORDER = "The list is in search order. The level beside each company says how much of the record agrees with what you typed."
+# Phase D rule S12 (leg D3), word for word. A shortlist shows its companies in the order the
+# search ranked them, and no longer best level first. The sentence is shown once, UNDER the
+# list, and only when a company with a lower level stands above one with a higher level,
+# because only then could the order be read as a mistake. It gives no reason to prefer one
+# company: it says what the order is and what a level is.
 POSSIBLE_CAUTION = "This is only a POSSIBLE match: the name is similar, and nothing else confirms it is the company you mean."
 # On the shortlist under every company rated Possible, and at the top of a report whose company
 # was picked at that level. The terminal has asked "Make the report anyway?" since October.
@@ -348,6 +354,11 @@ def tie_text(count: int, level: str | None) -> str:
     if count <= 1 or level is None:
         return ""
     return TIE_STRONG.format(count=count) if level == "Strong" else TIE_ON_LIST.format(count=count, level=level)
+
+
+def search_order_text(lower_level_above_higher: bool) -> str:
+    """The line under a shortlist that says its order is the search's (rule S12). Empty when the levels already go from best to worst."""
+    return SHORTLIST_SEARCH_ORDER if lower_level_above_higher else ""
 
 
 def not_shown_text(count: int) -> str:

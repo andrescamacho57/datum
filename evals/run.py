@@ -57,17 +57,23 @@ worse when its company leaves the top five, drops in rank, or when a note that s
 asked about gets a company.
 
 A company has TWO places, and both are compared. Its place BY RANK is where rank() puts it
-among all the candidates. Its place ON THE PAGE is where a contractor sees it: the page
-shows the best five by rank, put in order of match level (Strong, then Likely, then
-Possible), so the first company on a page is not always the first by rank. A case is worse
-when either place got worse. Leg D1 found why both are needed: rule S2 left every checked
-case's rank alone and moved one case's company from first to second on the page.
+among all the candidates. Its place ON THE PAGE is where a contractor sees it. Since leg D3
+the page shows the best five by rank IN RANK ORDER (Phase D rule S12), so for the first
+five the two places are the same number, and a company below the fifth has a rank and is
+not on the page. Until leg D3 the page put the five in order of match level (Strong, then
+Likely, then Possible), and the first company on a page was not always the first by rank:
+leg D1 found that rule S2 left every checked case's rank alone and moved one case's company
+from first to second on the page. Both places are still kept and compared, so that a
+change which pulls them apart again fails the comparison. A case is worse when either
+place got worse.
 
-What it measures, per case group and in total. The first two are defined exactly as in
-snowflake/11_score_search_v1.sql:
-    top-1         the first answer is the expected company. For a case whose right answer
-                  is "ask for more" (NEEDS_MORE_INFO), top-1 means the search did ask.
-    recall at 5   the expected company is among the first five answers.
+What it measures, per case group and in total. The first two are scored on the companies
+ON THE PAGE, top to bottom (rule S12). They give the same numbers as the definitions in
+snowflake/11_score_search_v1.sql, which score the best five by rank, because the page now
+shows exactly those five in that order:
+    top-1         the first company on the page is the expected company. For a case whose
+                  right answer is "ask for more" (NEEDS_MORE_INFO), top-1 means the search did ask.
+    recall at 5   the expected company is among the first five on the page.
     wrong_match   the search ANSWERED with a company, and it is not the expected one. This
                   is the costly error: a confident wrong company. Asking for more is never
                   a wrong match, even when a company was expected. Script 11 does not
@@ -224,8 +230,8 @@ def run_cases(cases: list[Case], backend: SearchBackend, order: Callable[[Candid
 
     Two places are kept for the expected company. `place` is its place by rank among all
     the candidates. `page_place` is its place on the page: the name search's page shows the
-    best five by rank in order of match level (search.shortlist), and the address page
-    lists the active companies in document-number order.
+    best five by rank, in rank order (search.shortlist, Phase D rule S12), and the address
+    page lists the active companies in document-number order.
     """
     results = []
     for case in cases:
@@ -241,14 +247,14 @@ def run_cases(cases: list[Case], backend: SearchBackend, order: Callable[[Candid
         else:
             pool = search_pool(backend, case.business_name, case.city, order=order)
             numbers = [c.company.document_number for c in pool]
-            on_page = [c.company.document_number for c in shortlist(pool, city_given=bool(case.city)).candidates]   # exactly what the app's page shows, top to bottom
+            on_page = [c.company.document_number for c in shortlist(pool, city_given=bool(case.city)).candidates]   # exactly what the app's page shows, top to bottom: the best five by rank, in rank order
         expected = case.expected_document_number
         place = numbers.index(expected) + 1 if expected in numbers else None
         page_place = on_page.index(expected) + 1 if expected in on_page else None
-        results.append(score_case(case, numbers[:SHORTLIST_SIZE], place, len(numbers), searched=kind, page_place=page_place))
-        # Top-1, recall at 5 and wrong_match are scored on the first five BY RANK, as snowflake/11_score_search_v1.sql defines
-        # them. Whether top-1 should mean first on the page is question Q51. Under the app's order the two agree on every
-        # checked case. They can differ under another order, which is why moved() below compares both places.
+        results.append(score_case(case, on_page[:SHORTLIST_SIZE], place, len(numbers), searched=kind, page_place=page_place))
+        # Top-1, recall at 5 and wrong_match are scored on the first five ON THE PAGE (question Q51, answered on Nov 26, 2026:
+        # top-1 means first on the page). For the name search those are the first five by rank, in rank order, since rule S12,
+        # so the numbers are the ones snowflake/11_score_search_v1.sql defines. moved() below still compares both places.
     return results
 
 
@@ -302,8 +308,9 @@ def made_worse(before: list[CaseResult], after: list[CaseResult]) -> list[int]:
     drops in rank, or a note that should be asked about gets a company. All three are a
     standing that went up, so "moved down" covers them: a company that leaves the top five
     has dropped, and so has one that falls out of the candidates altogether. A drop on the
-    page counts as a drop too (see moved), which the rule does not spell out: it is the
-    reading that calls more changes worse.
+    page counts as a drop too (see moved). Rule S3 did not spell that out, and Phase D rule
+    S17 does: a checked case is worse when its company drops by rank, drops on the page or
+    leaves the first five, or when a note that should be asked about gets a company.
     """
     return [a.case.case_id for b, a in zip(before, after, strict=True) if moved(b, a) == "down"]
 

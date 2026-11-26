@@ -287,7 +287,8 @@ def test_an_exact_name_company_that_misses_the_list_is_still_counted_in_the_tie(
     ])
     listed = shortlist(search_pool(backend, "Acme Roofing", city="Jacksonville"), city_given=True)
     assert (listed.top_level, listed.tied_at_top, listed.tied_not_shown) == ("Strong", 2, 1)   # two share the name and city, and one is not listed
-    assert listed.levels == ("Strong", "Possible", "Possible", "Possible", "Possible")
+    assert listed.levels == ("Possible", "Possible", "Possible", "Possible", "Strong")   # rank order (rule S12): the exact name is fifth, and it is shown fifth
+    assert listed.candidates[-1].company.document_number == "T00000000001" and listed.lower_level_above_higher is True
 
 
 def test_the_shortlist_shows_exactly_the_five_the_evaluation_scores():
@@ -357,16 +358,46 @@ def test_a_tie_among_possible_matches_is_still_a_tie():
     assert shortlist(ranked, city_given=False).tied_at_top == 2           # the best level present is Possible, and two share it
 
 
-def test_the_shortlist_shows_the_best_level_first_and_keeps_rank_order_inside_a_level():
+def test_the_shortlist_shows_its_companies_in_rank_order_each_with_its_level():
+    # Phase D rule S12 (leg D3). Until then the five were re-sorted with the best level first, so this list read T3, T1, T2 and the
+    # company at the top of a page was not always the first by rank. This test fails on that order.
     ranked = rank([
         company("T00000000001", "ACME ROOFING AND SIDING INC", city="JACKSONVILLE"),   # similarity 88, right city: Likely
         company("T00000000002", "ACME ROOFINGS", city="TAMPA"),                        # similarity 98, wrong city: Possible
         company("T00000000003", "ACME ROOFING LLC", city="TAMPA"),                     # similarity 95, exact name, wrong city: Likely
-    ], "acme roofing", city="jacksonville")
+    ], "acme roofing", city="jacksonville", order=by_similarity_then_city)
     assert [c.company.document_number for c in ranked] == ["T00000000002", "T00000000003", "T00000000001"]   # rank order: by similarity
     listed = shortlist(ranked, city_given=True)
-    assert [c.company.document_number for c in listed.candidates] == ["T00000000003", "T00000000001", "T00000000002"]
-    assert listed.levels == ("Likely", "Likely", "Possible")
+    assert [c.company.document_number for c in listed.candidates] == ["T00000000002", "T00000000003", "T00000000001"]   # the same order on the list
+    assert listed.levels == ("Possible", "Likely", "Likely")              # each company keeps its own level beside it
+    assert (listed.top_level, listed.tied_at_top) == ("Likely", 2)        # the BEST level on the list, and not the first card's
+    assert listed.lower_level_above_higher is True                        # a Possible stands above a Likely, so a page says the list is in search order
+    in_level_order = shortlist(ranked[1:], city_given=True)               # Likely, Likely: nothing stands above a better level
+    assert in_level_order.levels == ("Likely", "Likely") and in_level_order.lower_level_above_higher is False
+
+
+FIVE_OUT_OF_LEVEL_ORDER = [
+    company("T00000000001", "ACME ROOFING AND SIDING INC", city="TAMPA"),          # holds every typed word, another city, similarity 88: Possible
+    company("T00000000002", "ACME ROOFERS INC", city="JACKSONVILLE"),              # a near-miss name in the city given, 92: Likely
+    company("T00000000003", "ACME ROOFER INC", city="JACKSONVILLE"),               # the same, 93: Likely
+    company("T00000000004", "ACME ROOFINGS", city="TAMPA"),                        # a near-miss name elsewhere, 98: Possible
+    company("T00000000005", "ACME ROOFERS OF TAMPA INC", city="TAMPA"),            # a near-miss name elsewhere, 82: Possible
+]
+# Five invented companies whose levels come out Possible, Likely, Likely, Possible, Possible in rank order, typed as "acme roofing" in
+# Jacksonville. They do so under BOTH orders, with a different company on top: by similarity T4 (98) leads, and under rule S2 T1
+# leads, because it is the only one that holds both typed words.
+
+
+@pytest.mark.parametrize("order,first", [(by_similarity_then_city, "T00000000004"), (by_words_then_city, "T00000000001")])
+def test_a_tie_reads_the_best_level_on_the_list_when_a_lower_level_is_shown_first(order, first):
+    # Rule S12 keeps rule W7's count: with no Strong company anywhere, the tie is counted at the best level AMONG THE FIVE. The first
+    # card here is Possible. A count that read the first card's level would say "3 companies ... at the level Possible".
+    pool = rank(FIVE_OUT_OF_LEVEL_ORDER, "acme roofing", city="jacksonville", limit=None, order=order)
+    listed = shortlist(pool, city_given=True)
+    assert listed.candidates[0].company.document_number == first
+    assert listed.levels == ("Possible", "Likely", "Likely", "Possible", "Possible")
+    assert (listed.top_level, listed.tied_at_top, listed.tied_not_shown) == ("Likely", 2, 0)
+    assert listed.lower_level_above_higher is True
 
 
 def test_an_empty_shortlist_has_no_tie():

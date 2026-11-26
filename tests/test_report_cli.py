@@ -363,3 +363,24 @@ def test_the_terminals_question_about_a_possible_match_still_gives_an_inactive_c
     assert "INACTIVE with the state. Nothing else confirms" in question
     assert "INACTIVE with the state) · chosen by the user from a shortlist." in path.read_text()
     assert [line for line in talk.said if line.endswith("(T26000000003)  ·  Inactive with the state")]   # and the shortlist line above it has the mark
+
+
+def test_the_terminal_lists_the_companies_in_rank_order_and_says_so_when_a_lower_level_comes_first(tmp_path):
+    # Phase D rule S12 (leg D3). The terminal prints the same Shortlist the page shows, so it is in rank order too, and it says the
+    # rule's sentence once, after the list and before it asks for a pick. Until leg D3 the two Likely companies were printed first.
+    sentence = "The list is in search order. The level beside each company says how much of the record agrees with what you typed."
+    base = next(c for c in fx.load_companies() if c.document_number == fx.NO_FLAG_COMPANY)
+    rows = (("ACME ROOFING AND SIDING INC", "TAMPA"), ("ACME ROOFERS INC", "JACKSONVILLE"), ("ACME ROOFER INC", "JACKSONVILLE"),
+            ("ACME ROOFINGS", "TAMPA"), ("ACME ROOFERS OF TAMPA INC", "TAMPA"))
+    five = [replace(base, document_number=f"T2600000020{n}", entity_name=name, name_key=name, principal_city=city) for n, (name, city) in enumerate(rows, start=1)]
+    acme = {"business_name": "Acme Roofing", "city": "Jacksonville", "street": "", "is_specific": True}
+    talk = Talk(["0", ""])                                               # look at the list, add nothing, stop
+    run(talk, tmp_path, note="acme roofing jacksonville", fields=acme, companies=five)
+    numbered = [line for line in talk.said if re.match(r"\d\. \[", line)]
+    assert [re.match(r"\d\. \[(\w+)\]", line).group(1) for line in numbered] == ["Possible", "Likely", "Likely", "Possible", "Possible"]
+    assert talk.said.count(sentence) == 1 and talk.said.index(sentence) > talk.said.index(numbered[-1])   # once, under the list
+    assert "2 companies on this list match at the level Likely." in talk.everything   # the tie reads the best level on the list
+    # Five Possible companies are already in level order, so nothing is said about the order.
+    talk = Talk(["0", ""])
+    run(talk, tmp_path, fields={"business_name": "Invented Air Cooling", "city": "", "street": "", "is_specific": True})
+    assert sentence not in talk.everything and len([line for line in talk.said if re.match(r"\d\. \[Possible\]", line)]) == 5

@@ -15,7 +15,7 @@ from pathlib import Path                    # the repo's root folder
 
 import pytest                               # the test runner; pytest.raises checks that an error IS raised
 
-from datum.search import COMPANY_COLUMNS, Company, FakeBackend, by_city_then_words, by_words_then_city, name_key
+from datum.search import COMPANY_COLUMNS, Company, FakeBackend, by_city_then_words, by_similarity_then_city, by_words_then_city, name_key
 from datum.search import PostgresBackend
 from evals.run import (
     ASK, DRAW_ADDRESS_SQL, DRAW_SQL, LATENCY_SEED, NO_DRAFTS, ORDERS, RETRIEVERS, Case, SnowflakeBackend, WideTableBackend, compare_backends, draw_company_names,
@@ -354,19 +354,38 @@ def test_another_order_is_scored_on_the_same_pool_and_can_disagree_with_the_apps
 
 
 def test_a_company_that_keeps_its_rank_and_drops_on_the_page_counts_as_worse():
-    # The shape of what leg D1 found on checked case 9, with invented companies. Typed: "Acme". The expected company, T1, is first by
-    # rank under both orders. Under the app's order the five shown are T1 and four near-misses, all rated Possible, so T1 tops the page.
-    # Rule S2 lifts T6, whose name is exactly the typed one, into the five. The page shows the five by level, so T6 (Strong) goes on top.
-    backend = FakeBackend([company("T1", "ACME X LLC")] + [company(f"T{n}", f"ACME{letter} INC") for n, letter in zip((2, 3, 4, 5), "SABC")]
-                          + [company("T6", "ACME CORPORATION")])
-    (app,), (tried,) = run_cases([a_case("T1", name="Acme")], backend), run_cases([a_case("T1", name="Acme")], backend, order=by_words_then_city)
-    assert (app.place, app.page_place, app.top1_correct) == (1, 1, True)
-    assert (tried.place, tried.page_place, tried.top1_correct) == (1, 2, True)        # the rank and top-1 say nothing changed ...
+    # What leg D1 found on checked case 9: the expected company stayed first by rank and went from first to second on the page. The
+    # comparison has to call that worse, whatever the rank says. The two results are written by hand, because since leg D3 the name
+    # search's page is in rank order (rule S12) and cannot produce this shape any more. The test after this one shows that.
+    case = a_case("T1", name="Acme")
+    app = score_case(case, ["T1", "T2"], place=1, candidates=6, page_place=1)
+    tried = score_case(case, ["T1", "T2"], place=1, candidates=6, page_place=2)
+    assert (app.top1_correct, tried.top1_correct) == (True, True)                     # the rank and top-1 say nothing changed ...
     assert moved(app, tried) == "down" and made_worse([app], [tried]) == [1]          # ... and the comparison still calls it worse
     assert (page_text(app), page_text(tried)) == ("1", "2")
+    backend = FakeBackend([company("T1", "ACME X LLC")])
     asked = run_cases([a_case("T1", is_specific=False)], backend)[0]
     not_shown = run_cases([a_case("T9", name="Acme")], backend)[0]
     assert (page_text(asked), page_text(not_shown), page_text(run_cases([a_case(ASK, name="Acme")], backend)[0])) == ("asked", "not shown", "none expected")
+
+
+def test_the_page_is_in_rank_order_so_a_company_first_by_rank_is_first_on_the_page():
+    # Phase D rule S12 (leg D3), on the shape of checked case 9 with invented companies. Typed: "Acme". The expected company, T1, is
+    # first by rank under both orders. Rule S2 lifts T6, whose name is exactly the typed one, into the best five, and T6 is rated
+    # Strong. Until leg D3 the page showed the five by level, so T6 went on top and T1 dropped to second ON THE PAGE. Now the page is
+    # in rank order, T1 stays on top, and this test fails if the five are ever sorted by level again.
+    backend = FakeBackend([company("T1", "ACME X LLC")] + [company(f"T{n}", f"ACME{letter} INC") for n, letter in zip((2, 3, 4, 5), "SABC")]
+                          + [company("T6", "ACME CORPORATION")])
+    (app,), (tried,) = (run_cases([a_case("T1", name="Acme")], backend, order=order) for order in (by_similarity_then_city, by_words_then_city))
+    assert (app.place, app.page_place, app.top1_correct) == (1, 1, True)
+    assert (tried.place, tried.page_place, tried.top1_correct) == (1, 1, True)
+    assert "T6" in tried.answered and "T6" not in app.answered                        # the Strong company IS among the five under rule S2, below T1
+    assert moved(app, tried) == "stayed" and made_worse([app], [tried]) == []
+    for case_id in ("T1", "T2", "T6"):                                                # whichever company is expected, its two places agree
+        (result,) = run_cases([a_case(case_id, name="Acme")], backend, order=by_words_then_city)
+        assert result.page_place == result.place, case_id
+
+
 def test_a_draft_case_can_never_change_the_pass_or_fail_decision(tmp_path, capsys):
     # Working rule S1: every gate reads the checked cases only. The fixture is a checked case that stays first, and two drafts
     # that the change makes as bad as a case can get. The decision must be the same with those drafts, with none, and with good ones.

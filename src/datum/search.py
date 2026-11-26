@@ -14,12 +14,14 @@ The search has two steps, and the split is the point of this module:
                   tie-break. Keep the best five.
 
 Leg D1 built a second order for step 2, Phase D working rule S2 (by_words_then_city below),
-and its one permitted variant (by_city_then_words). NEITHER IS SWITCHED ON. Working rule S3
-says to keep the old order when the new one and its variant both make a checked case worse,
-and both do: on checked case 9 they move the expected company from first to second on the
-page a contractor sees. RANK_ORDER below is the one line that says which order the app
-uses, and changing it is Andres's call. The evaluation can score either order beside the
-app's (python -m evals.run --backend postgres --try-order s2).
+and its one permitted variant (by_city_then_words). NEITHER IS SWITCHED ON HERE. Working
+rule S3 said to keep the old order when the new one and its variant both made a checked
+case worse, and on Nov 25, 2026 both did: on checked case 9 they moved the expected company
+from first to second on the page a contractor saw, because the page then showed its five
+companies by match level. Leg D3 took that cause away: the page is now in rank order (rule
+S12, in shortlist() below). RANK_ORDER below is the one line that says which order the app
+uses. The evaluation can score either order beside the app's
+(python -m evals.run --backend postgres --try-order s2).
 
 Step 2 can only order what step 1 brought back. A company that is not in the pool is never
 ranked, whatever the order is. Leg D1's report shows a case where that decided the answer:
@@ -132,9 +134,9 @@ class Candidate:
 
 @dataclass(frozen=True)
 class Shortlist:
-    """What the contractor is shown: the candidates in display order, each with its level, and whether the top is a tie."""
+    """What the contractor is shown: the candidates in the order they are shown, each with its level, and whether the top is a tie."""
 
-    candidates: tuple[Candidate, ...]       # the ones shown: the best five by rank, put in order of level, best first
+    candidates: tuple[Candidate, ...]       # the ones shown: the best five by rank, IN RANK ORDER (Phase D rule S12)
     levels: tuple[str, ...]                 # the level of each shown candidate, in the same order
     top_level: str | None                   # the best level found. None when there is no candidate at all
     tied_at_top: int                        # how many candidates share top_level. More than 1 is a tie (rule W7)
@@ -150,6 +152,18 @@ class Shortlist:
     def tied_not_shown(self) -> int:
         """How many of the tied candidates are not on the list shown."""
         return len(self.not_shown)
+
+    @property
+    def lower_level_above_higher(self) -> bool:
+        """True when some company on the list is shown ABOVE one with a better level (Phase D rule S12).
+
+        The list is in rank order, and the rank and the level are worked out from different
+        things, so a Possible can stand above a Likely. A page then says once, under the
+        list, that the list is in search order (wording.SHORTLIST_SEARCH_ORDER). When the
+        levels already go from best to worst, nothing needs saying.
+        """
+        places = [LEVELS.index(level) for level in self.levels]    # 0 for Strong, 1 for Likely, 2 for Possible
+        return places != sorted(places)
 
 
 class SearchBackend(Protocol):
@@ -285,9 +299,10 @@ RANK_ORDER = by_similarity_then_city
 # The order the app's name search uses: search version 1's. Rule S2 and its variant were both
 # measured on Nov 25, 2026. Neither changed any checked case's place by rank. Both moved checked
 # case 9's expected company from first to second ON THE PAGE: a company whose name is exactly
-# the typed name climbs into the best five, and the page shows the five by match level, so
-# that company (Strong) is shown above the expected one (Possible). Rule S3: when S2 and the
-# variant both make a checked case worse, keep the old ranking and let Andres decide.
+# the typed name climbed into the best five, and the page then showed the five by match level,
+# so that company (Strong) was shown above the expected one (Possible). Rule S3: when S2 and the
+# variant both make a checked case worse, keep the old ranking and let Andres decide. Since
+# leg D3 the page is in rank order (rule S12), which removes that cause.
 
 
 def rank(companies: list[Company], business_name: str, city: str = "", limit: int | None = SHORTLIST_SIZE,
@@ -374,38 +389,43 @@ def evidence(candidate: Candidate, city_given: bool, status_marked: bool = False
 
 
 def shortlist(pool: list[Candidate], city_given: bool, limit: int = SHORTLIST_SIZE) -> Shortlist:
-    """Pick the candidates to show from a ranked pool, put them in display order, and count the tie at the top (working rule W7).
+    """Pick the candidates to show from a ranked pool, give each its level, and count the tie at the top (working rule W7).
 
     `pool` is the whole reranked pool from search_pool(), in rank order.
 
-    WHO IS SHOWN: the best `limit` by rank, which are exactly the candidates the evaluation
-    scores, re-ordered by level with the best level first. Python's sort is stable, which
-    means candidates with the same level keep their rank order. Nobody is brought in from
-    further down the pool. Doing that by level would let a weak name in the right city push
-    out the best-ranked company, and city is a tie-break, never a filter.
+    WHO IS SHOWN, AND IN WHAT ORDER: the best `limit` by rank, in rank order (Phase D rule
+    S12, leg D3). Each has its level beside it. Until leg D3 the five were re-sorted by
+    level, best first, and so the company at the top of a page could be another one than the
+    first by rank. The evaluation scored one order and a contractor saw another, which is
+    what moved checked case 9 to second on the page under rule S2 (question Q51). Now the
+    two are the same list. Nobody is brought in from further down the pool: doing that by
+    level would let a weak name in the right city push out the best-ranked company.
+
+    THE TOP LEVEL is the BEST level found, and never simply the first card's level, because
+    the first card is no longer the one with the best level.
 
     HOW THE TIE IS COUNTED:
       - Strong means the SAME NAME (and the city agrees, or none was given). Those are
-        counted over the WHOLE pool, because a company with the exact name can rank sixth
-        by similarity, behind five near-misses, and a count over the five shown would miss
-        it. not_shown holds the ones that did not fit on the list, each with its own
-        source address and fetch time, so a page can name them and cite them.
+        counted over the WHOLE pool, because a company with the exact name can rank sixth,
+        behind five other names, and a count over the five shown would miss it. not_shown
+        holds the ones that did not fit on the list, each with its own source address and
+        fetch time, so a page can name them and cite them.
       - Likely and Possible are counted among the candidates shown only. Over the whole
         pool those counts would mostly measure how wide the retrieve step cast its net,
         and that says nothing about the companies.
     The two review rounds of leg C2 found one gap each in earlier versions of this function.
     """
-    shown = sorted(((match_level(c, city_given), c) for c in pool[:limit]), key=lambda pair: LEVELS.index(pair[0]))
-    levels = tuple(level for level, _ in shown)
+    shown = tuple(pool[:limit])                                    # rank order, exactly as the evaluation scores them
+    levels = tuple(match_level(c, city_given) for c in shown)
     strong_further_down = tuple(c for c in pool[limit:] if match_level(c, city_given) == "Strong")   # same-name companies that did not fit on the list
     strong_shown = levels.count("Strong")
     if strong_shown or strong_further_down:
         top_level, tied = "Strong", strong_shown + len(strong_further_down)
     else:
-        top_level = levels[0] if levels else None
+        top_level = min(levels, key=LEVELS.index) if levels else None   # the best level among the five, wherever on the list it stands
         tied = levels.count(top_level) if levels else 0
     return Shortlist(
-        candidates=tuple(c for _, c in shown), levels=levels,
+        candidates=shown, levels=levels,
         top_level=top_level, tied_at_top=tied, not_shown=strong_further_down, city_given=city_given,
     )
 
