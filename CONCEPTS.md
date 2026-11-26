@@ -1007,3 +1007,25 @@ Source: Anthropic, "Building Effective Agents" (the evaluator-optimizer workflow
   every normalization rule, not only next to new data sources.
 - **The tradeoff.** A company registered at "APT 4" is still found only when the note has APT 4. That is a missed
   match, which Datum accepts, because a missed match is the cheap error and exposing a home is the expensive one.
+
+---
+
+## Environment Variables Are Copied at Start, and .env Never Overwrites Them (Nov 26)
+
+- An environment variable is a NAME=value pair that a program receives when it starts. Every program gets a
+  copy of its parent's variables at that moment: VS Code passes its copy to the terminal, the terminal to
+  Claude Code, and Claude Code to the app it starts. Editing `.env` or `.zshrc` later changes no program that is
+  already running.
+- `load_dotenv()` reads `.env` and adds its names to the program's environment, but by default
+  (`override=False` in python-dotenv 1.2.4) it skips any name that is already set. So when the environment
+  already holds an `ANTHROPIC_API_KEY`, the key in `.env` is never used.
+- On Nov 26 that is exactly what happened. I had put a new key in `.env`, and the old key was deleted in the
+  Console, but an old copy of `ANTHROPIC_API_KEY` was still in the terminal's environment. It won, the Claude
+  service rejected it, and every search answered "unavailable". The new key was fine the whole time: Claude Code
+  removed the old variable for one command (`env -u ANTHROPIC_API_KEY ...`) and its live checks worked.
+- **The lesson.** A secret should live in exactly one place. A second copy does not fail loudly; it silently
+  wins, depending on which program started first.
+- **The tradeoff.** `load_dotenv(override=True)` would let `.env` always win, but it hides the duplicate instead
+  of removing it, and a shell value set on purpose for one test would then be ignored without a word. Removing
+  the stale copy is simpler and fixes Claude Code too, because Claude Code can bill the API instead of the plan
+  when it finds an API key in its environment.

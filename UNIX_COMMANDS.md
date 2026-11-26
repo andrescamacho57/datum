@@ -181,6 +181,23 @@ git worktree add --detach ~/datum-review origin/main
   newest `main` from GitHub. Git refuses a branch that another folder already has checked out, and
   `--detach` avoids that by checking out the commit without a branch
 
+## Added Nov 26: where an environment variable comes from
+
+```bash
+echo ${ANTHROPIC_API_KEY:+set}
+grep -rl ANTHROPIC_API_KEY ~/.zshrc ~/.zprofile ~/.zshenv ~/.oh-my-zsh/custom 2>/dev/null
+```
+
+- `${NAME:+set}` prints the word `set` when the variable has a value and prints nothing when it does not,
+  so you can check a secret without ever showing it
+- `grep -r` searches inside folders as well as files, and with `-l` it prints only the names of the files
+  that match, never the matching line
+- Run the same `echo` check in two places to find where a value comes from: the VS Code terminal and the
+  macOS Terminal app. If only VS Code has it, VS Code is carrying an environment it copied when it started.
+  If both have it, a startup file sets it
+- Closing a VS Code window does not stop VS Code. Cmd+Q quits it, and only a fresh start copies a fresh
+  environment
+
 ## Habits Worth Keeping
 
 - Look before you load: count, peek, measure, checksum
@@ -193,3 +210,4 @@ git worktree add --detach ~/datum-review origin/main
 - Don't move a folder that holds a `.venv`; if you must, leave a symbolic link at the old path
 - Before a session on the Mac: `git switch main`, then `git pull`
 - While an agent works in a folder, only read with git there (`status`, `log`, `diff`)
+- A program's environment is a copy made when it started: after changing a startup file, restart the program
