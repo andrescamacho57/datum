@@ -58,7 +58,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException   # wha
 
 from datum import wording
 from datum.models import Identification, read_extracted
-from datum.report_builder import CompanyNotFound, ReportBackend, ReportBuilder, address_candidate_for_page, candidate_for_page, count_fact
+from datum.report_builder import CompanyNotFound, ReportBackend, ReportBuilder, address_candidate_for_page, address_counts, candidate_for_page
 from datum.search import SearchBackend, address_search, evidence, search_kind, search_pool, shortlist
 
 HERE = Path(__file__).resolve().parent                     # src/datum/web/
@@ -245,10 +245,7 @@ def create_app(access_code: str, extract: Callable[[str], dict], open_backends: 
             company.document_number: Identification(found_by="address", street=street, city=city, tied_others=len(found.active) - 1)
             for company in found.active     # only a listed company can be opened from this page
         }
-        not_listed = [fact for fact in (
-            count_fact(wording.count_text(len(found.inactive), wording.ADDRESS_INACTIVE_ONE, wording.ADDRESS_INACTIVE_MANY), found.inactive),
-            count_fact(wording.count_text(len(found.no_status), wording.ADDRESS_NO_STATUS_ONE, wording.ADDRESS_NO_STATUS_MANY), found.no_status),
-        ) if fact is not None]              # each count is a Fact, so it cites the records it was made from
+        not_listed = address_counts(found)  # each count is a Fact, so it cites the records it was made from. The terminal takes its counts from the same function
         return page(
             request, "address.html", read_as=read_as, token=picks.put(identifications),
             compared=wording.address_compared_text(found.house_number, city_given=bool(city)),

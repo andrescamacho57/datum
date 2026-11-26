@@ -31,7 +31,7 @@ from typing import Protocol                 # a Protocol describes an interface:
 
 from datum import wording                   # every fixed sentence and label
 from datum.models import AddressCandidate, Candidate, Fact, Flag, Identification, Report
-from datum.search import COMPANY_COLUMNS, Company, company_from_row, evidence
+from datum.search import COMPANY_COLUMNS, AddressMatches, Company, company_from_row, evidence
 from datum.search import Candidate as SearchCandidate           # the search's own candidate: a company with its scores
 
 DOCUMENT_NUMBER = re.compile(r"[A-Z0-9]{5,12}")
@@ -185,6 +185,19 @@ def count_fact(text: str, companies: tuple[Company, ...]) -> Fact | None:
         fetched_at=min(in_utc(company.fetched_at) for company in companies),
         fetched_at_is_approximate=any(company.fetched_at_is_approximate for company in companies),
     )
+
+
+def address_counts(found: AddressMatches) -> list[Fact]:
+    """The sentences under an address search that COUNT the companies it does not list (working rule S6), each a Fact with its source.
+
+    First the inactive companies, then the ones with no status on record. A count of none
+    gives no sentence. The web page and the terminal both take their counts from here, so
+    that one note gets the same answer in both (Phase D rule S18).
+    """
+    return [fact for fact in (
+        count_fact(wording.count_text(len(found.inactive), wording.ADDRESS_INACTIVE_ONE, wording.ADDRESS_INACTIVE_MANY), found.inactive),
+        count_fact(wording.count_text(len(found.no_status), wording.ADDRESS_NO_STATUS_ONE, wording.ADDRESS_NO_STATUS_MANY), found.no_status),
+    ) if fact is not None]
 
 
 class ReportBuilder:
