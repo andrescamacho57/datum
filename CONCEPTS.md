@@ -740,3 +740,332 @@ Source: Anthropic, "Building Effective Agents" (the evaluator-optimizer workflow
 - A full ordering matters for repeatable results: `row_number()` or `min_by` over rows that tie picks one
   arbitrarily, so add columns to the `order by` until two rows can only tie when they are identical.
 
+
+---
+
+## Where a Claude Code Session Runs: the Cloud or Your Mac (Nov 20)
+
+- A **cloud session** runs on Anthropic's servers. The Mac can be off. It can reach the GitHub repo, and it
+  cannot reach `.env`, `~/.snowflake/` or anything else that lives only on the Mac.
+- A **local session** runs on the Mac. Remote Control (`/rc` inside the session) lets the phone steer it, and
+  the Mac must stay awake, online and with the session's window open.
+- The rule of thumb: work that needs credentials (dbt, Snowflake, Postgres) runs on the Mac. Work that needs
+  only the repo (briefs, reviews, docs) can run in the cloud.
+- One prompt never reaches the phone: the question about using usage credits when a model's cap is hit.
+
+---
+
+## API Keys: Static Secrets, Expiry, Rotation and Scope (Nov 20)
+
+- An API (application programming interface) key is a **static secret**: a password that never changes on
+  its own. Whoever holds it gets in.
+- **Expiry** puts a ceiling on the damage from a leak nobody noticed. The lifetime is chosen when the key is
+  made and cannot be changed afterward. An expired key cannot be revived.
+- **Rotation** is replacing a secret on a schedule. For Datum the plan is a new key about every 90 days, in `.env`.
+- **Blast radius** is how much one leaked secret can damage. **Least privilege** shrinks it: the key is scoped
+  to one workspace (Default), not the whole organization. An organization-scoped key also has to name a
+  workspace on every request, which Datum's code does not do.
+- **Authentication** proves who is calling. **Authorization** decides what they may do.
+- **Identity federation** replaces the stored key with a short-lived token. The platform the code runs on
+  (a cloud provider, or GitHub Actions) vouches for it with a signed badge, a JWT (JSON Web Token), under the
+  OIDC (OpenID Connect) standard. A laptop has nobody to vouch for it, so local work still uses a key.
+  Revisit when the app is deployed.
+
+---
+
+## Environment Variables: `.env` and `.zshrc` (Nov 20)
+
+- An environment variable is a named value a program can read while it runs, such as `ANTHROPIC_API_KEY`.
+- `.env` is a plain file of `NAME=value` lines inside the project. Only a program that asks for it reads it
+  (Datum calls `load_dotenv()`). It is in `.gitignore` and never goes to GitHub.
+- `~/.zshrc` is a script the Mac's shell runs every time a terminal opens. A variable exported there reaches
+  every command in every terminal.
+- The trap: `load_dotenv()` does not overwrite a variable that is already set. An old key exported in the
+  shell silently wins over the new key in `.env`.
+
+---
+
+## Two Copies of a Repo: Fetch, Pull and Push (Nov 20)
+
+- Git is a distributed version control system. GitHub holds one complete copy and the Mac holds another, and
+  nothing syncs them automatically. A merge on GitHub changes only GitHub.
+- `git fetch` downloads the news and changes no files. `git pull` is a fetch followed by a merge into the
+  branch you are on. `git push` sends your commits the other way.
+- "Already up to date" describes only the current branch. A pull on an old branch does not update `main`.
+- The habit: before any session on the Mac, `git switch main`, then `git pull`.
+- A **commit** saves changes on a branch. A **merge** brings one branch's commits into another, and on GitHub
+  that is what the green button on a pull request does.
+
+---
+
+## One Folder, One Checked-Out Branch (Nov 21)
+
+- A folder can have only one branch checked out. Switching branches rewrites the files in it.
+- During the Phase C run, something checked out `main` in `~/datum` while the agent was working, and four of
+  its commits landed on local `main`. Nothing had been pushed, so the agent moved them back.
+- While an agent runs in `~/datum`, reading is safe (`git status`, `git log`, `git diff`). Anything that
+  changes what is checked out is not (`switch`, `pull`, `merge`, `commit`, `stash`).
+- `git worktree add <folder> <branch>` makes a second folder with its own checked-out branch and the same
+  history. Git refuses a branch that another folder already has checked out, so to look at `main` while
+  `~/datum` is on it, use `git worktree add --detach <folder> origin/main`. That is isolation: two workers,
+  two folders, one repo.
+
+---
+
+## Percentiles: p50, p95 and Why Not the Median (Nov 23)
+
+- The p95 is the 95th percentile. Sort every measurement from fastest to slowest and go 95% of the way down.
+  On 208 searches that is about search number 198: 197 were faster and about 10 were slower.
+  That is where the p95 sits, which is not the same as the number of searches over the 1-second target.
+- The p50 is the median. It answers "what is typical?" The p95 answers "how bad does it get?"
+- Leg C2's search had a p50 of 181 milliseconds and a p95 of 1,229. The median looked perfect and hid 11
+  searches that took over 1 second, one of them 4.4 seconds.
+- It is the same idea as Value at Risk in credit risk: the median loss says little, and the tail is the risk.
+- An average is worse than either. It mixes the few very slow searches in with the typical ones, so it
+  describes neither the typical search nor how bad the worst ones get.
+- Report both. The p50 is the typical experience and the p95 is the pass-or-fail bar.
+
+---
+
+## The Complement Rule: "At Least One" (Nov 23)
+
+- For several things all to happen, multiply their chances. Ten searches all in the faster 95% is
+  0.95 multiplied by itself ten times, which is about 0.60.
+- "At least one slow search" can happen in many ways, and its opposite, "every search was fast", in one.
+  So work out the opposite and subtract it from 1: 1 - 0.60 = 0.40.
+- "1 in 20 searches is slow" therefore becomes "4 in 10 contractors who search ten times meet a slow one".
+- It assumes each search's speed does not depend on the others, which is close enough for a rule of thumb.
+
+---
+
+## Trigram Index (Nov 23)
+
+- A trigram is three characters in a row. `SMITH` breaks into `smi`, `mit`, `ith`, plus padded pieces for the
+  start and the end of the word.
+- A trigram index is like the index at the back of a book: for each trigram, the list of rows whose name
+  contains it. Postgres provides it through the `pg_trgm` extension.
+- A search breaks the typed name into trigrams, looks each one up, and keeps the names that share most of
+  them. Small typos still match, and the table is never read from end to end.
+- Common trigrams such as `ing` point at hundreds of thousands of rows, which is why names made of common
+  words are the slow searches.
+
+---
+
+## OLAP and OLTP: Build in Snowflake, Serve from Postgres (Nov 23)
+
+- OLAP (online analytical processing) is big questions over many rows, in batches. That is Snowflake and dbt.
+- OLTP (online transaction processing) is many small, fast lookups. That is what an app needs, and Postgres,
+  a free open-source database, is built for it.
+- Decision d18: builds run in Snowflake, and lookups read a copy in Postgres. A suspended warehouse takes
+  seconds to wake, and keeping one awake all month costs about 720 credits.
+- The cost of the split is a copy step. The loader swaps all the tables in one transaction, so the app never
+  reads half a load, and hidden records never leave Snowflake (rule W9).
+
+---
+
+## Vertical Partitioning: the Narrow Search Table (Nov 23)
+
+- The slow searches spent their time fetching thousands of wide rows scattered through a 3 GB table that
+  does not fit in memory.
+- Vertical partitioning moves the columns a hot query needs (document number and name) into their own small
+  table, about 0.9 GB. The search reads the small table and then fetches the 200 full rows it wants by key.
+- It should change no answer, because the names, the index and the reranking are the same. That is checked,
+  not assumed: every search must return the same five companies as before.
+- The costs are more disk and two tables that must always agree.
+- A miss on a target is information. The search missed by 0.23 seconds on the best machine it will ever run
+  on, which says the design has no headroom.
+
+---
+
+## A Near-Namesake Withholds a Link (rulings R29 and R30, Nov 20)
+
+- R29: a ZIP code that is present and unreadable can neither support a match nor contradict it, so the name
+  alone is not enough. The link is AMBIGUOUS with the reason `zip_unreadable`.
+- R30: a looser key removes a leading THE, treats AND and & as the same, and removes every trailing legal
+  suffix. It is used to **count** near-namesakes, not to
+  make more matches. When two companies share the looser key, the link is AMBIGUOUS.
+- The mistake to avoid is reading R30 as a way to match more. The danger is a wrong match (a clerk typed LLC
+  and meant the INC), and so the rule says less. That is precision over recall.
+- The two rulings moved 625 links from CONFIRMED to AMBIGUOUS and none the other way.
+
+---
+
+## A Short Account for the Person, the Full Account for the Agent (Nov 23)
+
+- A leg report is long on purpose, so that a later agent can see exactly what was done. That length is too
+  much for a person to review well.
+- Every pull request now starts with a Human review section of at most 250 words: what changed and why, what
+  is proven, what was assumed, the decisions that are mine, and at most three places to look.
+- The author writes its own summary, so the AI reviewer checks the summary against the diff.
+- The summary treats a symptom. The cause is the size of the pull request, and smaller legs are the real fix.
+
+---
+
+## Where Instructions Live: `CLAUDE.md` and Project Instructions (Nov 24)
+
+- `CLAUDE.md` is a file in the repo. Claude Code reads it at the start of every session that works in that
+  folder, on the Mac or in the cloud. It holds the engineering rules, and it is public because the repo is.
+- Project instructions are a text box on the Datum project in the Claude app. Every chat in that project
+  reads them. They hold how I want to be taught and written to, and they are private.
+- A brief (`docs/prompts/florida_master.md`) is read only when a prompt names it. It holds one job.
+- The rule of thumb: a rule about the code goes in `CLAUDE.md`, a rule about working with me goes in the
+  project instructions, and a rule about one build goes in its brief.
+- Both are loaded before the first reply, and neither is enforced. A rule that must never be broken needs a
+  hook or a test, because an instruction can be forgotten in a long session.
+
+---
+
+## Risk Tiers for the Files Agents Obey (Nov 24)
+
+- Pull request 19 moved four paths to High: the `docs/prompts/` folder (the briefs), `docs/review_process.md`,
+  `docs/phase_b_rulings.md` and `docs/mvp_plan_nov8.md`, plus any brief saved anywhere else. An unattended agent takes its instructions from
+  them, so a wrong edit changes what every later run builds.
+- `docs/open_questions.md`, `docs/access/` and `docs/legs/` also guide agents, through their working rules,
+  the terms of use and earlier reports. They stay Low for a practical reason: most legs write to them, and
+  raising them would make every leg High. A leg's own review covers what it wrote to `docs/open_questions.md`
+  and `docs/access/`. Reviewers skip the text of `docs/legs/` reports, and the last review round checks the
+  Human review section against the diff instead.
+- The mistake to avoid is saying those three paths "do not instruct agents". They do. They stay Low because
+  of the cost of raising them, and the review of each leg is what guards them.
+- A brief saved outside `docs/prompts/` is still High, and the reviewer reports where it was saved.
+
+---
+
+## Where Context Lives: the Repo and Project Docs (Nov 24)
+
+- Context engineering is deciding what information a model sees, and when. Anthropic's article on it
+  ("Effective context engineering for AI agents") describes just-in-time retrieval: the agent holds light
+  references, such as file paths, and loads a file only when it needs it. The article says the best agents
+  often mix the two approaches, and Claude Code is its example: `CLAUDE.md` is loaded up front, and other
+  files are read when needed.
+- The repo is the source of truth. Claude Code reads its files from disk when it needs them, and a cloud
+  session reads them from GitHub. Nothing is copied, so nothing goes stale.
+- Project docs in the Claude app are copies. Every chat in the project can search them, but a copy drifts the
+  moment the repo changes, and the project instructions already say that the repo wins.
+- Being on GitHub and being readable by Claude are separate questions. A file that git ignores stays readable
+  by Claude Code on the Mac, and it is invisible to cloud sessions and to the nightly Roadmap job, which read
+  GitHub. That is the cost of making `INTERVIEW_ANSWERS.md` private, which is planned and not yet done.
+- The rule of thumb: keep files in the repo, let Claude read them when needed, and use project docs only for
+  material that has no home in the repo.
+
+---
+
+## A Search That Passes Its Tests Can Still Fail Its User (Nov 24)
+
+- On Nov 24 I tried the web app on a restaurant I know. "v pizza orlando" put an inactive company in Winter Park
+  first, and the one I meant, V PIZZA LAKE BUENA VISTA LLC at 8586 Palm Pkwy, Orlando, was not on the list.
+  Searching its street address found nothing at all.
+- The data was fine: that company is in the register, active, with exactly that address. The search was the problem.
+- **Why it ranked 13th.** The search scores names by Jaro-Winkler similarity, and a short name scores higher than a
+  long one against a short query. "V PIZZA" scores 90 against "V PIZZA WP LLC" and lower against "V PIZZA LAKE BUENA
+  VISTA LLC". The city only breaks ties, so a company in the right city still loses to one with a shorter name.
+  Active or inactive is not used at all.
+- **Why the address found nothing.** The search reads only the name and the city. The street the contractor types is
+  extracted and then ignored, even though every company's principal address is already in the table.
+- **The lesson.** The 10-case test set was built from names, so it could not catch either problem. A test set has to
+  come from the way real users search: here, a trade name plus a city, and an address with no name.
+- **A legal name is not the name on the sign.** A contractor knows "V Pizza & Tap Room" and an address. The register
+  holds "V PIZZA LAKE BUENA VISTA LLC". Fictitious names (DBAs) and address search close that gap.
+
+---
+
+## Two-Stage Retrieval: the First Step Sets the Ceiling (Nov 25)
+
+- A search over millions of names runs in two steps. Step 1, retrieval, is cheap and rough: Postgres uses the
+  trigram index to keep a short list of candidates, here the 200 names nearest to what was typed. Step 2,
+  ranking, is careful and slower: Python scores only those 200 and puts the best first.
+- The ranking can only reorder what step 1 hands it. If the right company is not among the 200, no ranking rule
+  can put it first. This is called a recall ceiling: step 1's recall (the share of right answers it keeps) is the
+  most step 2 can ever achieve.
+- Phase D showed this on a real case. For "v pizza orlando", 10,062 names were similar enough to pass step 1's
+  test, and V PIZZA LAKE BUENA VISTA LLC stood 2,861st among them, so it was dropped before the ranking ever saw it.
+  The Phase D brief had put the fix in step 2, and the agent measured where the company was lost before changing
+  anything, which is how the real cause was found.
+- **How to diagnose it.** Ask two questions in order: did step 1 keep the right answer, and if it did, where did
+  step 2 put it? Fixing the ranking when step 1 lost the answer changes nothing.
+- **The proposed fix (question Q46).** Step 1 brings back first the names that contain every word that was typed,
+  and fills the rest of the 200 by similarity. Measured alone, it lifts the right company from not listed to 17th,
+  and with the new ranking (rule S2) switched on, to 1st.
+- The same pattern appears in search engines and in RAG (retrieval-augmented generation), where a model can only
+  use the passages the retriever found.
+
+---
+
+## Normalizing Data Can Widen What It Exposes (Nov 26)
+
+- Normalizing means rewriting values into one standard form so that different spellings compare as equal: PKWY and
+  PARKWAY become the same word, and "1551 ATLANTIC BLVD STE 200" can be read as "1551 ATLANTIC BLVD". It is usually
+  treated as plain cleaning, with no risk attached.
+- On Nov 26 I agreed that the address search should ignore the unit on a record (question Q47), so that a contractor
+  who types a building's address still finds a company in Suite 200. A reviewer on the brief pointed out what that
+  does to APT, UNIT and LOT: those usually mark a home, and ignoring them would let one typed address list the
+  companies registered in every apartment or mobile-home lot there.
+- So the rule was narrowed. Office units (STE, SUITE, BLDG, FL, FLOOR, RM, ROOM) are ignored, and home units are still
+  compared exactly, until a lawyer answers whether a home address should be searchable at all (question Q54).
+- **The lesson.** A matching rule decides who can be found, not only what counts as equal. Every widening of a match
+  ("treat these as the same") is also a widening of what one search reveals, so a privacy check belongs next to
+  every normalization rule, not only next to new data sources.
+- **The tradeoff.** A company registered at "APT 4" is still found only when the note has APT 4. That is a missed
+  match, which Datum accepts, because a missed match is the cheap error and exposing a home is the expensive one.
+
+---
+
+## Environment Variables Are Copied at Start, and .env Never Overwrites Them (Nov 26)
+
+- An environment variable is a NAME=value pair that a program receives when it starts. Every program gets a
+  copy of its parent's variables at that moment: VS Code passes its copy to the terminal, the terminal to
+  Claude Code, and Claude Code to the app it starts. Editing `.env` or `.zshrc` later changes no program that is
+  already running.
+- `load_dotenv()` reads `.env` and adds its names to the program's environment, but by default
+  (`override=False` in python-dotenv 1.2.4) it skips any name that is already set. So when the environment
+  already holds an `ANTHROPIC_API_KEY`, the key in `.env` is never used.
+- On Nov 26 that is exactly what happened. I had put a new key in `.env`, and the old key no longer worked, but an old copy of `ANTHROPIC_API_KEY` was still in the terminal's environment. It won, the Claude
+  service rejected it, and every search answered "unavailable". The new key was fine the whole time: Claude Code
+  removed the old variable for one command (`env -u ANTHROPIC_API_KEY ...`) and its live checks worked.
+- **The lesson.** A secret should live in exactly one place. A second copy does not fail loudly; it silently
+  wins, depending on which program started first.
+- **The tradeoff.** `load_dotenv(override=True)` would let `.env` always win, but it hides the duplicate instead
+  of removing it, and a shell value set on purpose for one test would then be ignored without a word. Removing
+  the stale copy is simpler and fixes Claude Code too, because Claude Code can bill the API instead of the plan
+  when it finds an API key in its environment 🟡 (the plan's note of Oct 30, not checked again).
+
+---
+
+## An & Is a Word: Both Sides Must Lose the Same Thing (Nov 26)
+
+- Normalizing text before a comparison only works when the typed side and the record side lose the same things.
+  Datum's name search turns every run of punctuation into one space, so "A.B.C." and "A B C" compare as equal. But
+  an "&" in a company name stands for the word AND, so "A&B ROOFING LLC" became A B ROOFING LLC, while a contractor
+  who typed "a and b roofing" kept the word AND.
+- Since leg D3, the search first checks whether a name holds every typed word, the every-word test, and it ranks a
+  name that passes ahead of a name in the right city. So the deep review of Nov 26 found that a company in another
+  city that spelled out AND came first, ahead of A&B ROOFING LLC in the city the contractor typed.
+- The fix leaves AND and THE out of the words the every-word test looks for. One function, `typed_words()`, gives
+  those words to both Python and the database query, so the two copies of the rule always look for the same words.
+  They are still two copies, so the check that compares their answers on real names still has to pass.
+- **The lesson.** A normalization rule is a matching rule. Before stripping a character, ask what it meant, and
+  check that both sides of the comparison lose the same thing.
+- **The tradeoff.** Ignoring AND and THE also forgives a THE that a contractor types and the registered name lacks.
+  But two names that differ only by those words now pass the every-word test alike, and the next things the order
+  compares, the city and how similar the names are, have to tell them apart.
+
+---
+
+## A Sentence That Describes a Rule Is a Second Copy of It (Nov 26)
+
+- The address search tells the contractor, in words, how it compared an address: which parts of a street are left
+  out and which must be typed. That sentence is the rule written again in English, so every change to the rule has
+  to change it too.
+- In leg D4, three review rounds in a row each found a sentence that restated the rule in fewer words and got a case
+  wrong. So after round 3 the comparison got one description, `ADDRESS_COMPARED`, shown under every address search.
+  Then the deep review of Nov 26 found one more copy. The line that every report of a company found by address
+  keeps still said its street was "made only of words that were typed", which the new office-unit cut had made
+  untrue.
+- The fix makes the report show `ADDRESS_COMPARED` itself, and a test fails if any sentence in
+  `wording.py` contains the old phrase again.
+- **The lesson.** Text that explains a rule to a user is part of the rule. It needs one home, the way a business
+  definition lives in one dbt model and every other model refers to it, and it needs a test.
+- **The tradeoff.** The report's line grows by 143 words, from 50 to 193 in one example. Accuracy came first, and showing
+  the description once, as its own part of the report, could shorten it later. The test looks for one phrase only,
+  so a new sentence that restates the rule in other words would still pass, and a reviewer still has to read new
+  wording.

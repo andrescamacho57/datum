@@ -155,6 +155,55 @@ LC_ALL=C awk -F'|' '$1=="DPA" { n[$5]++ } END { for (k in n) print k, n[k] }' p*
 - `n[$5]++` is a tally keyed by the field's value (here FRM / TO); `END { ... }` runs after the last line
 - `LC_ALL=C` treats the file as plain bytes, so odd characters can't stop it
 
+## Added Nov 20–23: keys, branches and long runs
+
+```bash
+[ -n "$ANTHROPIC_API_KEY" ] && echo "SET somewhere" || echo "not set - good"
+grep -l ANTHROPIC_API_KEY ~/.zshrc ~/.zprofile ~/.zshenv 2>/dev/null
+grep -c "W10" docs/prompts/florida_master.md
+env -u ANTHROPIC_API_KEY claude rc
+caffeinate -is
+git switch main
+git fetch && git status
+git worktree add --detach ~/datum-review origin/main
+```
+
+- `[ -n "$VAR" ]` tests whether a variable is not empty. `&&` runs the next part if the test passed, and
+  `||` runs it if the test failed. It prints a label and never the secret
+- `grep -l` prints only the names of the files that match, so a key never appears on screen. `grep -c`
+  prints how many lines matched. `2>/dev/null` hides "no such file" errors
+- `env -u NAME command` runs one command with that variable removed
+- `claude rc` is a hidden short name for `claude remote-control`, the server mode: the terminal only waits for
+  your phone or a browser to connect, and you can't type in it. `claude --remote-control` (or `--rc`) instead
+  starts a normal session that you can type in and also reach from your phone, and `/rc` turns that on inside
+  a session already running. The docs list only the long names
+  ([Claude Code docs, Remote Control](https://code.claude.com/docs/en/remote-control))
+- `caffeinate -is` keeps the Mac awake while it runs: `-i` stops idle sleep, and `-s` stops system sleep, but
+  only while the Mac is plugged in. Neither keeps it awake with the lid closed. Stop it with Ctrl+C
+- `git switch <branch>` changes the checked-out branch. Never run it in a folder an agent is working in
+- `git fetch && git status` says how far behind the branch is, without changing a file
+- `git worktree add --detach <folder> origin/main` makes a second working folder for the same repo, at `main`
+  as of your last `git fetch`. It doesn't contact GitHub itself, so run `git fetch` first. Git refuses a
+  branch that another folder already has checked out, and
+  `--detach` avoids that by checking out the commit without a branch
+
+## Added Nov 26: where an environment variable comes from
+
+```bash
+echo ${ANTHROPIC_API_KEY:+set}
+grep -rl ANTHROPIC_API_KEY ~/.zshrc ~/.zprofile ~/.zshenv ~/.oh-my-zsh/custom 2>/dev/null
+```
+
+- `${NAME:+set}` prints the word `set` when the variable has a value and prints nothing when it does not,
+  so you can check a secret without ever showing it
+- `grep -r` searches inside folders as well as files, and with `-l` it prints only the names of the files
+  that match, never the matching line
+- Run the same `echo` check in two places to find where a value comes from: the VS Code terminal and the
+  macOS Terminal app. If only VS Code has it, VS Code is carrying an environment it copied when it started.
+  If both have it, a startup file sets it
+- Closing a VS Code window does not stop VS Code. Cmd+Q quits it, and only a fresh start copies a fresh
+  environment
+
 ## Habits Worth Keeping
 
 - Look before you load: count, peek, measure, checksum
@@ -165,3 +214,6 @@ LC_ALL=C awk -F'|' '$1=="DPA" { n[$5]++ } END { for (k in n) print k, n[k] }' p*
 - Long prompts go in a file (`docs/prompts/`), not the terminal paste buffer
 - A check that can't fail proves nothing: ask what input would make it fail
 - Don't move a folder that holds a `.venv`; if you must, leave a symbolic link at the old path
+- Before a session on the Mac: `git switch main`, then `git pull`
+- While an agent works in a folder, only read with git there (`status`, `log`, `diff`)
+- A program's environment is a copy made when it started: after changing a startup file, restart the program
