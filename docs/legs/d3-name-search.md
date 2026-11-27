@@ -898,7 +898,7 @@ The fix's review was High tier, in three rounds.
 
 ### What the fix does not prove
 
-- 🟡 It changes nothing the evaluation can see. No checked case types AND or THE, and the 12 searches of the speed check that do keep their results, so its benefit rests on the new test's invented companies.
+- 🟡 It changes nothing the evaluation can see. No checked case's name search types AND or THE (checked case 10's note holds "the", but the search asks about that note and runs no name search), and the 12 searches of the speed check that do keep their results, so its benefit rests on the new test's invented companies.
 - 🟡 Question Q64: a near name that lacks the typed word now joins the exact name's group, and with no city the similarity decides. For "Lords of the Lawn", LORDS OF LAWN, rated Possible, comes before LORDS OF THE LAWN L.L.C., rated Strong. No sentence becomes false, and the page says the list is in search order.
 - 🟡 Step 1's `WHERE` still compares the whole typed name, THE included. In Postgres, "THE ACME GROUP" against ACME GROUP LLC scores 0.733, under the threshold of 0.75, so for a short name the company meant can miss the 200 candidates, and the new test's THE case holds in the ordering step only.
 - 🟡 The timings come from a Mac with a load average between 3 and 5.
