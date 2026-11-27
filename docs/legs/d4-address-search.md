@@ -1,6 +1,6 @@
 # Leg D4: the address search, finished
 
-Branch `leg/d4-address-search` (from `leg/d3-name-search`) · pull request [#30](https://github.com/andrescamacho57/datum/pull/30) · run on Nov 26, 2026 · risk tier **High** · status: **built and reviewed, with every check passing. The Deep review ran its three rounds, and every Important finding is fixed. The fixes of round 3, which rewrote the description of the address comparison, were not reviewed, because no fourth round is allowed. Nothing is merged.**
+Branch `leg/d4-address-search` (from `leg/d3-name-search`) · pull request [#30](https://github.com/andrescamacho57/datum/pull/30) · run on Nov 26, 2026 · risk tier **High** · status: **built and reviewed, with every check passing. The Deep review ran its three rounds, and every Important finding is fixed. The fixes of round 3, which rewrote the description of the address comparison, were not reviewed in those rounds, because no fourth round is allowed. Nothing is merged. After the pull request opened, a deep review read the round-3 fixes with one reviewer and found the report's line still described the comparison the old way, and the fix and its review are in section 7.**
 
 This is the fourth and last leg of Phase D. Leg D1 built the search by address, and on Nov 26 Andres answered the questions it raised about it. The brief turned his answers into three rules, S15, S16 and S18, and this leg builds them behind the same gate as leg D3, rule S17.
 
@@ -16,7 +16,7 @@ This is the fourth and last leg of Phase D. Leg D1 built the search by address, 
 - **More addresses are crowded.** Because the suites of a building are one address now, 10,177 addresses hold more than 50 companies, where 9,059 did, and 51 of 200 random addresses get the "too many" answer, where 46 did.
 - **The address search meets the speed target:** a p95 of **256 milliseconds**, against 175 in leg D1 and a target of under 1 second. The p95 is the time that 95 of every 100 searches beat.
 - The database went from 6,367 MB to **6,362 MB**, because the address table is a little smaller.
-- The offline tests pass with Postgres stopped: **575**, of which 30 are new in this leg.
+- The offline tests pass with Postgres stopped: **579**, of which 32 are new in this leg: 575 and 30 when the leg's review ended, two more from leg D3's fix, and two from the fixes here (section 7).
 - The leg made **3** live extraction calls. Legs D3 and D4 together made 8 of the 10 they share. It used **no Snowflake**.
 - The Deep review ran three rounds and found 22 problems, 9 of them Important. All are answered: 20 fixed and 2 recorded as calls for Andres. Three rounds in a row found a record that the "no match" sentence described wrongly, so after round 3 the comparison got one description, used everywhere. That last fix was not reviewed; my own check found it agrees with the search on 162,285 random pairs.
 
@@ -692,3 +692,157 @@ Legs D3 and D4 made **8** of the 10 live extraction calls they share. No hosted 
 3. Every company at a typed address is inactive. What does the page say, why does it list none of them, and what does the terminal do with the same note now?
 
 **Answers, to check yourself.** (1) The loader leaves the suite out of the stored street once, when it fills `company_search_addresses`, with a pattern that `regexp_replace` runs in Postgres. `street_parts()` leaves it out of the typed street in Python before the words are sent. The query only asks whether every stored word is among the typed words and the ignored ones, and both sides arrive already cut, so its text did not need to change. A unit has to go with the word after it, which a query that only asks "is this word in the list" cannot do. (2) They often mark an apartment or a mobile-home lot, which is a home, and leaving them out would let one typed address list the companies of every apartment there. That waits for the lawyer (question Q54). `BLDG 2` is an office unit and is left out, and APT is never taken as the building's number, so the stored street keeps APT 305, and the note must hold APT 305. (3) The page says "No active company matches.", gives the count of inactive companies with its source, and adds "Type the business's name to look for it with the name search, which lists inactive companies too." It lists none of them, because an address can be a home and rule S6 lists only the active companies there. The terminal now makes the same choice with `search_kind()`, runs the same address search, and prints the same sentences, and then asks for more details. Before this leg it asked for a business name and ran no address search at all.
+
+## 7. After the pull request opened: the deep review of Nov 26, 2026, and its fixes
+
+This section was added after the pull request opened. Sections 1 to 6 describe the leg as it was when its three review rounds ended, and they are left as they were, apart from the count of tests in the short version at the top.
+
+### What the deep review found
+
+On the night of Nov 26 a deep review read this pull request's own 18 commits with one fresh-context reviewer. Its report is `docs/reviews/2026-11-26_deep_review.md`, on the branch `docs/deep-review-nov26`. It found two Important problems, and both are about one line.
+
+- **The report's line described the comparison the old way.** `IDENTIFIED_BY_ADDRESS` in `src/datum/wording.py`, the line a saved report keeps for a company picked from an address search, said "the same house number, and a street name made only of words that were typed". Rule S15 made that untrue: an office unit with its number and a direction are left out of the record's street, so they never have to be typed. Round 1 of this leg's review had removed the same phrase from the sentences for "no match", and round 3 had made `ADDRESS_COMPARED` the one description, but this copy on the report was missed.
+- **The Human review section said there was one description** of the comparison, shown on the results page and the "no match" page, while the report carried a second one.
+
+### The fixes
+
+- **Commit `3f39e40`.** The line now says only how the company was found and picked, and `identified_by_address_text()` follows it with `address_compared_text()`, the same sentences the results page shows, with the typed house number and the sentence about the city. `src/datum/report_builder.py` gives it the house number that `street_parts()` reads from the extracted street, which is the number the address search compared. The three tests that pinned the old sentence now expect the one description.
+- **The merges `967b103` and `464a252`** bring leg D3's fix for a typed "and" or "the" (commit `cc39913`, question Q63) and the decision the review of that fix found (question Q64). Their conflicts were the import list of `tests/test_search.py` and the rows of `docs/open_questions.md`, where both sides were kept, in number order.
+- **Commits `e05c6d0` and `196776b`** answer the Nits of the review of the fixes, below.
+
+### The checks, run again
+
+They ran at `3f39e40`, whose search is the search the branch holds now: the commits after it change the report builder, a test and the question list.
+
+**The evaluation.**
+
+```
+python -m evals.run --backend postgres
+
+group                    cases  top-1  recall@5  wrong_match
+contractor_search            3      3         3            0
+legal_name_variant           8      5         7            2
+real_world_reference         2      2         2            0
+ALL                         13     10        12            2
+
+draft cases (evals/draft_cases.csv: not checked by Andres, and so counted in no pass or fail decision)
+group                    cases  top-1  recall@5  wrong_match
+address_only                 5      3         4            1
+brand_and_city               6      4         6            2
+name_and_street              5      1         2            4
+ALL                         16      8        12            7
+```
+
+**The gate of rule S17, with `4ecabb5`, the leg's last commit, as the step before.**
+
+```
+python gate.py --saved main_051a928=<the results kept before the rebuild> D4_before=4ecabb5 D4_new=3f39e40
+
+checked cases: 13   draft cases: 16
+  main_051a928 = src/datum/search.py at 051a928, results kept in a file before the address table was rebuilt
+  D4_before = src/datum/search.py at 4ecabb5
+  D4_new = src/datum/search.py at 3f39e40
+
+each cell: the expected company's place by rank among the candidates / its place on the page
+case  main_051a928                D4_before                   D4_new                      
+   1  1 of 1 / 1                  1 of 1 / 1                  1 of 1 / 1                  
+   2  1 of 1 / 1                  1 of 1 / 1                  1 of 1 / 1                  
+   3  2 of 10 / 2                 2 of 10 / 2                 2 of 10 / 2                 
+   4  1 of 12 / 1                 1 of 12 / 1                 1 of 12 / 1                 
+   5  1 of 1 / 1                  1 of 1 / 1                  1 of 1 / 1                  
+   6  1 of 27 / 1                 1 of 27 / 1                 1 of 27 / 1                 
+   7  asked / asked               asked / asked               asked / asked               
+   8  2 of 6 / 2                  2 of 6 / 2                  2 of 6 / 2                  
+   9  1 of 28 / 1                 1 of 28 / 1                 1 of 28 / 1                 
+  10  asked / asked               asked / asked               asked / asked               
+  11  not among 200 / not shown   1 of 200 / 1                1 of 200 / 1                
+  12  not among 200 / not shown   1 of 200 / 1                1 of 200 / 1                
+  13  1 of 1 / 1                  1 of 1 / 1                  1 of 1 / 1                  
+
+scored on the first five ON THE PAGE:
+            main_051a928                D4_before                   D4_new                      
+top-1         8                           10                          10                          
+recall@5      10                          12                          12                          
+wrong_match   4                           2                           2                           
+first on page 8                           10                          10                          
+
+the gate of rule S17 (a checked case is worse when its company drops by rank, drops on the page, or leaves the first five, or when a note that should be asked about gets a company):
+  D4_before: worse than main_051a928: none   better than main_051a928: [11, 12]   -> passes
+  D4_new: worse than main_051a928: none   worse than D4_before: none   better than main_051a928: [11, 12]   -> passes
+
+draft cases, counts only (not checked by Andres, and so counted in no decision):
+  D4_before against main_051a928:
+    group                    cases  moved up  moved down  stayed
+    address_only                 5         0           0       5
+    brand_and_city               6         5           0       1
+    name_and_street              5         2           0       3
+    ALL                         16         7           0       9
+  D4_new against main_051a928:
+    group                    cases  moved up  moved down  stayed
+    address_only                 5         0           0       5
+    brand_and_city               6         5           0       1
+    name_and_street              5         2           0       3
+    ALL                         16         7           0       9
+  D4_new against D4_before:
+    group                    cases  moved up  moved down  stayed
+    address_only                 5         0           0       5
+    brand_and_city               6         0           0       6
+    name_and_street              5         0           0       5
+    ALL                         16         0           0      16
+
+draft cases, scored on the first five on the page (top-1 / recall@5 / wrong_match), counts only:
+  main_051a928              3 / 7 / 12
+  D4_before                 8 / 12 / 7
+  D4_new                    8 / 12 / 7
+```
+
+- ✅ No checked case is worse than on `main` or than at `4ecabb5`, and no draft case moved against `4ecabb5`.
+
+**The speed of the address search**, as the first run after a Postgres restart, the way check 7 measured it.
+
+```
+brew services restart postgresql@17
+python -m evals.run --backend postgres --address-latency 200
+22:25  load averages: 4.55 4.77 4.92
+latency of the search by address over 200 principal addresses drawn at random:
+  p50 6 ms   p95 246 ms   slowest 392 ms
+  searches over 1 second: 0 of 200
+  searches answered with "too many to list": 51 of 200
+  fingerprint of the random addresses: e17a1576706df4cc9a00bf1c0677ffc6
+
+(after another restart)
+22:25  load averages: 4.65 4.78 4.92
+latency of the search by address over 200 principal addresses drawn at random:
+  p50 6 ms   p95 252 ms   slowest 389 ms
+  searches over 1 second: 0 of 200
+  searches answered with "too many to list": 51 of 200
+  fingerprint of the random addresses: e17a1576706df4cc9a00bf1c0677ffc6
+```
+
+| Searches timed | p50 | p95 | Slowest | Target: p95 under 1 second |
+|---|---|---|---|---|
+| This leg, first run after a restart | 6 ms | 256 ms | 393 ms | ✅ |
+| **After the fixes, first run after a restart** | 6 ms | **246 ms** | 392 ms | ✅ |
+| After the fixes, first run after another restart | 6 ms | 252 ms | 389 ms | ✅ |
+
+**The tests.** With the database server stopped: `pytest` gave **579 passed** in 4.07 seconds at `b5a5728`, and `ruff check src tests evals` passed. The leg ended with 575. Leg D3's fix brought two tests, and the fixes here brought two more: the test that no text in `wording.py` holds the phrase "made only of words", and the test of the report's house number.
+
+### The review of the fixes
+
+The review of the fixes was High tier, in three rounds.
+
+- **Round 1.** Three reviewers ran in parallel, each hunting one thing: a wrong company first or a sentence that claims too much, a person's data or a secret, and a test that cannot fail. A fourth then checked every finding against the code. For this pull request's own code it confirmed three Nits, and all are fixed.
+  - The report's house number had a branch with no test, which for a street with no house number printed "begins with the house number , and", a comparison that never ran. The app and the terminal never build such an identification. Commit `e05c6d0` makes the builder refuse one with `NoHouseNumber`, which carries no argument because the street came from a note and an error may be logged.
+  - Nothing checked that the house number is the one `street_parts()` reads, which is the number the address search compared: replacing it with the first word as typed passed every test. The test in `e05c6d0` checks that "12-b invented wy" gives 12.
+  - The wording test's name, and the message of `3f39e40`, claimed more than the test checks. Commit `196776b` renamed it, and its comment says what it misses.
+  - Leg D3's two findings, question Q64 and the limit of step 1, are in leg D3's report, section 7.
+  - A security review of the new lines in `src/` found no vulnerability. The house number is formatted into a fixed sentence as a value, and the page escapes the new text.
+- **Round 2.** One reviewer read the new commits, the Human review section, which is in the pull request's text, and the three questions. For this pull request it found two Important problems in the section, a sentence that said the wording test covers any text `wording.py` defines and test counts given "with Postgres stopped" that had been measured with it running, and a Nit, "at the new head" for numbers measured at `3f39e40`. All are fixed. All three questions were answerable from the section.
+- **Round 3.** It had one reviewer on the corrections. In pull request 30's section it found one Important problem, a count of merges ("two merges") that round 3's own merge had made stale, and one Nit, a sentence that read as if the wording test covered the collections of strings in `wording.py`. Both are corrected, and as three rounds is the most `REVIEW.md` allows, no round read those two corrections.
+
+### What the fixes do not prove
+
+- 🟡 The new wording test catches only one exact phrase: no string that `wording.py` names at its top level holds "made only of words". It does not catch the same idea restated in other words, text inside a tuple or a function, or a template.
+- 🟡 The fixes of this leg's third review round were read by one reviewer only, in the deep review, which is less than the High tier asks.
+- 🟡 The commit message of `3f39e40` says the new test "fails when any sentence restates the comparison". That claims more than the test checks, as the line above says, and commit `196776b` renamed the test to say what it checks.
+- 🟡 The timings come from a Mac with a load average between 4 and 5.
