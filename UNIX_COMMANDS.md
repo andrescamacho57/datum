@@ -161,7 +161,7 @@ LC_ALL=C awk -F'|' '$1=="DPA" { n[$5]++ } END { for (k in n) print k, n[k] }' p*
 [ -n "$ANTHROPIC_API_KEY" ] && echo "SET somewhere" || echo "not set - good"
 grep -l ANTHROPIC_API_KEY ~/.zshrc ~/.zprofile ~/.zshenv 2>/dev/null
 grep -c "W10" docs/prompts/florida_master.md
-env -u ANTHROPIC_API_KEY claude rc
+env -u ANTHROPIC_API_KEY claude --remote-control
 caffeinate -is
 git switch main
 git fetch && git status
@@ -173,12 +173,15 @@ git worktree add --detach ~/datum-review origin/main
 - `grep -l` prints only the names of the files that match, so a key never appears on screen. `grep -c`
   prints how many lines matched. `2>/dev/null` hides "no such file" errors
 - `env -u NAME command` runs one command with that variable removed
+- `claude --remote-control` (or `--rc`) starts a normal Claude Code session that you can also reach from the
+  Claude app on your phone. Inside a session, `/rc` does the same. `claude rc` is not a command: Claude would
+  take "rc" as your first message ([Claude Code docs, Remote Control](https://code.claude.com/docs/en/remote-control))
 - `caffeinate -is` keeps the Mac awake while it runs: `-i` stops idle sleep, and `-s` stops system sleep, but
   only while the Mac is plugged in. Neither keeps it awake with the lid closed. Stop it with Ctrl+C
 - `git switch <branch>` changes the checked-out branch. Never run it in a folder an agent is working in
 - `git fetch && git status` says how far behind the branch is, without changing a file
-- `git worktree add --detach <folder> origin/main` makes a second working folder for the same repo, at the
-  newest `main` from GitHub. Git refuses a branch that another folder already has checked out, and
+- `git worktree add --detach <folder> origin/main` makes a second working folder for the same repo, at `main`
+  as of your last `git fetch`. It doesn't contact GitHub itself, so run `git fetch` first. Git refuses a branch that another folder already has checked out, and
   `--detach` avoids that by checking out the commit without a branch
 
 ## Added Nov 26: where an environment variable comes from
