@@ -8,9 +8,9 @@ every change, so that "is the search better?" is a number and not an impression.
     python -m evals.run --backend postgres --latency 200   # also time the search on 200 random company names
     python -m evals.run --backend postgres --latency 200 --retrieve word    # time the second approach leg C2 tried
     python -m evals.run --backend postgres --latency 200 --retrieve plain   # time the first approach leg C2 tried (slow)
-    python -m evals.run --backend postgres --compare 200   # do the second approach and the app's search give the same five companies?
-    python -m evals.run --backend postgres --before        # also score the search as it was before Phase D, and say which cases moved
-    python -m evals.run --backend postgres --try-order s2  # also score another order of the candidates beside the app's, and say which cases it moves
+    python -m evals.run --backend postgres --compare 200   # how many searches does the app's search answer differently from leg C2's second approach? (since leg D3 they differ by design)
+    python -m evals.run --backend postgres --before        # also score the search with no search by address, and say which cases the address search moved
+    python -m evals.run --backend postgres --try-order v1  # also score another order of the candidates beside the app's, and say which cases it moves
     python -m evals.run --backend postgres --address-latency 200   # also time the search by address on 200 random principal addresses
 
 Run from ~/datum with the project's virtual environment active.
@@ -40,14 +40,18 @@ the active companies at the address in document-number order, so its first five 
 the way the name search's best five are.
 
 Two options score every case twice and compare the two runs:
-    --before          the search as it was before Phase D, against the search as it is. Before
+    --before          the search with NO search by address, against the search as it is. Before
                       Phase D there was no search by address: a note that named no business
-                      was always asked for more. The order of the candidates is the same in
-                      both runs, because leg D1 did not change the order the app uses.
+                      was always asked for more. The NAME search is today's in both runs, so
+                      this shows what the search by address changed and nothing else. It is
+                      not the name search of before Phase D: leg D3 changed that search's
+                      first step (rule S11), and this option does not rebuild the old one.
     --try-order NAME  the search as it is, against the same search with ANOTHER ORDER of the
-                      name search's candidates: s2 is Phase D working rule S2 (every typed
-                      word, then the city, then similarity), and s2-city-first is the one
-                      variant rule S3 allows. Neither is used by the app.
+                      name search's candidates. v1 is search version 1's order (similarity,
+                      then the city), which the app used until leg D3. s2-city-first is the
+                      one variant rule S3 allowed of rule S2. s2 is rule S2 itself (every
+                      typed word, then the city, then similarity), which IS the app's order
+                      since leg D3 (rule S13), so trying it moves nothing.
 Each says, case by case for the checked cases and by count for the drafts, whether the
 expected company moved up, moved down or stayed. A checked case that moved down is the one
 thing that makes the command fail (exit code 1). That is working rule S3's test: a case is
@@ -55,17 +59,23 @@ worse when its company leaves the top five, drops in rank, or when a note that s
 asked about gets a company.
 
 A company has TWO places, and both are compared. Its place BY RANK is where rank() puts it
-among all the candidates. Its place ON THE PAGE is where a contractor sees it: the page
-shows the best five by rank, put in order of match level (Strong, then Likely, then
-Possible), so the first company on a page is not always the first by rank. A case is worse
-when either place got worse. Leg D1 found why both are needed: rule S2 left every checked
-case's rank alone and moved one case's company from first to second on the page.
+among all the candidates. Its place ON THE PAGE is where a contractor sees it. Since leg D3
+the page shows the best five by rank IN RANK ORDER (Phase D rule S12), so for the first
+five the two places are the same number, and a company below the fifth has a rank and is
+not on the page. Until leg D3 the page put the five in order of match level (Strong, then
+Likely, then Possible), and the first company on a page was not always the first by rank:
+leg D1 found that rule S2 left every checked case's rank alone and moved one case's company
+from first to second on the page. Both places are still kept and compared, so that a
+change which pulls them apart again fails the comparison. A case is worse when either
+place got worse.
 
-What it measures, per case group and in total. The first two are defined exactly as in
-snowflake/11_score_search_v1.sql:
-    top-1         the first answer is the expected company. For a case whose right answer
-                  is "ask for more" (NEEDS_MORE_INFO), top-1 means the search did ask.
-    recall at 5   the expected company is among the first five answers.
+What it measures, per case group and in total. The first two are scored on the companies
+ON THE PAGE, top to bottom (rule S12). They give the same numbers as the definitions in
+snowflake/11_score_search_v1.sql, which score the best five by rank, because the page now
+shows exactly those five in that order:
+    top-1         the first company on the page is the expected company. For a case whose
+                  right answer is "ask for more" (NEEDS_MORE_INFO), top-1 means the search did ask.
+    recall at 5   the expected company is among the first five on the page.
     wrong_match   the search ANSWERED with a company, and it is not the expected one. This
                   is the costly error: a confident wrong company. Asking for more is never
                   a wrong match, even when a company was expected. Script 11 does not
@@ -99,7 +109,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))                 # so `import datum.se
 
 from datum.search import (  # noqa: E402  (the path line above has to come first)
     COMPANY_COLUMNS, CANDIDATE_POOL, RANK_ORDER, SHORTLIST_SIZE, AddressBackend, Candidate, Company, PostgresBackend, SearchBackend, address_search,
-    by_city_then_words, by_words_then_city, company_from_row, search, search_kind, search_pool, shortlist,
+    by_city_then_words, by_similarity_then_city, by_words_then_city, company_from_row, search, search_kind, search_pool, shortlist,
 )
 
 TEST_SET = REPO_ROOT / "pipeline" / "seeds" / "test_set.csv"
@@ -199,8 +209,9 @@ def score_case(case: Case, answered: list[str], place: int | None = None, candid
 
 
 ORDERS = {                                  # --try-order: another order of the name search's candidates, scored beside the app's
-    "s2": by_words_then_city,               # Phase D working rule S2
-    "s2-city-first": by_city_then_words,    # the one variant rule S3 allows: S2 with its first two parts swapped
+    "v1": by_similarity_then_city,          # search version 1's order, the app's until leg D3
+    "s2": by_words_then_city,               # Phase D working rule S2, the app's order since leg D3 (rule S13): trying it moves nothing
+    "s2-city-first": by_city_then_words,    # the one variant rule S3 allowed: S2 with its first two parts swapped
 }
 
 
@@ -216,14 +227,14 @@ def run_cases(cases: list[Case], backend: SearchBackend, order: Callable[[Candid
       "address"  the search by address. It answers with the active companies at the address
                  in document-number order, and the first five of those are scored.
       "ask"      no search runs and no company is shown.
-    `order` is the app's own order unless --try-order asks for another. With no
+    `order` is the app's own order (rule S2 since leg D3) unless --try-order asks for another. With no
     address_backend there is no search by address, and a note that names no business is
     asked about, as every such note was before Phase D.
 
     Two places are kept for the expected company. `place` is its place by rank among all
     the candidates. `page_place` is its place on the page: the name search's page shows the
-    best five by rank in order of match level (search.shortlist), and the address page
-    lists the active companies in document-number order.
+    best five by rank, in rank order (search.shortlist, Phase D rule S12), and the address
+    page lists the active companies in document-number order.
     """
     results = []
     for case in cases:
@@ -239,14 +250,14 @@ def run_cases(cases: list[Case], backend: SearchBackend, order: Callable[[Candid
         else:
             pool = search_pool(backend, case.business_name, case.city, order=order)
             numbers = [c.company.document_number for c in pool]
-            on_page = [c.company.document_number for c in shortlist(pool, city_given=bool(case.city)).candidates]   # exactly what the app's page shows, top to bottom
+            on_page = [c.company.document_number for c in shortlist(pool, city_given=bool(case.city)).candidates]   # exactly what the app's page shows, top to bottom: the best five by rank, in rank order
         expected = case.expected_document_number
         place = numbers.index(expected) + 1 if expected in numbers else None
         page_place = on_page.index(expected) + 1 if expected in on_page else None
-        results.append(score_case(case, numbers[:SHORTLIST_SIZE], place, len(numbers), searched=kind, page_place=page_place))
-        # Top-1, recall at 5 and wrong_match are scored on the first five BY RANK, as snowflake/11_score_search_v1.sql defines
-        # them. Whether top-1 should mean first on the page is question Q51. Under the app's order the two agree on every
-        # checked case. They can differ under another order, which is why moved() below compares both places.
+        results.append(score_case(case, on_page[:SHORTLIST_SIZE], place, len(numbers), searched=kind, page_place=page_place))
+        # Top-1, recall at 5 and wrong_match are scored on the first five ON THE PAGE (question Q51, answered on Nov 26, 2026:
+        # top-1 means first on the page). For the name search those are the first five by rank, in rank order, since rule S12,
+        # so the numbers are the ones snowflake/11_score_search_v1.sql defines. moved() below still compares both places.
     return results
 
 
@@ -300,8 +311,9 @@ def made_worse(before: list[CaseResult], after: list[CaseResult]) -> list[int]:
     drops in rank, or a note that should be asked about gets a company. All three are a
     standing that went up, so "moved down" covers them: a company that leaves the top five
     has dropped, and so has one that falls out of the candidates altogether. A drop on the
-    page counts as a drop too (see moved), which the rule does not spell out: it is the
-    reading that calls more changes worse.
+    page counts as a drop too (see moved). Rule S3 did not spell that out, and Phase D rule
+    S17 does: a checked case is worse when its company drops by rank, drops on the page or
+    leaves the first five, or when a note that should be asked about gets a company.
     """
     return [a.case.case_id for b, a in zip(before, after, strict=True) if moved(b, a) == "down"]
 
@@ -331,9 +343,17 @@ class SnowflakeBackend:
     The pool is every company whose score is one of the FIVE HIGHEST DISTINCT scores. The
     best five companies of snowflake/11_score_search_v1.sql can only come from those score
     levels, whatever the city tie-break does inside a level, so the pool always holds them.
-    datum.search.rank() then applies version 1's full order in Python. A fixed count would
-    not be safe: the score is a whole number, so hundreds of companies can share one score,
-    and a cut at 200 could drop a company in the right city (the review of leg C2 found this).
+    A fixed count would not be safe: the score is a whole number, so hundreds of companies
+    can share one score, and a cut at 200 could drop a company in the right city (the review
+    of leg C2 found this).
+
+    SINCE LEG D3 THIS BACKEND NO LONGER REPRODUCES THE APP. datum.search.rank() then orders
+    the pool, and until leg D3 its order was version 1's, so the pool and the order belonged
+    together. rank() now uses rule S2 (every typed word, then the city, then similarity),
+    and this pool was built for version 1: a company that holds every typed word and has a
+    lower similarity than the five best scores is not in it. Phase D uses no Snowflake, so
+    this backend has not been run since leg C2. Before its numbers are set beside Postgres's
+    again, it needs version 1's order passed to run_cases(), or a pool built for rule S2.
     """
 
     MOST_ROWS = 5000                        # a ceiling on the pool, far above any tie seen, so one odd name can't pull back a million rows. Reaching it is an error, not a quiet cut
@@ -377,8 +397,13 @@ class WideTableBackend(PostgresBackend):
     It asks the same question as the app's search (word similarity at a threshold of 0.75,
     with the legal suffix left out of the lookup) and reads the answer from company_search
     itself, through that table's own trigram index. The app's search, PostgresBackend, reads
-    the narrow table company_search_names. Both tables hold the same names, so the two must
-    return the same companies, and --compare checks that they do. Run it with --retrieve word.
+    the narrow table company_search_names. Run it with --retrieve word.
+
+    Until leg D3 the two kept the same 200 names, because both tables hold the same names and
+    both queries kept the nearest ones, and --compare checked that they did. SINCE LEG D3 THEY
+    DIFFER BY DESIGN. The app's query now keeps the names that hold every typed word first
+    (Phase D rule S11), and this one is left as leg C2 wrote it, as that leg's baseline. So
+    --compare now counts how many searches rule S11 changes, and a difference is not a fault.
     """
 
     NEAREST_SQL = (
@@ -547,7 +572,7 @@ def page_text(result: CaseResult) -> str:
 
 def print_before_and_after(checked_before: list[CaseResult], checked_after: list[CaseResult],
                            drafts_before: list[CaseResult] | None, drafts_after: list[CaseResult] | None,
-                           first: str = "before Phase D", second: str = "now") -> int:
+                           first: str = "with no search by address", second: str = "now") -> int:
     """Two runs side by side, and the exit code: 1 when a CHECKED case was made worse, otherwise 0.
 
     `first` and `second` name the two runs in the headings. The checked cases get a line
@@ -624,7 +649,7 @@ def evaluate(cases: list[Case], drafts: list[Case] | None, backend: SearchBacken
     This is the whole of what decides pass or fail, kept apart from main() so that a test
     can run it with a stand-in backend. The exit code is 0 unless a comparison was asked
     for and it found a CHECKED case made worse, and then it is 1:
-      before     the search before Phase D (no search by address) against the search as it is;
+      before     the search with no search by address against the search as it is (the name search is today's in both);
       try_order  the search as it is against the same search with the candidates in the
                  order ORDERS[try_order].
     The drafts are scored and printed, and never decide anything (working rule S1).
@@ -658,10 +683,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--backend", choices=("postgres", "snowflake"), required=True, help="which database does the retrieve step")
     parser.add_argument("--latency", type=int, default=0, metavar="N", help="also time the search on the test inputs plus N random company names (postgres only)")
     parser.add_argument("--retrieve", choices=tuple(RETRIEVERS), default="narrow", help="postgres only: narrow = the narrow table, the search the app uses; word = the second approach and plain = the first, both for timing only")
-    parser.add_argument("--compare", type=int, default=0, metavar="N", help="postgres only: run the second approach and the app's search on the test inputs plus N random company names, and count the searches whose five companies differ")
+    parser.add_argument("--compare", type=int, default=0, metavar="N", help="postgres only: run leg C2's second approach and the app's search on the test inputs plus N random company names, and count the searches whose companies differ. Since leg D3 the app's search keeps the names that hold every typed word first, so the two differ by design")
     parser.add_argument("--address-latency", type=int, default=0, metavar="N", help="postgres only: also time the search by address on N principal addresses drawn at random")
-    parser.add_argument("--before", action="store_true", help="postgres only: also score the search as it was before Phase D, say which cases moved, and fail when a checked case was made worse")
-    parser.add_argument("--try-order", choices=tuple(ORDERS), default=None, help="postgres only: also score another order of the name search's candidates beside the app's (s2 = working rule S2, s2-city-first = its variant), and fail when it makes a checked case worse")
+    parser.add_argument("--before", action="store_true", help="postgres only: also score the search with no search by address, as it was before Phase D, say which cases the address search moved, and fail when a checked case was made worse. The name search is today's in both runs")
+    parser.add_argument("--try-order", choices=tuple(ORDERS), default=None, help="postgres only: also score another order of the name search's candidates beside the app's (v1 = search version 1's order, the app's until leg D3; s2-city-first = the variant of rule S2; s2 = rule S2, which is the app's order now, so it moves nothing), and fail when it makes a checked case worse")
     args = parser.parse_args(argv)
     exit_code = 0
     cases = read_cases()

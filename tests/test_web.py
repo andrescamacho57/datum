@@ -543,6 +543,69 @@ def test_strong_companies_that_did_not_fit_on_the_list_are_shown_under_it_with_t
     assert "6 other companies matched equally well." in report
 
 
+S12_SENTENCE = "The list is in search order. The level beside each company says how much of the record agrees with what you typed."   # typed out, not read from wording.py
+
+
+def five_out_of_level_order():
+    """Five invented companies whose levels come out Possible, Likely, Likely, Possible, Possible in rank order for "Acme Roofing" in Jacksonville.
+
+    They do so under search version 1's order and under rule S2 alike, with a different company on top (tests/test_search.py has
+    the same five and says why), so this fixture does not depend on which order the app uses.
+    """
+    base = next(c for c in fx.load_companies() if c.document_number == fx.NO_FLAG_COMPANY)
+    rows = (("ACME ROOFING AND SIDING INC", "TAMPA"), ("ACME ROOFERS INC", "JACKSONVILLE"), ("ACME ROOFER INC", "JACKSONVILLE"),
+            ("ACME ROOFINGS", "TAMPA"), ("ACME ROOFERS OF TAMPA INC", "TAMPA"))
+    return [replace(base, document_number=f"T2600000020{n}", entity_name=name, name_key=name, principal_city=city) for n, (name, city) in enumerate(rows, start=1)]
+
+
+def test_a_list_with_a_lower_level_above_a_higher_one_is_in_rank_order_and_says_so_once_under_the_list():
+    # Phase D rule S12 (leg D3). Until then the page put the two Likely companies on top, and this test fails on that order.
+    acme = {"business_name": "Acme Roofing", "city": "Jacksonville", "street": "", "is_specific": True}
+    answer = client_for(make(companies=five_out_of_level_order(), extract=lambda note: dict(acme))[0]).post("/search", data={"note": "acme roofing jacksonville"})
+    cards = answer.text.split("<article>")[1:]
+    assert [re.search(r"<strong>(Strong|Likely|Possible)</strong>", card).group(1) for card in cards] == ["Possible", "Likely", "Likely", "Possible", "Possible"]
+    text = seen(answer.text)
+    tie = "2 companies on this list match at the level Likely. Check which one you mean before you open a report."
+    assert tie in text and "at the level Possible" not in text            # rule W7 reads the BEST level on the list, not the first card's
+    assert text.count(S12_SENTENCE) == 1
+    assert text.rindex("Source: Florida Division of Corporations") < text.index(S12_SENTENCE) < text.index("Search again")   # under the whole list
+    # The report of a Likely company still counts the other Likely one, and only that one.
+    browser = client_for(make(companies=five_out_of_level_order(), extract=lambda note: dict(acme))[0])
+    link = re.search(r'href="(/company/T26000000202\?from=[^"]+)"', browser.post("/search", data={"note": "acme roofing jacksonville"}).text).group(1)
+    assert "match level Likely" in seen(browser.get(link).text) and "1 other company on the shortlist matched equally well." in seen(browser.get(link).text)
+    # A list whose levels already go from best to worst says nothing about its order: five Possible companies, and then Strong before Likely.
+    all_possible = client_for(make(extract=lambda note: {"business_name": "Invented Air Cooling", "city": "", "street": "", "is_specific": True})[0])
+    assert S12_SENTENCE not in all_possible.post("/search", data={"note": "invented air cooling"}).text
+    in_order = [replace(c, entity_name=name, name_key=name) for c, name in zip(five_out_of_level_order()[1:3], ("ACME ROOFING LLC", "ACME ROOFERS INC"))]
+    page = client_for(make(companies=in_order, extract=lambda note: dict(acme))[0]).post("/search", data={"note": "acme roofing jacksonville"}).text
+    assert [re.search(r"<strong>(Strong|Likely|Possible)</strong>", card).group(1) for card in page.split("<article>")[1:]] == ["Strong", "Likely"]
+    assert S12_SENTENCE not in page
+    # The first card can have the best level and the list still be out of order below it: Likely, Possible, Likely. The sentence shows then too.
+    below = [replace(c, entity_name=name, name_key=name, principal_city=city) for c, (name, city) in zip(five_out_of_level_order()[:3], (
+        ("ACME ROOFING OF JACKSONVILLE INC", "JACKSONVILLE"), ("ACME ROOFING AND SIDING INC", "TAMPA"), ("ACME ROOFER INC", "JACKSONVILLE")))]
+    page = client_for(make(companies=below, extract=lambda note: dict(acme))[0]).post("/search", data={"note": "acme roofing jacksonville"}).text
+    assert [re.search(r"<strong>(Strong|Likely|Possible)</strong>", card).group(1) for card in page.split("<article>")[1:]] == ["Likely", "Possible", "Likely"]
+    assert seen(page).count(S12_SENTENCE) == 1
+
+
+def test_a_place_that_is_in_a_companys_name_puts_it_first_and_the_card_and_the_report_say_why():
+    # Phase D rule S14 (leg D3), through the web app, on the shape of checked case 12 with invented companies. The extraction step
+    # read the place as the city, and the company's principal city is Orlando. Before rule S14 the shorter namesake came first.
+    in_name = "every word of the city you gave is in the company's name"   # typed out, not read from wording.py
+    base = next(c for c in fx.load_companies() if c.document_number == fx.NO_FLAG_COMPANY)
+    rows = (("Q PIZZA WP LLC", "WINTER PARK"), ("Q PIZZA DURBIN, LLC", "SAINT JOHNS"), ("Q PIZZA LAKE BUENA VISTA LLC", "ORLANDO"))
+    pizzas = [replace(base, document_number=f"T2600000030{n}", entity_name=name, name_key=name.replace(",", ""), principal_city=city) for n, (name, city) in enumerate(rows, start=1)]
+    browser = client_for(make(companies=pizzas, extract=lambda note: {"business_name": "Q Pizza", "city": "Lake Buena Vista", "street": "", "is_specific": True})[0])
+    answer = browser.post("/search", data={"note": "q pizza lake buena vista"})
+    cards = [seen(card) for card in answer.text.split("<article>")[1:]]
+    assert [re.search(r"T\d{11}", card).group(0) for card in cards] == ["T26000000303", "T26000000301", "T26000000302"]   # the company with the place in its name is first
+    assert in_name in cards[0] and in_name not in cards[1] and in_name not in cards[2]
+    assert "principal city on record is ORLANDO, and that spelling does not begin with the city you gave" in cards[0]   # the principal city is still said, beside it
+    assert cards[0].startswith("Q PIZZA LAKE BUENA VISTA LLC Possible ·") and "This is only a POSSIBLE match" in cards[0]   # rule S4: its level did not rise
+    report = seen(browser.get(re.search(r'href="(/company/T26000000303\?from=[^"]+)"', answer.text).group(1)).text)
+    assert "match level Possible (" in report and f"; {in_name}; ACTIVE) · chosen by the user from a shortlist." in report   # the report's line gives the same reasons
+
+
 # --- The search by address (Phase D, leg D1; working rules S5 to S8) -----------------------------------
 
 BY_ADDRESS = {"business_name": "<UNKNOWN>", "city": "", "street": "8586 palm pwwy", "is_specific": False}

@@ -149,11 +149,22 @@ EVIDENCE_OTHER_CITY = "principal city on record is {city}, and that spelling doe
 # contractor the company was in another city. The sentence now says only what was compared.
 # Whether the comparison itself should treat "St." and "ST" alike is question Q41.
 EVIDENCE_NO_CITY = "no principal city on record for this company"   # the principal address is the only one the table holds
+EVIDENCE_CITY_IN_NAME = "every word of the city you gave is in the company's name"
+# Phase D rule S14 (leg D3). The extraction step reads a place out of a note as the city, also
+# when the place is part of the registered name: "v pizza lake buena vista" came back as the
+# business "V Pizza" and the city "Lake Buena Vista". Such a company is moved up the list, and
+# this line says why. It says exactly what was compared (search.city_in_name: whole words, in
+# any order, legal endings left out), and it is given BESIDE the line about the principal city,
+# never in its place. It does not say the company is in that city, and it changes no match level.
 EVIDENCE_ACTIVE = "ACTIVE"
 EVIDENCE_INACTIVE = "INACTIVE with the state"
 EVIDENCE_NO_STATUS = "status not on record"
-# The eight lines above are the reasons search.evidence() gives for a match level. They were
-# written in search.py in leg C2 and moved here unchanged, so that this file holds them all.
+# The nine lines above are what search.evidence() says beside a company. Eight were written in
+# search.py in leg C2 and moved here unchanged, so that this file holds them all, and
+# EVIDENCE_CITY_IN_NAME is leg D3's. They are not all reasons for the match LEVEL. Five are:
+# the two about the name and the three about the principal city, which is all match_level()
+# reads. The three about the status are facts about the company. EVIDENCE_CITY_IN_NAME is a
+# reason for the company's place on the list, and the level does not read it (rule S4).
 INACTIVE_MARK = "Inactive with the state"
 # Working rule S10 (leg D2): the shortlist says this BESIDE an inactive company's name. Until
 # then the only sign was the last of its reasons, EVIDENCE_INACTIVE above, which Andres did not
@@ -169,6 +180,12 @@ TIE_ON_LIST = "{count} companies on this list match at the level {level}. Check 
 # it, from October, read "These look about equally likely ... A street or a city would help
 # tell them apart": it stood under the whole list, so "these" took in companies that were not
 # tied, and it asked for a city when one had been given and for a street the search never uses.
+SHORTLIST_SEARCH_ORDER = "The list is in search order. The level beside each company says how much of the record agrees with what you typed."
+# Phase D rule S12 (leg D3), word for word. A shortlist shows its companies in the order the
+# search ranked them, and no longer best level first. The sentence is shown once, UNDER the
+# list, and only when a company with a lower level stands above one with a higher level,
+# because only then could the order be read as a mistake. It gives no reason to prefer one
+# company: it says what the order is and what a level is.
 POSSIBLE_CAUTION = "This is only a POSSIBLE match: the name is similar, and nothing else confirms it is the company you mean."
 # On the shortlist under every company rated Possible, and at the top of a report whose company
 # was picked at that level. The terminal has asked "Make the report anyway?" since October.
@@ -348,6 +365,11 @@ def tie_text(count: int, level: str | None) -> str:
     if count <= 1 or level is None:
         return ""
     return TIE_STRONG.format(count=count) if level == "Strong" else TIE_ON_LIST.format(count=count, level=level)
+
+
+def search_order_text(lower_level_above_higher: bool) -> str:
+    """The line under a shortlist that says its order is the search's (rule S12). Empty when the levels already go from best to worst."""
+    return SHORTLIST_SEARCH_ORDER if lower_level_above_higher else ""
 
 
 def not_shown_text(count: int) -> str:

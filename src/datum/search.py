@@ -2,25 +2,34 @@
 
 The search has two steps, and the split is the point of this module:
 
-    1. RETRIEVE   ask the database for the companies whose names are nearest to the one typed.
+    1. RETRIEVE   ask the database for the companies whose names are near the one typed.
                   This step is fast and rough. It reads an index over a narrow table of names,
                   and it brings back a pool of candidates (200 by default) out of 13 million
                   companies, each fetched in full from company_search by its document number.
-    2. RERANK     score that small pool carefully, in plain Python, with the same rules as
-                  search version 1 (snowflake/11_score_search_v1.sql): Jaro-Winkler
-                  similarity first, then a city match, then the document number as a fixed
-                  tie-break. Keep the best five.
+                  Since leg D3 the pool is filled first with the names that hold every typed
+                  word, and then with the nearest names (Phase D rule S11).
+    2. RERANK     put that small pool in order, in plain Python, by Phase D rule S2: first
+                  the companies whose name holds every typed word, then the ones whose
+                  principal city agrees with the city given or whose name holds that
+                  city's words (rule S14), then the higher Jaro-Winkler similarity, then
+                  the document number as a fixed tie-break. Keep the best
+                  five. Until leg D3 the order was search version 1's
+                  (snowflake/11_score_search_v1.sql): similarity first, then the city.
 
-Leg D1 built a second order for step 2, Phase D working rule S2 (by_words_then_city below),
-and its one permitted variant (by_city_then_words). NEITHER IS SWITCHED ON. Working rule S3
-says to keep the old order when the new one and its variant both make a checked case worse,
-and both do: on checked case 9 they move the expected company from first to second on the
-page a contractor sees. RANK_ORDER below is the one line that says which order the app
-uses, and changing it is Andres's call. The evaluation can score either order beside the
-app's (python -m evals.run --backend postgres --try-order s2).
+How rule S2 came to be the order (RANK_ORDER below is the one line that says which order
+the app uses). Leg D1 built it (by_words_then_city) and its one permitted variant
+(by_city_then_words), and switched neither on: on Nov 25, 2026 both moved checked case 9's
+expected company from first to second on the page a contractor saw, because the page then
+showed its five companies by match level. Leg D3 took that cause away (rule S12: the page
+is in rank order, in shortlist() below) and then switched rule S2 on (rule S13), after
+measuring that no checked case was worse than on main, by rank or on the page (rule S17).
+The evaluation can still score search version 1's order, or the variant, beside the app's
+(python -m evals.run --backend postgres --try-order v1).
 
 Step 2 can only order what step 1 brought back. A company that is not in the pool is never
-ranked, whatever the order is. Leg D1's report shows a case where that decides the answer.
+ranked, whatever the order is. Leg D1's report shows a case where that decided the answer:
+for "v pizza orlando" the right company stood 2,861st in step 1's order and was never among
+the 200. Rule S11 is the answer to it, and it lives in step 1's query (NEAREST_SQL).
 
 This pattern is called retrieve-then-rerank. A careful score over 13 million names takes
 Snowflake about a minute. A careful score over 200 names takes Python a millisecond.
@@ -123,14 +132,16 @@ class Candidate:
     similarity: int                         # Jaro-Winkler similarity of the two simplified names, 0 to 100
     city_match: bool                        # True when a city was given and the company's city starts with it
     exact_name: bool                        # True when the two names are equal once legal suffixes are removed
-    every_word: bool                        # True when every word of the typed name is among the words of the company's name, legal suffixes aside
+    every_word: bool                        # True when every word of the typed name is among the words of the company's name, legal suffixes, AND and THE aside
+    city_in_name: bool = False              # True when a city was given and every word of it is among the words of the company's NAME (Phase D rule S14).
+                                            # It counts for the ORDER only. The match level never reads it (rule S4)
 
 
 @dataclass(frozen=True)
 class Shortlist:
-    """What the contractor is shown: the candidates in display order, each with its level, and whether the top is a tie."""
+    """What the contractor is shown: the candidates in the order they are shown, each with its level, and whether the top is a tie."""
 
-    candidates: tuple[Candidate, ...]       # the ones shown: the best five by rank, put in order of level, best first
+    candidates: tuple[Candidate, ...]       # the ones shown: the best five by rank, IN RANK ORDER (Phase D rule S12)
     levels: tuple[str, ...]                 # the level of each shown candidate, in the same order
     top_level: str | None                   # the best level found. None when there is no candidate at all
     tied_at_top: int                        # how many candidates share top_level. More than 1 is a tie (rule W7)
@@ -146,6 +157,18 @@ class Shortlist:
     def tied_not_shown(self) -> int:
         """How many of the tied candidates are not on the list shown."""
         return len(self.not_shown)
+
+    @property
+    def lower_level_above_higher(self) -> bool:
+        """True when some company on the list is shown ABOVE one with a better level (Phase D rule S12).
+
+        The list is in rank order, and the rank and the level are worked out from different
+        things, so a Possible can stand above a Likely. A page then says once, under the
+        list, that the list is in search order (wording.SHORTLIST_SEARCH_ORDER). When the
+        levels already go from best to worst, nothing needs saying.
+        """
+        places = [LEVELS.index(level) for level in self.levels]    # 0 for Strong, 1 for Likely, 2 for Possible
+        return places != sorted(places)
 
 
 class SearchBackend(Protocol):
@@ -228,17 +251,60 @@ def without_suffixes(key: str) -> str:
     return SUFFIX_PATTERN.sub("", key)
 
 
+FILLER_WORDS = frozenset({"AND", "THE"})
+# The every-word test leaves these out of what was typed. name_key() turns "&" into a space, so
+# "A&B ROOFING LLC" can never hold a typed AND, and a registered name often lacks a THE that a
+# contractor types. Since leg D3 the every-word test outranks the city and the similarity, so
+# either word put any name that spells it out above the company meant (review of Nov 26, 2026).
+
+
+def typed_words(search_key: str) -> list[str]:
+    """The words of a typed name that the every-word test looks for: trailing legal suffixes and FILLER_WORDS left out.
+
+    A typed name made only of those words keeps them, as a name that is only a legal suffix
+    does: there would otherwise be no word left to look for.
+    """
+    words = (without_suffixes(search_key) or search_key).split()
+    return [word for word in words if word not in FILLER_WORDS] or words
+
+
 def holds_every_word(search_key: str, company_key: str) -> bool:
-    """True when every word of the typed name is among the words of the company's name, with trailing legal suffixes left out of both.
+    """True when every word of the typed name is among the words of the company's name, with trailing legal suffixes left out of both, and AND and THE left out of the typed name.
 
     "V PIZZA" is held by "V PIZZA LAKE BUENA VISTA LLC": both of its words are there. It is
     not held by "VA PIZZA LLC". Whole words are compared, so ROOFING is not held by ROOFINGS.
     A typed name that is nothing but a legal suffix, such as "LLC", keeps its words, as it
     does in the index lookup: there would otherwise be no word left to look for.
+    "A AND B ROOFING" is held by "A&B ROOFING LLC", whose simplified name is A B ROOFING LLC.
     """
-    typed = (without_suffixes(search_key) or search_key).split()
+    typed = typed_words(search_key)
     words = set((without_suffixes(company_key) or company_key).split())
     return bool(typed) and all(word in words for word in typed)
+
+
+def city_in_name(given_city: str, company_key: str) -> bool:
+    """True when a city was given and every word of it is among the words of the company's name, with trailing legal suffixes left out (Phase D rule S14).
+
+    "Lake Buena Vista" is in "V PIZZA LAKE BUENA VISTA LLC": all three words are there. Why
+    this exists: the extraction step moves a place out of the business name even when the
+    place is part of the registered name. "v pizza lake buena vista" came back as the
+    business "V Pizza" and the city "Lake Buena Vista", and that company's principal city
+    is Orlando, so by city_matches() alone the city could never agree. The city is
+    simplified the way a name is, so "St. Augustine" is the two words ST and AUGUSTINE.
+    Whole words are compared, as in holds_every_word().
+    """
+    wanted = name_key(given_city).split()
+    words = set((without_suffixes(company_key) or company_key).split())
+    return bool(wanted) and all(word in words for word in wanted)
+
+
+def city_agrees_for_order(candidate: Candidate) -> bool:
+    """Step (2) of rule S2, as rule S14 amended it: the company's principal city agrees with the city given, OR the city's words are in its name.
+
+    This is for the ORDER of the candidates and for nothing else. match_level() reads
+    city_match alone, so a place in a company's name never raises its level (rule S4).
+    """
+    return candidate.city_match or candidate.city_in_name
 
 
 def by_similarity_then_city(candidate: Candidate) -> tuple:
@@ -248,16 +314,18 @@ def by_similarity_then_city(candidate: Candidate) -> tuple:
     before True, so "not city_match" puts a city match first. The document number is a fixed
     order, so a rerun can never flip two equal candidates. City breaks a tie and is never a
     filter: a company's registered city is its principal address, which can differ from the
-    job site. This is the order the app uses (RANK_ORDER below).
+    job site. The app used this order until leg D3, and it is kept so that the evaluation
+    can score it beside the app's (--try-order v1) and so that its tests still run.
     """
     return (-candidate.similarity, not candidate.city_match, candidate.company.document_number)
 
 
 def by_words_then_city(candidate: Candidate) -> tuple:
-    """Working rule S2, as a sort key. BUILT AND MEASURED IN LEG D1, AND NOT USED BY THE APP (see RANK_ORDER).
+    """Working rule S2, as a sort key. THE ORDER THE APP USES since leg D3 (Phase D rule S13; see RANK_ORDER).
 
       1. a company whose name holds every typed word comes first ("not every_word" is False for it);
-      2. then a company whose principal city agrees with the city given;
+      2. then a company whose principal city agrees with the city given, or whose name holds
+         every word of that city (Phase D rule S14, city_agrees_for_order above);
       3. then the higher Jaro-Winkler similarity (the minus sign puts 95 before 88);
       4. then the document number, a fixed order, so a rerun can never flip two equal candidates.
 
@@ -265,34 +333,38 @@ def by_words_then_city(candidate: Candidate) -> tuple:
     ranking active companies first would hide a dissolved client behind an active namesake.
     The extraction step returns no ZIP code, so none is compared.
     """
-    return (not candidate.every_word, not candidate.city_match, -candidate.similarity, candidate.company.document_number)
+    return (not candidate.every_word, not city_agrees_for_order(candidate), -candidate.similarity, candidate.company.document_number)
 
 
 def by_city_then_words(candidate: Candidate) -> tuple:
-    """The one variant working rule S3 allows: rule S2 with its first two parts swapped. Also not used by the app.
+    """The one variant working rule S3 allowed: rule S2 with its first two parts swapped. Not used by the app.
 
     A company in the city given comes first, then one whose name holds every typed word,
-    then the higher similarity, then the document number.
+    then the higher similarity, then the document number. It reads the PRINCIPAL city alone,
+    exactly as leg D1 measured it. Rule S14 amended step (2) of rule S2 and nothing else, so
+    a city in a company's name does not count here, and --try-order s2-city-first still
+    scores the variant that was measured on Nov 25, 2026.
     """
     return (not candidate.city_match, not candidate.every_word, -candidate.similarity, candidate.company.document_number)
 
 
-RANK_ORDER = by_similarity_then_city
-# The order the app's name search uses: search version 1's. Rule S2 and its variant were both
-# measured on Nov 25, 2026. Neither changed any checked case's place by rank. Both moved checked
-# case 9's expected company from first to second ON THE PAGE: a company whose name is exactly
-# the typed name climbs into the best five, and the page shows the five by match level, so
-# that company (Strong) is shown above the expected one (Possible). Rule S3: when S2 and the
-# variant both make a checked case worse, keep the old ranking and let Andres decide.
+RANK_ORDER = by_words_then_city
+# The order the app's name search uses: rule S2, switched on in leg D3 by Phase D rule S13
+# (question Q52, answered by Andres on Nov 26, 2026: yes, if it passes the gate of rule S17).
+# It passed. With rules S11 and S12 built, the scratch script of rule S17 found no checked case
+# worse than on main at 051a928, by rank or on the page, and checked case 11 ("v pizza orlando")
+# went from 17th to first. Until then this line named search version 1's order: on Nov 25, 2026
+# rule S2 had moved checked case 9's expected company from first to second ON THE PAGE, because
+# the page then showed its five companies by match level, and rule S12 removed that cause.
 
 
 def rank(companies: list[Company], business_name: str, city: str = "", limit: int | None = SHORTLIST_SIZE,
          order: Callable[[Candidate], tuple] = RANK_ORDER) -> list[Candidate]:
     """Step 2: score a pool of companies against the typed name and keep the best `limit` (all of them when limit is None).
 
-    The order is RANK_ORDER, search version 1's. `order` exists so that the evaluation can
-    sort the same pool by rule S2 or by its variant and show the result beside the app's.
-    The app never passes it.
+    The order is RANK_ORDER, rule S2's. `order` exists so that the evaluation can sort the
+    same pool by search version 1's order or by rule S2's variant and show the result beside
+    the app's. The app never passes it.
     """
     search_key = name_key(business_name)
     candidates = [
@@ -302,6 +374,7 @@ def rank(companies: list[Company], business_name: str, city: str = "", limit: in
             city_match=city_matches(city, company.principal_city),
             exact_name=without_suffixes(company.name_key) == without_suffixes(search_key),
             every_word=holds_every_word(search_key, company.name_key),
+            city_in_name=city_in_name(city, company.name_key),
         )
         for company in companies
     ]
@@ -319,7 +392,7 @@ def search_pool(backend: SearchBackend, business_name: str, city: str = "", pool
 
 
 def search(backend: SearchBackend, business_name: str, city: str = "", limit: int = SHORTLIST_SIZE, pool: int = CANDIDATE_POOL) -> list[Candidate]:
-    """Both steps, keeping the best `limit` candidates in rank order. This is what the evaluation scores (search version 1's top five)."""
+    """Both steps, keeping the best `limit` candidates in rank order. These are the five a page shows, top to bottom, and what the evaluation scores."""
     return search_pool(backend, business_name, city, pool)[:limit]
 
 
@@ -329,6 +402,9 @@ def match_level(candidate: Candidate, city_given: bool) -> str:
     Strong    the same name, and the city agrees (or no city was given)
     Likely    one of the two signals
     Possible  only a similar-looking name
+    "The city agrees" means the company's PRINCIPAL city (city_match). A city found among
+    the words of a company's name (city_in_name, rule S14) moves the company up the list
+    and never changes its level: rule S4 keeps the levels as they were.
     A level is shown with its evidence and never as a percentage: a percentage would claim
     "right N% of the time", and nothing measured backs that up.
     """
@@ -340,9 +416,14 @@ def match_level(candidate: Candidate, city_given: bool) -> str:
 
 
 def evidence(candidate: Candidate, city_given: bool, status_marked: bool = False) -> list[str]:
-    """The reasons behind the level, in words the contractor can check: the name, the city when one was given, and the status.
+    """What a page says beside a company, in words the contractor can check: the name, the city when one was given, and the status.
 
-    These are the three reasons report.py has given since October. Two gaps in the data are
+    These are the three lines report.py has given since October. Only the first two are
+    behind the match LEVEL: match_level() reads the name and the principal city, and never
+    the status, which is a fact about the company and not about the match. Leg D3 added a
+    fourth line, shown only when it applies: the words of the city given are in the
+    company's name (Phase D rule S14). That one is a reason for the company's PLACE on the
+    list and not for its level, and the line about the principal city is still given beside it. Two gaps in the data are
     said plainly and never filled in (CLAUDE.md rule 3): a company with no principal city on
     record is not "registered in None", and a company with no status on record is not called inactive.
     The words themselves live in wording.py, with every other sentence a contractor can be shown.
@@ -363,6 +444,8 @@ def evidence(candidate: Candidate, city_given: bool, status_marked: bool = False
             reasons.append(wording.EVIDENCE_OTHER_CITY.format(city=candidate.company.principal_city))
         else:
             reasons.append(wording.EVIDENCE_NO_CITY)
+        if candidate.city_in_name:          # rule S14: said beside the line about the principal city, never in its place. It explains the company's place on the list
+            reasons.append(wording.EVIDENCE_CITY_IN_NAME)
     status = candidate.company.status_code
     if not (status_marked and status == "I"):   # on a shortlist an inactive company's status is the mark beside its name, so it is not said a second time
         reasons.append(wording.EVIDENCE_ACTIVE if status == "A" else wording.EVIDENCE_INACTIVE if status == "I" else wording.EVIDENCE_NO_STATUS)
@@ -370,38 +453,43 @@ def evidence(candidate: Candidate, city_given: bool, status_marked: bool = False
 
 
 def shortlist(pool: list[Candidate], city_given: bool, limit: int = SHORTLIST_SIZE) -> Shortlist:
-    """Pick the candidates to show from a ranked pool, put them in display order, and count the tie at the top (working rule W7).
+    """Pick the candidates to show from a ranked pool, give each its level, and count the tie at the top (working rule W7).
 
     `pool` is the whole reranked pool from search_pool(), in rank order.
 
-    WHO IS SHOWN: the best `limit` by rank, which are exactly the candidates the evaluation
-    scores, re-ordered by level with the best level first. Python's sort is stable, which
-    means candidates with the same level keep their rank order. Nobody is brought in from
-    further down the pool. Doing that by level would let a weak name in the right city push
-    out the best-ranked company, and city is a tie-break, never a filter.
+    WHO IS SHOWN, AND IN WHAT ORDER: the best `limit` by rank, in rank order (Phase D rule
+    S12, leg D3). Each has its level beside it. Until leg D3 the five were re-sorted by
+    level, best first, and so the company at the top of a page could be another one than the
+    first by rank. The evaluation scored one order and a contractor saw another, which is
+    what moved checked case 9 to second on the page under rule S2 (question Q51). Now the
+    two are the same list. Nobody is brought in from further down the pool: doing that by
+    level would let a weak name in the right city push out the best-ranked company.
+
+    THE TOP LEVEL is the BEST level found, and never simply the first card's level, because
+    the first card is no longer the one with the best level.
 
     HOW THE TIE IS COUNTED:
       - Strong means the SAME NAME (and the city agrees, or none was given). Those are
-        counted over the WHOLE pool, because a company with the exact name can rank sixth
-        by similarity, behind five near-misses, and a count over the five shown would miss
-        it. not_shown holds the ones that did not fit on the list, each with its own
-        source address and fetch time, so a page can name them and cite them.
+        counted over the WHOLE pool, because a company with the exact name can rank sixth,
+        behind five other names, and a count over the five shown would miss it. not_shown
+        holds the ones that did not fit on the list, each with its own source address and
+        fetch time, so a page can name them and cite them.
       - Likely and Possible are counted among the candidates shown only. Over the whole
         pool those counts would mostly measure how wide the retrieve step cast its net,
         and that says nothing about the companies.
     The two review rounds of leg C2 found one gap each in earlier versions of this function.
     """
-    shown = sorted(((match_level(c, city_given), c) for c in pool[:limit]), key=lambda pair: LEVELS.index(pair[0]))
-    levels = tuple(level for level, _ in shown)
+    shown = tuple(pool[:limit])                                    # rank order, exactly as the evaluation scores them
+    levels = tuple(match_level(c, city_given) for c in shown)
     strong_further_down = tuple(c for c in pool[limit:] if match_level(c, city_given) == "Strong")   # same-name companies that did not fit on the list
     strong_shown = levels.count("Strong")
     if strong_shown or strong_further_down:
         top_level, tied = "Strong", strong_shown + len(strong_further_down)
     else:
-        top_level = levels[0] if levels else None
+        top_level = min(levels, key=LEVELS.index) if levels else None   # the best level among the five, wherever on the list it stands
         tied = levels.count(top_level) if levels else 0
     return Shortlist(
-        candidates=tuple(c for _, c in shown), levels=levels,
+        candidates=shown, levels=levels,
         top_level=top_level, tied_at_top=tied, not_shown=strong_further_down, city_given=city_given,
     )
 
@@ -446,6 +534,11 @@ class PostgresBackend:
     The trailing legal suffix is left out of what is sent to the index. LLC and INC are in
     millions of names, so their trigrams cost the most and tell nothing apart. The rerank
     step still scores the full typed name.
+
+    WHICH 200 ARE KEPT (Phase D rule S11, leg D3). Many more names can pass the comparison
+    than the pool holds. The names that hold every typed word are kept first, and then the
+    names nearest to the typed name as a whole, as before. The comments under NEAREST_SQL
+    read the query term by term.
     """
 
     WORD_SIMILARITY_THRESHOLD = 0.75        # how close a stretch of a registered name must be to the typed name
@@ -455,19 +548,58 @@ class PostgresBackend:
         f"select {', '.join('c.' + column for column in COMPANY_COLUMNS)} "
         "from (select document_number from company_search_names "
         "where %(key)s <%% name_key "
-        "order by name_key <-> %(key)s, document_number "
+        "order by not (case when string_to_array(name_key, ' ') @> %(words)s::text[] "
+        "then string_to_array(regexp_replace(name_key, %(suffixes)s, ''), ' ') @> %(words)s::text[] "
+        "else false end), "
+        "name_key <-> %(key)s, document_number "
         "limit %(limit)s) as nearest "
         "join company_search as c using (document_number)"
     )
     # The part in brackets is a SUBQUERY: it runs first, against the narrow table, and gives back
-    # the document numbers of the nearest names. The join then looks each of those numbers up in
+    # the document numbers of the names it keeps. The join then looks each of those numbers up in
     # company_search through its primary key, which is one quick lookup per company.
-    # %(key)s and %(limit)s are PLACEHOLDERS: the driver sends the values apart from the SQL, so
-    # nothing a contractor types can ever be read as SQL (that is how SQL injection is prevented).
-    # The operator is <% ("is word-similar to"), and because % also marks a placeholder here, a
-    # literal one is typed twice. <-> is the plain trigram DISTANCE between two texts (0 = the
-    # same trigrams), so among the names that pass, the ones closest to the typed name as a
-    # whole come first, and the document number settles a tie the same way on every run.
+    # %(key)s, %(suffixes)s, %(words)s and %(limit)s are PLACEHOLDERS: the driver sends the values
+    # apart from the SQL, so nothing a contractor types can ever be read as SQL (that is how SQL
+    # injection is prevented). The three pairs of quotes in the text hold nothing or one space,
+    # and nothing typed is ever put between them.
+    #
+    # WHERE keeps the names that pass. The operator is <% ("is word-similar to"), and because %
+    # also marks a placeholder here, a literal one is typed twice.
+    #
+    # ORDER BY decides which 200 of the names that pass are kept, and it has three terms.
+    #
+    #   1. not (case when string_to_array(name_key, ' ') @> %(words)s::text[]
+    #                 then string_to_array(regexp_replace(name_key, %(suffixes)s, ''), ' ') @> %(words)s::text[]
+    #                 else false end)
+    #      Phase D rule S11 (leg D3): the names that hold EVERY TYPED WORD come first. Piece by piece:
+    #        string_to_array(name_key, ' ')               the name cut into its words, as an array
+    #        @> %(words)s::text[]                         "contains": true when every typed word is
+    #                                                     one of those words. ::text[] tells
+    #                                                     Postgres the value is an array of texts
+    #        regexp_replace(name_key, %(suffixes)s, '')   the name with its trailing legal endings
+    #                                                     cut off. %(suffixes)s is SUFFIX_PATTERN,
+    #                                                     the same pattern without_suffixes() uses
+    #        case when A then B else false end            B is worked out only for a name where A
+    #                                                     is true. CASE is how SQL promises that order
+    #        not (...)                                    Postgres sorts false before true, so "not"
+    #                                                     puts the names that hold every word first
+    #      B alone is the rule: it is holds_every_word(), written a second time so that the
+    #      database can apply it BEFORE the limit. A is the same test on the whole name, legal
+    #      endings included. Cutting the endings off only removes words, so a name that fails A
+    #      fails B too, and the answer is B's for every name. A is there for speed. It is cheap,
+    #      and the pattern match in B is not: for a common word tens of thousands of names pass
+    #      the WHERE, and a first version that ran the pattern on every one of them took the
+    #      search past its one-second target. With A in front, the pattern runs only on the few
+    #      names that hold the typed words (3,876 of 558,647 over the 210 searches of the speed check).
+    #      Until leg D3 the 200 kept were simply the nearest names as a whole, and a long legal
+    #      name is far from a short trade name: for the key V PIZZA, 10,062 names pass the WHERE,
+    #      and V PIZZA LAKE BUENA VISTA LLC stood 2,861st among them.
+    #   2. name_key <-> %(key)s
+    #      <-> is the plain trigram DISTANCE between two texts (0 = the same trigrams). Among the
+    #      names that hold every word, and then among the ones that do not, the names closest to
+    #      the typed name as a whole come first, as they did before.
+    #   3. document_number
+    #      It settles a tie the same way on every run.
 
     def __init__(self, conn):
         self.conn = conn                    # an open psycopg connection
@@ -482,7 +614,14 @@ class PostgresBackend:
 
     def nearest(self, search_key: str, limit: int) -> list[Company]:
         key = without_suffixes(search_key) or search_key           # "LLC" alone would leave nothing: then send it as typed
-        rows = self.conn.execute(self.NEAREST_SQL, {"key": key, "limit": limit}).fetchall()
+        rows = self.conn.execute(self.NEAREST_SQL, {
+            "key": key, "limit": limit,
+            "words": typed_words(search_key),                      # the words holds_every_word() looks for: legal endings, AND and THE left out
+            "suffixes": SUFFIX_PATTERN.pattern,                    # the one list of legal endings, sent as a value so that the query and Python cannot drift apart
+            # Two cautions about that value. It is a PATTERN that Postgres runs, so it must always be this module's own constant
+            # and never anything a caller or a contractor supplied. And two engines now read it, Python's and Postgres's: it must
+            # stay in the syntax both read the same way (groups, |, + and $), with nothing only Python knows, such as \Z or a lookbehind.
+        }).fetchall()
         return [company_from_row(row) for row in rows]
 
     AT_HOUSE_NUMBER_SQL = (

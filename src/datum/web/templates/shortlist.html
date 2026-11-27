@@ -5,6 +5,7 @@
 {% if tie %}<p><strong>{{ tie }}</strong></p>{% endif %}
 {% for candidate in candidates %}{% include "_candidate.html" %}
 {% endfor %}
+{% if search_order %}<p>{{ search_order }}</p>{% endif %}
 {% if not_shown %}<p><strong>{{ not_shown_line }}</strong></p>
 {% with token = "" %}{% for candidate in not_shown %}{% include "_candidate.html" %}
 {% endfor %}{% endwith %}{% endif %}

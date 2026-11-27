@@ -297,6 +297,7 @@ def create_app(access_code: str, extract: Callable[[str], dict], open_backends: 
             request, "shortlist.html", read_as=read_as, token=picks.put(identifications),
             candidates=[candidate_for_page(found, level, short.city_given) for level, found in zip(short.levels, short.candidates)],
             tie=wording.tie_text(short.tied_at_top, short.top_level),
+            search_order=wording.search_order_text(short.lower_level_above_higher),   # rule S12: said once, under the list, when a lower level stands above a higher one
             not_shown_line=wording.not_shown_text(short.tied_not_shown),
             not_shown=[candidate_for_page(found, "Strong", short.city_given) for found in short.not_shown],   # only a Strong candidate is ever in not_shown
         )

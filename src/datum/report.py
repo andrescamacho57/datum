@@ -84,6 +84,8 @@ def show_shortlist(short: Shortlist, say: Callable[[str], None]) -> None:
         say(wording.tie_text(short.tied_at_top, short.top_level) + "\n")
     for number, (level, found) in enumerate(zip(short.levels, short.candidates), start=1):
         show(candidate_for_page(found, level, short.city_given), f"{number}. ")
+    if short.lower_level_above_higher:      # rule S12: the list is in rank order, so a lower level can stand above a higher one, and then the list says so once
+        say(wording.search_order_text(True))
     if short.not_shown:                     # Strong candidates that are counted in the tie and did not fit on the list
         say(wording.not_shown_text(short.tied_not_shown))
         for found in short.not_shown:       # each one is shown with its reasons and its source, so the count is never a statement with nothing behind it

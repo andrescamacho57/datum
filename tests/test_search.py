@@ -16,9 +16,9 @@ from pathlib import Path                    # file paths
 import pytest                               # the test runner; parametrize runs one test body over several cases
 
 from datum.search import (
-    ADDRESS_FETCH, CANDIDATE_POOL, COMPANY_COLUMNS, DIRECTIONS, IGNORED_STREET_WORDS, MOST_AT_AN_ADDRESS, STREET_TYPES, Company, FakeBackend, PostgresBackend,
-    RANK_ORDER, address_search, by_city_then_words, by_similarity_then_city, by_words_then_city, company_from_row, evidence, holds_every_word, jaro_winkler_similarity, match_level, name_key, rank, search,
-    search_kind, search_pool, shortlist, street_matches, street_parts,
+    ADDRESS_FETCH, CANDIDATE_POOL, COMPANY_COLUMNS, DIRECTIONS, IGNORED_STREET_WORDS, MOST_AT_AN_ADDRESS, STREET_TYPES, SUFFIX_PATTERN, Company, FakeBackend, PostgresBackend,
+    RANK_ORDER, address_search, by_city_then_words, by_similarity_then_city, by_words_then_city, city_in_name, company_from_row, evidence, holds_every_word, jaro_winkler_similarity, match_level, name_key, rank, search,
+    search_kind, search_pool, shortlist, street_matches, street_parts, typed_words,
 )
 
 PAIRS = Path(__file__).parent / "fixtures" / "search" / "jarowinkler_pairs.csv"
@@ -74,7 +74,7 @@ def test_rank_orders_by_similarity_then_city_then_document_number():
         company("T00000000004", "ACME ROOFING AND SIDING INC", city="JACKSONVILLE"),
         company("T00000000005", "ZEBRA PAINTING INC", city="JACKSONVILLE"),
     ]
-    ranked = rank(pool, "acme roofing", city="jacksonville")
+    ranked = rank(pool, "acme roofing", city="jacksonville", order=by_similarity_then_city)   # search version 1's order, the app's until leg D3
     assert [c.company.document_number for c in ranked] == [
         "T00000000002",                                                   # same similarity as 1 and 3, and in the given city
         "T00000000001", "T00000000003",                                   # then the document number decides
@@ -86,9 +86,10 @@ def test_rank_orders_by_similarity_then_city_then_document_number():
 
 
 def test_rank_orders_by_every_word_then_city_then_similarity_then_document_number():
-    # Working rule S2, which leg D1 built and measured and the app does NOT use (search.RANK_ORDER says why). Each company below is
-    # placed by a different part of the rule. The app's order (similarity first, the city only to break an exact tie) puts T3 and
-    # T4 above T2, and T6 above all of them.
+    # Working rule S2, which leg D1 built and leg D3 switched on (Phase D rule S13). rank() is called with NO order here, so this
+    # is the order the app uses, and the test fails if RANK_ORDER goes back to search version 1's. Each company below is placed by a
+    # different part of the rule. Version 1's order (similarity first, the city only to break an exact tie) puts T3 and T4 above
+    # T2, and T6 above all of them.
     pool = [
         company("T00000000004", "ACME ROOFING LLC", city="ORLANDO"),               # every word, another city, similarity 95
         company("T00000000001", "ACME ROOFING LLC", city="JACKSONVILLE"),          # every word, the city given, similarity 95
@@ -97,18 +98,19 @@ def test_rank_orders_by_every_word_then_city_then_similarity_then_document_numbe
         company("T00000000006", "ACME ROOFINGS", city="ORLANDO"),                  # ROOFINGS is not the word ROOFING. Similarity 98, the highest here
         company("T00000000005", "ACME ROOFERS INC", city="JACKSONVILLE"),          # not every word, but the city given
     ]
-    ranked = rank(pool, "acme roofing", city="jacksonville", order=by_words_then_city)
+    ranked = rank(pool, "acme roofing", city="jacksonville")
+    assert ranked == rank(pool, "acme roofing", city="jacksonville", order=by_words_then_city)   # the app's order IS rule S2
     assert [c.company.document_number for c in ranked] == [
         "T00000000001",                                                   # 1 and 2: every word and the city. The higher similarity comes first
         "T00000000002",                                                   # the long name in the right city now beats the short names in Orlando
         "T00000000003", "T00000000004",                                   # every word, another city: equal in everything, so the document number decides
         "T00000000005",                                                   # not every word: the city given comes before ...
     ]
-    assert rank(pool, "acme roofing", city="jacksonville", limit=None, order=by_words_then_city)[-1].company.document_number == "T00000000006"   # ... the highest similarity of all, which is last
+    assert rank(pool, "acme roofing", city="jacksonville", limit=None)[-1].company.document_number == "T00000000006"   # ... the highest similarity of all, which is last
     assert [c.every_word for c in ranked] == [True, True, True, True, False]
     assert [c.city_match for c in ranked] == [True, True, False, False, True]
     assert [c.similarity for c in ranked] == [95, 86, 95, 95, 92]
-    assert [c.company.document_number for c in rank(pool, "acme roofing", city="jacksonville")][:2] == ["T00000000006", "T00000000001"]   # the app's order, for contrast: the near-miss ROOFINGS first
+    assert [c.company.document_number for c in rank(pool, "acme roofing", city="jacksonville", order=by_similarity_then_city)][:2] == ["T00000000006", "T00000000001"]   # version 1's order, for contrast: the near-miss ROOFINGS first
     # The one variant rule S3 allows: the city before the words. T5, in the city without every word, moves above T3 and T4.
     swapped = rank(pool, "acme roofing", city="jacksonville", order=by_city_then_words)
     assert [c.company.document_number for c in swapped] == ["T00000000001", "T00000000002", "T00000000005", "T00000000003", "T00000000004"]
@@ -121,14 +123,98 @@ def test_a_long_legal_name_that_holds_the_typed_trade_name_ranks_above_a_shorter
         company("T00000000002", "Q PIZZA DURBIN, LLC", city="SAINT JOHNS"),
         company("T00000000003", "Q PIZZA LAKE BUENA VISTA LLC", city="ORLANDO"),               # the one in the city given, with the longest name
     ]
-    ranked = rank(pool, "Q Pizza", city="Orlando", order=by_words_then_city)
+    ranked = rank(pool, "Q Pizza", city="Orlando")                         # no order passed: the app's own, which since leg D3 is rule S2 (rule S13)
     assert [c.company.document_number for c in ranked] == ["T00000000003", "T00000000001", "T00000000002"]
     assert ranked[0].similarity < ranked[1].similarity and ranked[0].similarity < ranked[2].similarity   # it is first with the LOWEST similarity of the three
     # Status never moves a company. With no city given, the inactive company keeps the place its name gives it, which is first.
-    assert [c.company.document_number for c in rank(pool, "Q Pizza", order=by_words_then_city)] == ["T00000000001", "T00000000002", "T00000000003"]
-    assert [c.company.document_number for c in rank(pool, "Q Pizza", city="Orlando")][0] == "T00000000001"   # the app's order: the short name first, as on Nov 24
+    assert [c.company.document_number for c in rank(pool, "Q Pizza")] == ["T00000000001", "T00000000002", "T00000000003"]
+    assert [c.company.document_number for c in rank(pool, "Q Pizza", city="Orlando", order=by_similarity_then_city)][0] == "T00000000001"   # version 1's order: the short name first, as on Nov 24
     active_twin = [company("T00000000001", "Q PIZZA WP LLC", status="I"), company("T00000000002", "Q PIZZA WP LLC", status="A")]
-    assert [c.company.document_number for c in rank(active_twin, "Q Pizza", order=by_words_then_city)] == ["T00000000001", "T00000000002"]   # the inactive one is not pushed below its active twin
+    assert [c.company.document_number for c in rank(active_twin, "Q Pizza")] == ["T00000000001", "T00000000002"]   # the inactive one is not pushed below its active twin
+
+
+Q_PIZZAS = [
+    company("T00000000001", "Q PIZZA WP LLC", city="WINTER PARK", status="I"),                 # the shortest name: the highest similarity to "Q Pizza"
+    company("T00000000002", "Q PIZZA DURBIN, LLC", city="SAINT JOHNS"),
+    company("T00000000003", "Q PIZZA LAKE BUENA VISTA LLC", city="ORLANDO"),                   # the place is in its NAME, and its principal city is Orlando
+    company("T00000000004", "Q PIZZA TAMPA LLC", city="TAMPA"),
+]
+# Invented companies in the shape of checked case 12. A contractor types the brand and the place the shop is in.
+
+
+@pytest.mark.parametrize("business_name,city", [
+    ("Q Pizza", "Lake Buena Vista"),                                      # the place read as the city: what the saved extraction of checked case 12 holds
+    ("Q Pizza Lake Buena Vista", ""),                                     # the place left in the business name
+    ("Q Pizza", "Buena Vista"),                                           # a third reading, which a live call returned on Nov 25, 2026, with the street "Lake"
+])
+def test_a_place_in_the_company_name_reaches_the_same_company_whichever_way_the_note_was_read(business_name, city):
+    # Phase D rule S14 (leg D3). The extraction step read one note two ways on two calls, so the search has to put the same company
+    # first for both. Before rule S14 the first reading failed: no principal city begins with "Lake Buena Vista", so nothing
+    # agreed on the city, and the shortest name came first on similarity.
+    ranked = rank(Q_PIZZAS, business_name, city=city)
+    assert ranked[0].company.document_number == "T00000000003"
+    if city:
+        assert (ranked[0].city_match, ranked[0].city_in_name) == (False, True)   # its PRINCIPAL city does not agree. The place is in its name
+        assert ranked[0].similarity < ranked[1].similarity                # and it is first although the next company's name is closer
+        assert [c.city_in_name for c in ranked[1:]] == [False, False, False]
+        without_the_rule = sorted(ranked, key=lambda c: (not c.every_word, not c.city_match, -c.similarity, c.company.document_number))   # rule S2 before rule S14
+        assert without_the_rule[0].company.document_number == "T00000000001"   # the inactive namesake in Winter Park, as on Nov 24
+
+
+def test_a_city_is_found_in_a_name_by_whole_words_and_legal_endings_are_not_a_place():
+    assert city_in_name("Lake Buena Vista", "Q PIZZA LAKE BUENA VISTA LLC") is True
+    assert city_in_name("lake  buena-vista", "Q PIZZA LAKE BUENA VISTA LLC") is True       # the city is simplified the way a name is
+    assert city_in_name("Buena Vista Lake", "Q PIZZA LAKE BUENA VISTA LLC") is True        # every word, in any order: exactly what the reason says
+    assert city_in_name("Lake Buena", "Q PIZZA LAKE BUENA VISTA LLC") is True              # a shorter place whose words are all there
+    assert city_in_name("Lake Mary", "Q PIZZA LAKE BUENA VISTA LLC") is False              # one word missing
+    assert city_in_name("Lakeland", "Q PIZZA LAKE BUENA VISTA LLC") is False               # LAKE is not the word LAKELAND
+    assert city_in_name("", "Q PIZZA LAKE BUENA VISTA LLC") is False and city_in_name("  ", "Q PIZZA LLC") is False   # no city given: nothing is in the name
+    assert city_in_name("Co", "ACME ROOFING CO") is False                 # a trailing legal ending is not a word of the name, so it is never a place
+    # The principal city still counts on its own, and a company that has both is ordered as a company that has one.
+    both, name_only, city_only, neither = rank([
+        company("T00000000001", "ACME ROOFING OF TAMPA INC", city="TAMPA"), company("T00000000002", "ACME ROOFING OF TAMPA LLC", city="MIAMI"),
+        company("T00000000003", "ACME ROOFING AND SIDING INC", city="TAMPA"), company("T00000000004", "ACME ROOFING AND SIDING LLC", city="MIAMI"),
+    ], "acme roofing", city="tampa", limit=None)
+    assert [(c.city_match, c.city_in_name) for c in (both, name_only, city_only, neither)] == [(True, True), (False, True), (True, False), (False, False)]
+    assert by_words_then_city(name_only)[:2] == by_words_then_city(city_only)[:2] == by_words_then_city(both)[:2] == (False, False)
+    assert by_words_then_city(neither)[:2] == (False, True)
+    # Rule S14 amends step (2) of rule S2 and nothing else. The variant leg D1 measured and search version 1's order read the principal city alone.
+    assert by_city_then_words(name_only)[:2] == (True, False) and by_city_then_words(city_only)[:2] == (False, False)
+    assert by_similarity_then_city(name_only)[1] is True and by_similarity_then_city(city_only)[1] is False
+
+
+def test_a_place_that_is_both_in_the_typed_name_and_read_as_the_city_stops_the_principal_city_breaking_the_tie():
+    # Rule S14 as written, on a shape round 1 of the review pointed out. The saved extraction of checked case 5 has it: the place is
+    # in the business name AND came back as the city. Then every company that holds the typed words also holds the city's words, so
+    # all of them "agree on the city", and the principal city no longer tells them apart. Similarity decides. This test pins that
+    # on purpose, so that a change is a decision and not an accident: whether it SHOULD be so is question Q59, and it is Andres's.
+    pool = [
+        company("T00000000001", "CORAL COVE HOMES OF NAPLES LLC", city="CORAL COVE"),   # the principal city IS the city given
+        company("T00000000002", "CORAL COVE HOMES GROUP LLC", city="MIAMI"),            # another principal city, and a name a little closer
+    ]
+    in_the_city, elsewhere = pool
+    ranked = rank(pool, "Coral Cove Homes", city="Coral Cove")
+    assert [(c.every_word, c.city_match, c.city_in_name) for c in ranked] == [(True, False, True), (True, True, True)]
+    assert ranked[0].company.document_number == "T00000000002" and ranked[0].similarity > ranked[1].similarity   # the closer name first, whatever its principal city
+    assert rank(pool, "Coral Cove Homes", city="Coral Cove", order=by_city_then_words)[0].company.document_number == "T00000000001"   # the principal city alone would put this one first
+    assert [match_level(c, city_given=True) for c in ranked] == ["Possible", "Likely"]   # the levels still read the principal city (rule S4)
+
+
+def test_the_reason_about_a_place_in_the_name_is_given_only_when_it_applies_and_never_changes_the_level():
+    # Rules S14 and S4. The line is one more reason for a company's PLACE. The level is worked out from the name and the principal city, as before.
+    line = "every word of the city you gave is in the company's name"   # typed out, not read from wording.py
+    in_name, elsewhere = rank(Q_PIZZAS[2:], "Q Pizza", city="Lake Buena Vista")
+    assert evidence(in_name, city_given=True) == [
+        "name is similar (85/100)", "principal city on record is ORLANDO, and that spelling does not begin with the city you gave", line, "ACTIVE"]
+    assert line not in evidence(elsewhere, city_given=True)               # TAMPA: the place is not in its name
+    assert line not in evidence(rank(Q_PIZZAS[2:], "Q Pizza")[0], city_given=False)   # no city given: nothing to find in a name
+    assert match_level(in_name, city_given=True) == match_level(replace(in_name, city_in_name=False), city_given=True) == "Possible"   # the same level with and without it
+    assert match_level(elsewhere, city_given=True) == "Possible"          # and the same level as a namesake whose name does not hold the place
+    exact = rank([company("T00000000009", "Q PIZZA LAKE BUENA VISTA LLC", city="ORLANDO")], "Q Pizza Lake Buena Vista", city="Lake Buena Vista")[0]
+    assert (exact.exact_name, exact.city_in_name, match_level(exact, city_given=True)) == (True, True, "Likely")   # the exact name in another principal city stays Likely, not Strong
+    # A company whose principal city agrees AND whose name holds the place gets both lines, each saying what was compared.
+    both = rank([company("T00000000008", "ACME ROOFING OF TAMPA INC", city="TAMPA")], "acme roofing", city="tampa")[0]
+    assert evidence(both, city_given=True)[1:3] == ["principal city on record begins with the city you gave", line]
 
 
 def test_every_word_compares_whole_words_and_leaves_legal_suffixes_out_of_both_names():
@@ -142,7 +228,54 @@ def test_every_word_compares_whole_words_and_leaves_legal_suffixes_out_of_both_n
     assert holds_every_word("", "ACME ROOFING LLC") is False              # nothing typed holds nothing
     one = rank([company("T00000000001", "ACME ROOFING LLC")], "acme roofing")[0]
     assert by_words_then_city(one) == (False, True, -95, "T00000000001") and by_city_then_words(one) == (True, False, -95, "T00000000001")   # the two sort keys themselves
-    assert by_similarity_then_city(one) == (-95, True, "T00000000001") and RANK_ORDER is by_similarity_then_city   # and the app's: search version 1's, unchanged
+    assert by_similarity_then_city(one) == (-95, True, "T00000000001")     # search version 1's key, kept for the evaluation
+    assert RANK_ORDER is by_words_then_city                               # Phase D rule S13: the app's order is rule S2
+
+
+def test_a_typed_and_or_the_is_not_a_word_the_company_name_must_hold():
+    # The review of Nov 26, 2026, with invented companies. name_key() turns "&" into a space, so "A&B" never holds a typed AND, and a
+    # registered name often has no THE. Because the every-word test comes before the city, each pool below put the name that spells
+    # the word out first, in another city, until typed_words() left AND and THE out of the test.
+    and_pool = [
+        company("T00000000001", "ALPHA AND BRAVO ROOFING A B HOLDINGS OF NORTH FLORIDA INC", city="OCALA"),   # spells out AND, elsewhere
+        company("T00000000002", "A&B ROOFING LLC", city="TAMPA"),                                            # the company meant, in the city given
+    ]
+    assert rank(and_pool, "A and B Roofing", city="Tampa")[0].company.document_number == "T00000000002"
+    the_pool = [
+        company("T00000000003", "THE ACME GROUP OF NORTH FLORIDA INC", city="OCALA"),                      # spells out THE, elsewhere
+        company("T00000000004", "ACME GROUP LLC", city="JACKSONVILLE"),                                     # the company meant, in the city given
+    ]
+    assert rank(the_pool, "The Acme Group", city="Jacksonville")[0].company.document_number == "T00000000004"
+    assert holds_every_word("A AND B ROOFING", "A B ROOFING LLC") and holds_every_word("THE ACME GROUP", "ACME GROUP LLC")
+    assert not holds_every_word("THE ACME GROUP", "ACME LLC")                # leaving THE out does not drop the other words
+    assert typed_words("BANK OF THE WEST INC") == ["BANK", "OF", "WEST"]      # anywhere in the name, and the legal suffix goes too
+    assert typed_words("THE AND") == ["THE", "AND"]                          # nothing else typed: the words are kept, as a lone legal suffix is
+    conn = RecordingConnection()
+    PostgresBackend(conn).nearest("A AND B ROOFING LLC", 200)
+    assert conn.asked[-1][1]["words"] == ["A", "B", "ROOFING"]              # the query's every-word term reads the same words
+    assert conn.asked[-1][1]["key"] == "A AND B ROOFING"                     # and the nearness to the typed name still reads all of it
+
+
+def test_a_typed_the_or_and_no_longer_keeps_an_exact_name_above_a_near_name_that_lacks_it():
+    # The cost of question Q63, found by the High-tier review of its fix on Nov 26, 2026, with invented companies. With AND and THE
+    # left out of the every-word test, a near name that lacks the typed word joins the exact name in the first group, and with no city
+    # the similarity decides, which counts the legal ending. This pins what the code does today, so that a change is a decision:
+    # whether it SHOULD be so is question Q64, and it is Andres's.
+    pool = [
+        company("T00000000005", "LORDS OF THE LAWN L.L.C."),                # the exact name, legal ending aside
+        company("T00000000006", "LORDS OF LAWN"),                           # a near name that lacks the typed THE
+    ]
+    ranked = rank(pool, "Lords of the Lawn")
+    assert [c.company.document_number for c in ranked] == ["T00000000006", "T00000000005"]
+    assert [(c.every_word, c.exact_name, match_level(c, city_given=False)) for c in ranked] == [(True, False, "Possible"), (True, True, "Strong")]
+    assert ranked[0].similarity > ranked[1].similarity                      # the near name is first by similarity alone
+    and_pool = [
+        company("T00000000007", "GATOR HEATING AND AIR CORPORATION"),       # the exact name, legal ending aside
+        company("T00000000008", "GATOR HEATING & AIR INC"),                 # a near name that writes "&" for the typed AND
+    ]
+    ranked = rank(and_pool, "Gator Heating and Air")
+    assert [c.company.document_number for c in ranked] == ["T00000000008", "T00000000007"]
+    assert [(c.every_word, c.exact_name, match_level(c, city_given=False)) for c in ranked] == [(True, False, "Possible"), (True, True, "Strong")]
 
 
 def test_city_is_a_tie_break_and_never_a_filter():
@@ -224,6 +357,9 @@ def test_match_level_follows_the_three_rules():
     # another city and has a longer name, and it is still only Possible.
     longer = rank([company("T00000000005", "ACME ROOFING AND SIDING INC", city="TAMPA")], "acme roofing", city="jacksonville")[0]
     assert longer.every_word is True and match_level(longer, city_given=True) == "Possible"
+    # Nor is a place in the name (rule S14): this company is moved up the list by it, and its level is still Possible.
+    place_in_name = rank([company("T00000000006", "ACME ROOFING OF JACKSONVILLE INC", city="TAMPA")], "acme roofing", city="jacksonville")[0]
+    assert place_in_name.city_in_name is True and match_level(place_in_name, city_given=True) == "Possible"
     for order in (by_words_then_city, by_city_then_words):
         again = {c.company.document_number: match_level(c, city_given=True) for c in rank([
             company("T00000000001", "ACME ROOFING LLC", city="JACKSONVILLE"), company("T00000000002", "ACME ROOFING INC", city="TAMPA"),
@@ -275,34 +411,36 @@ def test_a_tie_at_the_top_level_is_counted():
 
 
 def test_an_exact_name_company_that_misses_the_list_is_still_counted_in_the_tie():
-    # The first review round of leg C2 found this case. Five near-misses outrank a second exact-name company by
-    # similarity, so it is not among the five shown, and a count over those five alone would report no tie.
+    # The first review round of leg C2 found this case. Five other companies outrank a second exact-name company, so it is not
+    # among the five shown, and a count over those five alone would report no tie. All seven hold both typed words and are in the
+    # city given, so rule S2 orders them by similarity, as search version 1 did.
     backend = FakeBackend([
         company("T00000000001", "ACME ROOFING LLC", city="JACKSONVILLE"),           # exact name, similarity 95: fifth by rank
         company("T00000000002", "ACME ROOFING CORPORATION", city="JACKSONVILLE"),   # exact name, similarity 90: sixth by rank
-        company("T00000000003", "ACME ROOFINGS", city="TAMPA"),                     # 98
-        company("T00000000004", "ACME ROOFING 1", city="TAMPA"),                    # 97
-        company("T00000000005", "ACME ROOFING 2", city="TAMPA"),                    # 97
-        company("T00000000006", "ACME ROOFING FL", city="TAMPA"),                   # 96
+        company("T00000000003", "ACME ROOFING 3", city="JACKSONVILLE"),             # 97
+        company("T00000000004", "ACME ROOFING 1", city="JACKSONVILLE"),             # 97
+        company("T00000000005", "ACME ROOFING 2", city="JACKSONVILLE"),             # 97
+        company("T00000000006", "ACME ROOFING FL", city="JACKSONVILLE"),            # 96
     ])
     listed = shortlist(search_pool(backend, "Acme Roofing", city="Jacksonville"), city_given=True)
     assert (listed.top_level, listed.tied_at_top, listed.tied_not_shown) == ("Strong", 2, 1)   # two share the name and city, and one is not listed
-    assert listed.levels == ("Strong", "Possible", "Possible", "Possible", "Possible")
+    assert listed.levels == ("Likely", "Likely", "Likely", "Likely", "Strong")   # rank order (rule S12): the exact name is fifth, and it is shown fifth
+    assert listed.candidates[-1].company.document_number == "T00000000001" and listed.lower_level_above_higher is True
+    assert [c.company.document_number for c in listed.not_shown] == ["T00000000002"]
 
 
 def test_the_shortlist_shows_exactly_the_five_the_evaluation_scores():
-    # The second review round found that levelling the whole pool let weak names in the right city push out the
-    # best-ranked company. City is a tie-break and never a filter, so nobody is brought in from further down the pool.
+    # The second review round of leg C2 found that levelling the whole pool let weak names in the right city push out better-ranked
+    # companies. Nobody is brought in from further down the pool: the list is the first five by rank, in that order (rule S12).
     backend = FakeBackend(
-        [company("T00000000001", "ACME ROOFINGS", city="TAMPA")]                                    # 98: the best by rank, in another city
-        + [company(f"T0000000001{n}", f"ACME ROOFING {n}", city="TAMPA") for n in range(4)]        # 97 each
+        [company(f"T0000000001{n}", f"ACME ROOFING {n}", city="TAMPA") for n in range(4)]          # both typed words, another city: Possible
         + [company(f"T0000000002{n}", f"ACME ROOFERS OF JAX {n}", city="JACKSONVILLE") for n in range(6)]   # weaker names, right city: Likely
     )
     scored = search(backend, "Acme Roofing", city="Jacksonville")
     listed = shortlist(search_pool(backend, "Acme Roofing", city="Jacksonville"), city_given=True)
-    assert {c.company.document_number for c in listed.candidates} == {c.company.document_number for c in scored}
-    assert "T00000000001" in {c.company.document_number for c in listed.candidates}   # the best-ranked company is on the list
-    assert listed.top_level == "Possible" and listed.tied_not_shown == 0
+    assert [c.company.document_number for c in listed.candidates] == [c.company.document_number for c in scored]   # the same five, in the same order
+    assert listed.levels == ("Possible", "Possible", "Possible", "Possible", "Likely")   # one Likely company fits. The other five do not push anybody out
+    assert (listed.top_level, listed.tied_at_top, listed.tied_not_shown) == ("Likely", 1, 0)
 
 
 def test_a_tie_below_strong_is_counted_among_the_candidates_shown_only():
@@ -357,16 +495,51 @@ def test_a_tie_among_possible_matches_is_still_a_tie():
     assert shortlist(ranked, city_given=False).tied_at_top == 2           # the best level present is Possible, and two share it
 
 
-def test_the_shortlist_shows_the_best_level_first_and_keeps_rank_order_inside_a_level():
+def test_the_shortlist_shows_its_companies_in_rank_order_each_with_its_level():
+    # Phase D rule S12 (leg D3). Until then the five were re-sorted with the best level first, so this list read T3, T1, T2 and the
+    # company at the top of a page was not always the first by rank. This test fails on that order.
     ranked = rank([
         company("T00000000001", "ACME ROOFING AND SIDING INC", city="JACKSONVILLE"),   # similarity 88, right city: Likely
         company("T00000000002", "ACME ROOFINGS", city="TAMPA"),                        # similarity 98, wrong city: Possible
         company("T00000000003", "ACME ROOFING LLC", city="TAMPA"),                     # similarity 95, exact name, wrong city: Likely
-    ], "acme roofing", city="jacksonville")
+    ], "acme roofing", city="jacksonville", order=by_similarity_then_city)
     assert [c.company.document_number for c in ranked] == ["T00000000002", "T00000000003", "T00000000001"]   # rank order: by similarity
     listed = shortlist(ranked, city_given=True)
-    assert [c.company.document_number for c in listed.candidates] == ["T00000000003", "T00000000001", "T00000000002"]
-    assert listed.levels == ("Likely", "Likely", "Possible")
+    assert [c.company.document_number for c in listed.candidates] == ["T00000000002", "T00000000003", "T00000000001"]   # the same order on the list
+    assert listed.levels == ("Possible", "Likely", "Likely")              # each company keeps its own level beside it
+    assert (listed.top_level, listed.tied_at_top) == ("Likely", 2)        # the BEST level on the list, and not the first card's
+    assert listed.lower_level_above_higher is True                        # a Possible stands above a Likely, so a page says the list is in search order
+    in_level_order = shortlist(ranked[1:], city_given=True)               # Likely, Likely: nothing stands above a better level
+    assert in_level_order.levels == ("Likely", "Likely") and in_level_order.lower_level_above_higher is False
+    # The first card can already have the best level and the list still be out of order further down. Round 1 of the review found
+    # that no test had such a list, so a rule that looked only at the first card passed them all.
+    second_out_of_place = shortlist([ranked[1], ranked[0], ranked[2]], city_given=True)
+    assert second_out_of_place.levels == ("Likely", "Possible", "Likely") and second_out_of_place.lower_level_above_higher is True
+    assert shortlist([ranked[1], ranked[2], ranked[0]], city_given=True).lower_level_above_higher is False   # Likely, Likely, Possible: best to worst
+
+
+FIVE_OUT_OF_LEVEL_ORDER = [
+    company("T00000000001", "ACME ROOFING AND SIDING INC", city="TAMPA"),          # holds every typed word, another city, similarity 88: Possible
+    company("T00000000002", "ACME ROOFERS INC", city="JACKSONVILLE"),              # a near-miss name in the city given, 92: Likely
+    company("T00000000003", "ACME ROOFER INC", city="JACKSONVILLE"),               # the same, 93: Likely
+    company("T00000000004", "ACME ROOFINGS", city="TAMPA"),                        # a near-miss name elsewhere, 98: Possible
+    company("T00000000005", "ACME ROOFERS OF TAMPA INC", city="TAMPA"),            # a near-miss name elsewhere, 82: Possible
+]
+# Five invented companies whose levels come out Possible, Likely, Likely, Possible, Possible in rank order, typed as "acme roofing" in
+# Jacksonville. They do so under BOTH orders, with a different company on top: by similarity T4 (98) leads, and under rule S2 T1
+# leads, because it is the only one that holds both typed words.
+
+
+@pytest.mark.parametrize("order,first", [(by_similarity_then_city, "T00000000004"), (by_words_then_city, "T00000000001")])
+def test_a_tie_reads_the_best_level_on_the_list_when_a_lower_level_is_shown_first(order, first):
+    # Rule S12 keeps rule W7's count: with no Strong company anywhere, the tie is counted at the best level AMONG THE FIVE. The first
+    # card here is Possible. A count that read the first card's level would say "3 companies ... at the level Possible".
+    pool = rank(FIVE_OUT_OF_LEVEL_ORDER, "acme roofing", city="jacksonville", limit=None, order=order)
+    listed = shortlist(pool, city_given=True)
+    assert listed.candidates[0].company.document_number == first
+    assert listed.levels == ("Possible", "Likely", "Likely", "Possible", "Possible")
+    assert (listed.top_level, listed.tied_at_top, listed.tied_not_shown) == ("Likely", 2, 0)
+    assert listed.lower_level_above_higher is True
 
 
 def test_an_empty_shortlist_has_no_tie():
@@ -375,10 +548,12 @@ def test_an_empty_shortlist_has_no_tie():
 
 
 def test_the_postgres_query_sends_what_was_typed_as_a_value_never_as_sql():
-    # Nothing typed by a contractor may be pasted into the SQL text. The query holds two placeholders and no other gap.
+    # Nothing typed by a contractor may be pasted into the SQL text. The query holds four placeholders and no other gap. Its only
+    # quotes are the three fixed pairs of rule S11's term: one holds nothing and two hold a single space.
     sql = PostgresBackend.NEAREST_SQL
-    assert sql.count("%(key)s") == 2 and sql.count("%(limit)s") == 1
-    assert "{" not in sql and "'" not in sql
+    assert [sql.count(f"%({name})s") for name in ("key", "suffixes", "words", "limit")] == [2, 1, 2, 1]
+    assert sql.count("%(") == 6 and "{" not in sql                        # no placeholder besides those six uses, and no gap left by an f-string
+    assert sql.count("'") == 6 and sql.count("' ') @>") == 2 and "%(suffixes)s, '')" in sql
 
 
 def test_the_postgres_query_finds_names_in_the_narrow_table_and_reads_every_company_from_company_search():
@@ -390,6 +565,36 @@ def test_the_postgres_query_finds_names_in_the_narrow_table_and_reads_every_comp
     assert sql.endswith(") as nearest join company_search as c using (document_number)")
     selected = sql[len("select "):sql.index(" from (")].split(", ")
     assert selected == ["c." + column for column in COMPANY_COLUMNS]      # every field, source_url and fetched_at included, comes from company_search
+
+
+def test_the_first_step_keeps_the_names_that_hold_every_typed_word_before_the_nearest_names():
+    # Phase D rule S11 (leg D3). The rule lives in the query, and no offline test can RUN a query, so its text is pinned word for
+    # word, as the address query's is. Before leg D3 the ORDER BY began with the trigram distance, and this test fails on that text.
+    # What the term DOES is measured on the real data in the leg report: it brought checked case 11's company from "not among 200" to 17th.
+    sql = PostgresBackend.NEAREST_SQL
+    assert sql == (
+        "select " + ", ".join("c." + column for column in COMPANY_COLUMNS) + " "
+        "from (select document_number from company_search_names "
+        "where %(key)s <%% name_key "
+        "order by not (case when string_to_array(name_key, ' ') @> %(words)s::text[] "
+        "then string_to_array(regexp_replace(name_key, %(suffixes)s, ''), ' ') @> %(words)s::text[] "
+        "else false end), "
+        "name_key <-> %(key)s, document_number "
+        "limit %(limit)s) as nearest "
+        "join company_search as c using (document_number)"
+    )
+    # Reading the pinned text: the every-word term comes first, THEN the nearest names, then a fixed order. Inside the term, the
+    # answer is the test on the name WITHOUT its legal endings. The cheaper test on the whole name stands in front of it only so
+    # that the pattern match runs on few names, and "else false" is right because a name that fails the first fails the second.
+    # The two values the term reads are the ones holds_every_word() compares: the typed words with the legal endings, AND and THE left out, and
+    # the one list of legal endings. A name that is nothing but a legal ending keeps its word, as it does in holds_every_word().
+    conn = RecordingConnection()
+    backend = PostgresBackend(conn)
+    backend.nearest("V PIZZA LLC", 200)
+    assert conn.asked[-1][1] == {"key": "V PIZZA", "limit": 200, "words": ["V", "PIZZA"], "suffixes": SUFFIX_PATTERN.pattern}
+    backend.nearest("LLC", 200)
+    assert conn.asked[-1][1]["words"] == ["LLC"]
+    assert holds_every_word("V PIZZA LLC", "V PIZZA LAKE BUENA VISTA LLC") and not holds_every_word("V PIZZA LLC", "PIZZA QVILLA INC")   # the Python rule the term copies
 
 
 class RecordingConnection:
@@ -412,7 +617,8 @@ def test_the_postgres_backend_passes_the_key_and_limit_as_parameters():
     conn = RecordingConnection()
     rows = PostgresBackend(conn).nearest("ACME'; DROP TABLE company_search; --", 200)
     sql, params = conn.asked[-1]
-    assert params == {"key": "ACME'; DROP TABLE company_search; --", "limit": 200}
+    assert params["key"] == "ACME'; DROP TABLE company_search; --" and params["limit"] == 200
+    assert params["words"] == ["ACME';", "DROP", "TABLE", "company_search;", "--"]   # the typed words travel as a value too, whatever they hold
     assert "DROP TABLE" not in sql
     assert rows == [company("T00000000001", "ACME ROOFING LLC")]          # the columns map onto Company's fields in order
 

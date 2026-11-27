@@ -58,6 +58,19 @@ def test_the_line_above_a_tied_shortlist_names_the_level_and_the_count_and_promi
         assert phrase not in every, phrase                                # three things the app could not stand behind
 
 
+def test_the_line_under_a_list_that_is_out_of_level_order_is_rule_s12s_sentence_word_for_word():
+    # Phase D rule S12 gives the sentence, so it is typed out here and not read from wording.py.
+    sentence = "The list is in search order. The level beside each company says how much of the record agrees with what you typed."
+    assert wording.search_order_text(True) == wording.SHORTLIST_SEARCH_ORDER == sentence
+    assert wording.search_order_text(False) == ""                         # levels that already go from best to worst need no sentence
+
+
+def test_the_reason_about_a_place_in_a_name_says_what_was_compared_and_claims_no_location():
+    # Phase D rule S14. The comparison is "every word of the city is a word of the name", so that is what the reason says.
+    # A name that holds a place does not put the company there, so the line says where the WORDS are and nothing about the company's location.
+    assert wording.EVIDENCE_CITY_IN_NAME == "every word of the city you gave is in the company's name"
+
+
 def test_the_identification_line_is_built_from_extracted_fields_and_leaves_out_an_empty_one():
     line = wording.identified_text("Acme Roofing", "", "", "Likely", ("name is similar (93/100)", "ACTIVE"), 0)
     assert line == 'from the business name "Acme Roofing" · match level Likely (name is similar (93/100); ACTIVE) · chosen by the user from a shortlist.'

@@ -15,7 +15,7 @@ from pathlib import Path                    # the repo's root folder
 
 import pytest                               # the test runner; pytest.raises checks that an error IS raised
 
-from datum.search import COMPANY_COLUMNS, Company, FakeBackend, by_city_then_words, by_words_then_city, name_key
+from datum.search import COMPANY_COLUMNS, Company, FakeBackend, by_city_then_words, by_similarity_then_city, by_words_then_city, name_key
 from datum.search import PostgresBackend
 from evals.run import (
     ASK, DRAW_ADDRESS_SQL, DRAW_SQL, LATENCY_SEED, NO_DRAFTS, ORDERS, RETRIEVERS, Case, SnowflakeBackend, WideTableBackend, compare_backends, draw_company_names,
@@ -345,28 +345,50 @@ def test_a_case_is_worse_when_its_company_drops_leaves_the_candidates_or_an_ask_
 
 
 def test_another_order_is_scored_on_the_same_pool_and_can_disagree_with_the_apps():
-    # The same candidates, sorted two ways. Under the app's order the near-miss ROOFINGS comes first, and under rule S2 it comes last.
+    # The same candidates, sorted two ways. Under search version 1's order the near-miss ROOFINGS comes first. Under rule S2, which
+    # is the app's order since leg D3 (Phase D rule S13), the name that holds both typed words does. run_cases() with no order is the app's.
     backend = FakeBackend([company("T1", "ACME ROOFINGS"), company("T2", "ACME ROOFING AND SIDING INC")])
-    (app,), (tried,) = run_cases([a_case("T2")], backend), run_cases([a_case("T2")], backend, order=by_words_then_city)
-    assert (app.place, tried.place, app.page_place, tried.page_place, moved(app, tried)) == (2, 1, 2, 1, "up")
-    assert movement([app], [tried]) == [("g", 1, 1, 0, 0), ("ALL", 1, 1, 0, 0)]
-    assert ORDERS == {"s2": by_words_then_city, "s2-city-first": by_city_then_words}   # the two orders --try-order can name: rule S2 and its one variant
+    (app,), (old,) = run_cases([a_case("T2")], backend), run_cases([a_case("T2")], backend, order=by_similarity_then_city)
+    assert (old.place, app.place, old.page_place, app.page_place, moved(old, app)) == (2, 1, 2, 1, "up")
+    assert run_cases([a_case("T2")], backend, order=by_words_then_city) == [app]      # the app's order IS rule S2
+    assert movement([old], [app]) == [("g", 1, 1, 0, 0), ("ALL", 1, 1, 0, 0)]
+    # The orders --try-order can name: version 1's, rule S2 (the app's own now, so trying it moves nothing) and rule S2's one variant.
+    assert ORDERS == {"v1": by_similarity_then_city, "s2": by_words_then_city, "s2-city-first": by_city_then_words}
 
 
 def test_a_company_that_keeps_its_rank_and_drops_on_the_page_counts_as_worse():
-    # The shape of what leg D1 found on checked case 9, with invented companies. Typed: "Acme". The expected company, T1, is first by
-    # rank under both orders. Under the app's order the five shown are T1 and four near-misses, all rated Possible, so T1 tops the page.
-    # Rule S2 lifts T6, whose name is exactly the typed one, into the five. The page shows the five by level, so T6 (Strong) goes on top.
-    backend = FakeBackend([company("T1", "ACME X LLC")] + [company(f"T{n}", f"ACME{letter} INC") for n, letter in zip((2, 3, 4, 5), "SABC")]
-                          + [company("T6", "ACME CORPORATION")])
-    (app,), (tried,) = run_cases([a_case("T1", name="Acme")], backend), run_cases([a_case("T1", name="Acme")], backend, order=by_words_then_city)
-    assert (app.place, app.page_place, app.top1_correct) == (1, 1, True)
-    assert (tried.place, tried.page_place, tried.top1_correct) == (1, 2, True)        # the rank and top-1 say nothing changed ...
+    # What leg D1 found on checked case 9: the expected company stayed first by rank and went from first to second on the page. The
+    # comparison has to call that worse, whatever the rank says. The two results are written by hand, because since leg D3 the name
+    # search's page is in rank order (rule S12) and cannot produce this shape any more. The test after this one shows that.
+    case = a_case("T1", name="Acme")
+    app = score_case(case, ["T1", "T2"], place=1, candidates=6, page_place=1)
+    tried = score_case(case, ["T1", "T2"], place=1, candidates=6, page_place=2)
+    assert (app.top1_correct, tried.top1_correct) == (True, True)                     # the rank and top-1 say nothing changed ...
     assert moved(app, tried) == "down" and made_worse([app], [tried]) == [1]          # ... and the comparison still calls it worse
     assert (page_text(app), page_text(tried)) == ("1", "2")
+    backend = FakeBackend([company("T1", "ACME X LLC")])
     asked = run_cases([a_case("T1", is_specific=False)], backend)[0]
     not_shown = run_cases([a_case("T9", name="Acme")], backend)[0]
     assert (page_text(asked), page_text(not_shown), page_text(run_cases([a_case(ASK, name="Acme")], backend)[0])) == ("asked", "not shown", "none expected")
+
+
+def test_the_page_is_in_rank_order_so_a_company_first_by_rank_is_first_on_the_page():
+    # Phase D rule S12 (leg D3), on the shape of checked case 9 with invented companies. Typed: "Acme". The expected company, T1, is
+    # first by rank under both orders. Rule S2 lifts T6, whose name is exactly the typed one, into the best five, and T6 is rated
+    # Strong. Until leg D3 the page showed the five by level, so T6 went on top and T1 dropped to second ON THE PAGE. Now the page is
+    # in rank order, T1 stays on top, and this test fails if the five are ever sorted by level again.
+    backend = FakeBackend([company("T1", "ACME X LLC")] + [company(f"T{n}", f"ACME{letter} INC") for n, letter in zip((2, 3, 4, 5), "SABC")]
+                          + [company("T6", "ACME CORPORATION")])
+    (app,), (tried,) = (run_cases([a_case("T1", name="Acme")], backend, order=order) for order in (by_similarity_then_city, by_words_then_city))
+    assert (app.place, app.page_place, app.top1_correct) == (1, 1, True)
+    assert (tried.place, tried.page_place, tried.top1_correct) == (1, 1, True)
+    assert "T6" in tried.answered and "T6" not in app.answered                        # the Strong company IS among the five under rule S2, below T1
+    assert moved(app, tried) == "stayed" and made_worse([app], [tried]) == []
+    for case_id in ("T1", "T2", "T6"):                                                # whichever company is expected, its two places agree
+        (result,) = run_cases([a_case(case_id, name="Acme")], backend, order=by_words_then_city)
+        assert result.page_place == result.place, case_id
+
+
 def test_a_draft_case_can_never_change_the_pass_or_fail_decision(tmp_path, capsys):
     # Working rule S1: every gate reads the checked cases only. The fixture is a checked case that stays first, and two drafts
     # that the change makes as bad as a case can get. The decision must be the same with those drafts, with none, and with good ones.
@@ -440,7 +462,8 @@ def test_the_address_timing_draws_addresses_that_begin_with_a_digit_and_counts_t
 
 def test_the_whole_evaluation_fails_only_when_a_checked_case_is_made_worse(tmp_path, capsys):
     # Round 1 of leg D1's review: the helpers were tested, and the wiring that feeds them was not. evaluate() is that wiring. The two
-    # companies are ranked in opposite orders by the app (ROOFINGS first, on similarity) and by rule S2 (the name that holds every word first).
+    # companies are ranked in opposite orders by the app (rule S2: the name that holds every word first) and by search version 1's
+    # order (ROOFINGS first, on similarity), which --try-order v1 scores beside the app's.
     backend = FakeBackend([company("T1", "ACME ROOFINGS"), company("T2", "ACME ROOFING AND SIDING INC"), company("T3", "ZEBRA GLASS LLC", address="77 QUARTZ PKWY")])
 
     def cases(rows, name):
@@ -449,21 +472,22 @@ def test_the_whole_evaluation_fails_only_when_a_checked_case_is_made_worse(tmp_p
     def lines():
         return [line.split() for line in capsys.readouterr().out.splitlines()]
 
-    better = cases([("1", "g", "acme roofing", "T2", "2026-11-24")], "better.csv")          # T2 is second for the app and first under rule S2
-    worse = cases([("2", "g", "acme roofing", "T1", "2026-11-24")], "worse.csv")            # T1 is first for the app and second under rule S2
-    draft_worse = cases([("101", "brand_and_city", "acme roofing", "T1", "")], "draft_worse.csv")
-    assert evaluate(better, None, backend, "fake", address_backend=backend, try_order="s2") == 0
+    better = cases([("1", "g", "acme roofing", "T1", "2026-11-24")], "better.csv")          # T1 is second for the app and first under version 1's order
+    worse = cases([("2", "g", "acme roofing", "T2", "2026-11-24")], "worse.csv")            # T2 is first for the app and second under version 1's order
+    draft_worse = cases([("101", "brand_and_city", "acme roofing", "T2", "")], "draft_worse.csv")
+    assert evaluate(better, None, backend, "fake", address_backend=backend, try_order="v1") == 0
     assert ["1", "g", "2", "of", "3", "1", "of", "3", "2", "->", "1", "up"] in lines()         # by rank and on the page: second, then first
-    assert evaluate(worse, None, backend, "fake", address_backend=backend, try_order="s2") == 1    # a checked case moved down: the command fails
+    assert evaluate(worse, None, backend, "fake", address_backend=backend, try_order="v1") == 1    # a checked case moved down: the command fails
     printed = lines()
     assert ["checked", "cases", "made", "worse:", "2"] in printed and ["2", "g", "1", "of", "3", "2", "of", "3", "1", "->", "2", "down"] in printed
     assert evaluate(worse, None, backend, "fake", address_backend=backend) == 0                # with no comparison asked for, nothing can fail
-    assert evaluate(worse, None, backend, "fake", address_backend=backend, before=True) == 0   # before Phase D the ORDER was the same, so this case did not move
-    capsys.readouterr()
-    assert evaluate(better, draft_worse, backend, "fake", address_backend=backend, try_order="s2") == 0   # the DRAFT moved down, and the decision does not change
+    assert evaluate(worse, None, backend, "fake", address_backend=backend, before=True) == 0   # the order is the same in both runs of --before, so this case did not move
+    assert evaluate(worse, None, backend, "fake", address_backend=backend, try_order="s2") == 0   # rule S2 IS the app's order since leg D3, so trying it moves nothing
+    assert ["2", "g", "1", "of", "3", "1", "of", "3", "1", "->", "1", "stayed"] in lines()
+    assert evaluate(better, draft_worse, backend, "fake", address_backend=backend, try_order="v1") == 0   # the DRAFT moved down, and the decision does not change
     printed = lines()
     assert ["checked", "cases", "made", "worse:", "none"] in printed and ["brand_and_city", "1", "0", "1", "0"] in printed
-    # "Before Phase D" has no search by address. An address-only case was asked about then and is answered now, so it moved up.
+    # The first run of --before has no search by address. An address-only case is asked about there and answered now, so it moved up.
     by_address = [Case(case_id=3, case_group="g", expected_document_number="T3", business_name="", city="", street="77 quartz pwwy", is_specific=False)]
     assert evaluate(by_address, None, backend, "fake", address_backend=backend, before=True) == 0
     assert ["3", "g", "asked", "1", "of", "1", "asked", "->", "1", "up"] in lines()
@@ -474,6 +498,6 @@ def test_the_whole_evaluation_fails_only_when_a_checked_case_is_made_worse(tmp_p
     capsys.readouterr()                                                   # forget what the call above printed: its own table also holds the row "g 1 0 1 0"
     assert evaluate(by_address, should_ask, backend, "fake", address_backend=backend, before=True) == 0
     printed = capsys.readouterr().out
-    drafts_table = printed[printed.index("before Phase D, and now: draft cases"):]   # only what follows the drafts' own heading
+    drafts_table = printed[printed.index("with no search by address, and now: draft cases"):]   # only what follows the drafts' own heading
     assert ["g", "1", "0", "1", "0"] in [line.split() for line in drafts_table.splitlines()]   # the draft is counted as moved down, in the drafts' own table
     assert ["checked", "cases", "made", "worse:", "none"] in [line.split() for line in printed.splitlines()]
