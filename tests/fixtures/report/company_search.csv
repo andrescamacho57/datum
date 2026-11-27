@@ -1,0 +1,7 @@
+document_number,entity_name,name_key,status_code,filing_type,file_date,principal_address_1,principal_city,principal_state,principal_zip,published_on,source_url,fetched_at,fetched_at_is_approximate
+T26000000001,"INVENTED AIR CONDITIONING, LLC",INVENTED AIR CONDITIONING LLC,A,FLAL,2019-05-06,1 INVENTED WAY,BOYNTON BEACH,FL,33426,2026-10-07,https://search.sunbiz.org/Inquiry/CorporationSearch/ByDocumentNumber,2026-10-22T19:31:31+00:00,True
+T26000000002,INVENTED POOLS INC,INVENTED POOLS INC,A,DOMP,2008-09-23,2 INVENTED WAY,JACKSONVILLE,FL,32256,2026-10-07,https://search.sunbiz.org/Inquiry/CorporationSearch/ByDocumentNumber,2026-10-22T19:31:31+00:00,True
+T26000000003,INVENTED ROOFING CORP,INVENTED ROOFING CORP,I,DOMP,2010-02-11,3 INVENTED WAY,TAMPA,FL,33602,2026-10-07,https://search.sunbiz.org/Inquiry/CorporationSearch/ByDocumentNumber,2026-10-22T19:31:31+00:00,True
+T26000000004,INVENTED GLASS LLC,INVENTED GLASS LLC,A,FLAL,2026-06-15,4 INVENTED WAY,ORLANDO,FL,32801,2026-10-07,https://search.sunbiz.org/Inquiry/CorporationSearch/ByDocumentNumber,2026-10-22T19:31:31+00:00,True
+T26000000005,INVENTED ELECTRIC LLC,INVENTED ELECTRIC LLC,A,FLAL,2015-08-03,5 INVENTED WAY,MIAMI,FL,33130,2026-10-07,https://search.sunbiz.org/Inquiry/CorporationSearch/ByDocumentNumber,2026-10-22T19:31:31+00:00,True
+T26000000006,INVENTED HOLDINGS TRUST,INVENTED HOLDINGS TRUST,A,TRUST,,,,,,2026-10-07,https://search.sunbiz.org/Inquiry/CorporationSearch/ByDocumentNumber,2026-10-22T19:31:31+00:00,True

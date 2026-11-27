@@ -32,3 +32,10 @@ profiles.yml
 # They stay on this machine until checked. Regenerate with snowflake/19 and snowflake/20.
 evals/link_sample_20.csv
 evals/draft_test_cases_40.csv
+
+# Phase D draft search cases (working rule S1): cases an agent drafted from the register, and what the extraction step
+# read from each. Andres has not checked them yet, and an unchecked address may be someone's home.
+# They stay on this machine until he checks them. A checked case moves to pipeline/seeds/test_set.csv.
+# Checked by tests/test_evals_run.py.
+evals/draft_cases.csv
+evals/draft_extracted.csv
