@@ -132,7 +132,7 @@ class Candidate:
     similarity: int                         # Jaro-Winkler similarity of the two simplified names, 0 to 100
     city_match: bool                        # True when a city was given and the company's city starts with it
     exact_name: bool                        # True when the two names are equal once legal suffixes are removed
-    every_word: bool                        # True when every word of the typed name is among the words of the company's name, legal suffixes aside
+    every_word: bool                        # True when every word of the typed name is among the words of the company's name, legal suffixes, AND and THE aside
     city_in_name: bool = False              # True when a city was given and every word of it is among the words of the company's NAME (Phase D rule S14).
                                             # It counts for the ORDER only. The match level never reads it (rule S4)
 
@@ -251,15 +251,33 @@ def without_suffixes(key: str) -> str:
     return SUFFIX_PATTERN.sub("", key)
 
 
+FILLER_WORDS = frozenset({"AND", "THE"})
+# The every-word test leaves these out of what was typed. name_key() turns "&" into a space, so
+# "A&B ROOFING LLC" can never hold a typed AND, and a registered name often lacks a THE that a
+# contractor types. Since leg D3 the every-word test outranks the city and the similarity, so
+# either word put any name that spells it out above the company meant (review of Nov 26, 2026).
+
+
+def typed_words(search_key: str) -> list[str]:
+    """The words of a typed name that the every-word test looks for: trailing legal suffixes and FILLER_WORDS left out.
+
+    A typed name made only of those words keeps them, as a name that is only a legal suffix
+    does: there would otherwise be no word left to look for.
+    """
+    words = (without_suffixes(search_key) or search_key).split()
+    return [word for word in words if word not in FILLER_WORDS] or words
+
+
 def holds_every_word(search_key: str, company_key: str) -> bool:
-    """True when every word of the typed name is among the words of the company's name, with trailing legal suffixes left out of both.
+    """True when every word of the typed name is among the words of the company's name, with trailing legal suffixes left out of both, and AND and THE left out of the typed name.
 
     "V PIZZA" is held by "V PIZZA LAKE BUENA VISTA LLC": both of its words are there. It is
     not held by "VA PIZZA LLC". Whole words are compared, so ROOFING is not held by ROOFINGS.
     A typed name that is nothing but a legal suffix, such as "LLC", keeps its words, as it
     does in the index lookup: there would otherwise be no word left to look for.
+    "A AND B ROOFING" is held by "A&B ROOFING LLC", whose simplified name is A B ROOFING LLC.
     """
-    typed = (without_suffixes(search_key) or search_key).split()
+    typed = typed_words(search_key)
     words = set((without_suffixes(company_key) or company_key).split())
     return bool(typed) and all(word in words for word in typed)
 
@@ -598,7 +616,7 @@ class PostgresBackend:
         key = without_suffixes(search_key) or search_key           # "LLC" alone would leave nothing: then send it as typed
         rows = self.conn.execute(self.NEAREST_SQL, {
             "key": key, "limit": limit,
-            "words": key.split(),                                  # the typed words, legal endings left out: the words holds_every_word() looks for
+            "words": typed_words(search_key),                      # the words holds_every_word() looks for: legal endings, AND and THE left out
             "suffixes": SUFFIX_PATTERN.pattern,                    # the one list of legal endings, sent as a value so that the query and Python cannot drift apart
             # Two cautions about that value. It is a PATTERN that Postgres runs, so it must always be this module's own constant
             # and never anything a caller or a contractor supplied. And two engines now read it, Python's and Postgres's: it must
