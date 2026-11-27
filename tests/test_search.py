@@ -257,6 +257,21 @@ def test_a_typed_and_or_the_is_not_a_word_the_company_name_must_hold():
     assert conn.asked[-1][1]["key"] == "A AND B ROOFING"                     # and the nearness to the typed name still reads all of it
 
 
+def test_a_typed_the_or_and_no_longer_keeps_an_exact_name_above_a_near_name_that_lacks_it():
+    # The cost of question Q63, found by the High-tier review of its fix on Nov 26, 2026, with invented companies. With AND and THE
+    # left out of the every-word test, a near name that lacks the typed word joins the exact name in the first group, and with no city
+    # the similarity decides, which counts the legal ending. This pins what the code does today, so that a change is a decision:
+    # whether it SHOULD be so is question Q64, and it is Andres's.
+    pool = [
+        company("T00000000005", "LORDS OF THE LAWN L.L.C."),                # the exact name, legal ending aside
+        company("T00000000006", "LORDS OF LAWN"),                           # a near name that lacks the typed THE
+    ]
+    ranked = rank(pool, "Lords of the Lawn")
+    assert [c.company.document_number for c in ranked] == ["T00000000006", "T00000000005"]
+    assert [(c.every_word, c.exact_name, match_level(c, city_given=False)) for c in ranked] == [(True, False, "Possible"), (True, True, "Strong")]
+    assert ranked[0].similarity > ranked[1].similarity                      # the near name is first by similarity alone
+
+
 def test_city_is_a_tie_break_and_never_a_filter():
     pool = [company("T00000000001", "ACME ROOFING LLC", city="TAMPA")]
     (only,) = rank(pool, "acme roofing", city="jacksonville")             # the company in another city is still returned
