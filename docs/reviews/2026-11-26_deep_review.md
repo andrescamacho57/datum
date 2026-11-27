@@ -32,7 +32,7 @@
 
 Three facts about how these pull requests relate, each checked with git:
 
-1. ✅ **Pull request 30 contains all of pull request 29.** Leg D4 was built on top of leg D3: D3's head commit `a038b4f2` is an ancestor of D4's head `4ecabb5e` (`git merge-base --is-ancestor a038b4f2 4ecabb5e`), so pull request 30 is D3's 13 commits plus 18 of D4's own. Merging 30 also merges everything in 29. The safe order is 29 first, then 30, each with a merge commit as pull request 28 was. A squash merge of 29 would leave 30 holding D3's original commits and could produce conflicts.
+1. ✅ **Pull request 30 contains all of pull request 29.** Leg D4 was built on top of leg D3: D3's head commit `a038b4f2` is an ancestor of D4's head `4ecabb5e` (`git merge-base --is-ancestor a038b4f2 4ecabb5e`), so pull request 30 is D3's 10 commits plus 18 of D4's own. Merging 30 also merges everything in 29. The safe order is 29 first, then 30, each with a merge commit as pull request 28 was. A squash merge of 29 would leave 30 holding D3's original commits and could produce conflicts.
 2. ✅ **Pull request 20 cannot merge as it stands.** Its branch starts 127 commits behind `origin/main` (merge base `94e55946`), and the one file both sides changed since then is `docs/review_log.csv`. 🟡 GitHub does not run `pull_request` workflows while a pull request has a merge conflict ([GitHub docs, "Events that trigger workflows"](https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#pull_request)), which would explain the missing checks; this run did not open the workflow history to confirm it. Fixing it means rebasing or merging `main` into the branch and keeping both sides' rows in the review log.
 3. ✅ **Your local `main` is stale.** Local `main` is `ccef8da` and `origin/main` is `143d82c`, three commits ahead (pull request 28's merge). A local `git diff main...<branch>` therefore shows extra changes that are already on GitHub. Run `git checkout main && git pull` before comparing against `main` tomorrow.
 
@@ -139,7 +139,7 @@ Result: ✅ no draft **address** appears in any of the three pull requests. One 
 - **The security pass.** `REVIEW.md` says to run `/security-review` whenever `src/` changes, and both High-tier pull requests change `src/datum/`. It was not run in this review; it was run afterwards on the new `src/` lines of the fixes (see the last section).
 - **The three questions check.** `docs/review_process.md` (rule added Nov 26) asks the last review round to answer the three questions from the Human review section alone. This run did not have the questions, so it did not do that check.
 - **A second opinion on two tags.** Pull request 29's Important finding depends on a contractor accepting a Possible first card, and this run did not rerun either reviewer's executed scenario.
-- **Leg D3's commits inside pull request 30.** The pull request 30 reviewer read only D4's 18 commits, because pull request 29's reviewer covered D3's 13. Anything that only goes wrong when D3 and D4 run together was in neither reviewer's brief.
+- **Leg D3's commits inside pull request 30.** The pull request 30 reviewer read only D4's 18 commits, because pull request 29's reviewer covered D3's 10. Anything that only goes wrong when D3 and D4 run together was in neither reviewer's brief.
 - The run stopped at about 21:00 EST, inside the 15-minute timebox.
 
 ## What happened after the review (November 26, 2026, from 21:00 EST)
@@ -175,7 +175,7 @@ The paperwork followed in `ed6bc46` (leg D3's report, section 7, and its row in 
 | Leg D4, the speed of the address search (`--address-latency 200`), first run after a restart | p95 under 1 second | ✅ 246 ms (252 ms on a second restart; 256 ms before the fixes) |
 | The tests, with the Postgres server stopped | All pass | ✅ 547 on leg D3 (545 before), 579 on leg D4 (575 before). `ruff` passes on both |
 
-No live extraction call was made, and no Snowflake warehouse was used. One more count: the fix changes nothing the evaluation can see. No checked case types AND or THE, and the 12 searches of the speed check that do kept the same 200 candidates and the same page.
+No live extraction call was made, and no Snowflake warehouse was used. One more count: the fix changes nothing the evaluation can see. No checked case's name search types AND or THE (checked case 10's note holds "the", but the search asks about that note and runs no name search), and the 12 searches of the speed check that do kept the same 200 candidates and the same page.
 
 ### The High-tier review of the fixes
 
