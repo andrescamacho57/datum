@@ -149,11 +149,22 @@ EVIDENCE_OTHER_CITY = "principal city on record is {city}, and that spelling doe
 # contractor the company was in another city. The sentence now says only what was compared.
 # Whether the comparison itself should treat "St." and "ST" alike is question Q41.
 EVIDENCE_NO_CITY = "no principal city on record for this company"   # the principal address is the only one the table holds
+EVIDENCE_CITY_IN_NAME = "every word of the city you gave is in the company's name"
+# Phase D rule S14 (leg D3). The extraction step reads a place out of a note as the city, also
+# when the place is part of the registered name: "v pizza lake buena vista" came back as the
+# business "V Pizza" and the city "Lake Buena Vista". Such a company is moved up the list, and
+# this line says why. It says exactly what was compared (search.city_in_name: whole words, in
+# any order, legal endings left out), and it is given BESIDE the line about the principal city,
+# never in its place. It does not say the company is in that city, and it changes no match level.
 EVIDENCE_ACTIVE = "ACTIVE"
 EVIDENCE_INACTIVE = "INACTIVE with the state"
 EVIDENCE_NO_STATUS = "status not on record"
-# The eight lines above are the reasons search.evidence() gives for a match level. They were
-# written in search.py in leg C2 and moved here unchanged, so that this file holds them all.
+# The nine lines above are what search.evidence() says beside a company. Eight were written in
+# search.py in leg C2 and moved here unchanged, so that this file holds them all, and
+# EVIDENCE_CITY_IN_NAME is leg D3's. They are not all reasons for the match LEVEL. Five are:
+# the two about the name and the three about the principal city, which is all match_level()
+# reads. The three about the status are facts about the company. EVIDENCE_CITY_IN_NAME is a
+# reason for the company's place on the list, and the level does not read it (rule S4).
 INACTIVE_MARK = "Inactive with the state"
 # Working rule S10 (leg D2): the shortlist says this BESIDE an inactive company's name. Until
 # then the only sign was the last of its reasons, EVIDENCE_INACTIVE above, which Andres did not
@@ -169,6 +180,12 @@ TIE_ON_LIST = "{count} companies on this list match at the level {level}. Check 
 # it, from October, read "These look about equally likely ... A street or a city would help
 # tell them apart": it stood under the whole list, so "these" took in companies that were not
 # tied, and it asked for a city when one had been given and for a street the search never uses.
+SHORTLIST_SEARCH_ORDER = "The list is in search order. The level beside each company says how much of the record agrees with what you typed."
+# Phase D rule S12 (leg D3), word for word. A shortlist shows its companies in the order the
+# search ranked them, and no longer best level first. The sentence is shown once, UNDER the
+# list, and only when a company with a lower level stands above one with a higher level,
+# because only then could the order be read as a mistake. It gives no reason to prefer one
+# company: it says what the order is and what a level is.
 POSSIBLE_CAUTION = "This is only a POSSIBLE match: the name is similar, and nothing else confirms it is the company you mean."
 # On the shortlist under every company rated Possible, and at the top of a report whose company
 # was picked at that level. The terminal has asked "Make the report anyway?" since October.
@@ -178,16 +195,26 @@ SHORTLIST_NOT_SHOWN_MANY = "{count} more companies match at the level Strong and
 # The sentence names the LEVEL, because that is exactly what is counted: the candidates rated
 # Strong that did not fit on the list (search.shortlist). It does not restate what Strong means.
 # Each of those companies is then shown with its own reasons, as the companies on the list are.
-ASK_FOR_A_BUSINESS = "That describes a business but doesn't name one. Add its name, a street or a city"
-ASK_FOR_MORE = "Add a street or a city"
+ASK_FOR_MORE = "Add the business's full name or its city"
+# The terminal's question after a search that ended without a report. What is typed here is ADDED
+# to the note, and the note is read again. After the name search, a fuller name or the city ranks
+# the companies better. After an address search, a name sends the note to the name search, and a
+# city narrows the companies, which helps only when there were too many to list: after an address
+# search that found nobody, a city cannot help (round 1 of leg D4's review), and the sentence
+# printed just above it advises checking the address instead. A street does not help here: once
+# the note names a business, the name search runs and the street is not used (rule S5). Until leg D4 this asked for "a street or a city". The terminal's question for a note
+# that names no business is the web page's own, ASK_FOR_A_BUSINESS_ON_A_PAGE below (rule S18), and
+# the terminal's old version of it, ASK_FOR_A_BUSINESS, was removed in leg D4 because nothing used it.
 POSSIBLE_ONLY = (
     "That's only a POSSIBLE match: {evidence}. Nothing else confirms it's the company you mean. "
     "Make the report anyway? (y/N): "
 )
 GIVING_UP = (
     "I can't identify this business from what I have, so I won't guess. "
-    "Run it again when you have its name, a street or a city."
+    "Run it again when you have its name and its city, or its street address beginning with the house number."
 )
+# Until leg D4 it ended "its name, a street or a city". A new run is a new search, so both of the
+# things the two searches use are offered, as the web page's search box offers them.
 READ_AS = "I read that as: {fields}"       # the terminal shows the EXTRACTED fields, never the note itself
 PICK = "Pick 1-{count}, or 0 to add more details: "
 PICK_AGAIN = "Please type a number from 0 to {count}."
@@ -222,8 +249,8 @@ SHORTLIST_HEADING = "Which company do you mean?"
 NOTE_EMPTY = "Nothing was typed. Type the business's name and its city, or a street address that begins with its house number."
 NOTE_TOO_LONG = "That is too long to search for. Type the business's name and its city, or a street address that begins with its house number."
 ASK_FOR_A_BUSINESS_ON_A_PAGE = "That describes a business but doesn't name one. Add its name, or its street address beginning with the house number."
-# Acceptance test A2. The terminal's question, ASK_FOR_A_BUSINESS above, still ends "a street or
-# a city": the terminal has no search by address, so its words are left as they were.
+# Acceptance test A2. Since leg D4 the terminal asks this very sentence too (rule S18), because it
+# has the search by address now, so the page and the terminal cannot drift apart.
 NO_COMPANY_FOUND = "No company with a name close to that was found. Check the spelling of the business's name."
 REPORT_UNAVAILABLE = "The report is unavailable right now."
 REQUEST_NOT_READ = "That could not be read as a search. Type the business's name in the box."   # a form that was not sent by the search box
@@ -231,9 +258,37 @@ REQUEST_NOT_READ = "That could not be read as a search. Type the business's name
 # --- The search by address (Phase D, leg D1; working rules S5 to S8) ------------------------
 ADDRESS_HEADING = "Companies by principal address"
 ADDRESS_COMPARED = (
-    "A company matches when its principal address on record has the house number {house_number} "
-    "and a street name made only of words you typed. The kind of street, such as ST or PKWY, and a direction, N, S, E or W, are not compared."
+    "A company matches when its principal address on record begins with the house number {house_number}, and every word of its street name "
+    "is among the words you typed once three things are left out of both: the kind of street, such as ST or PKWY; "
+    "a direction (N, S, E, W, NORTH, SOUTH, EAST, WEST, NE, NW, SE or SW); "
+    "and an office unit word (STE, SUITE, BLDG, FL, FLOOR, RM or ROOM) with the one word after it, unless that word is a unit word too. "
+    "A street name with no word left after that matches nothing. "
+    "Punctuation counts as a space, so in STE 400-B the B is still compared, and so is a unit written as one word, such as STE200. "
+    "An apartment, unit or lot on the record is compared, the word and its number, so both have to be typed too."
 )
+# Phase D rule S15 (leg D4) changed the comparison, and so this sentence: it names all twelve
+# directions and the seven office unit words, because those are exactly the words
+# search.street_parts() leaves out, and it says that APT, UNIT and LOT are still compared.
+# THIS IS THE ONE DESCRIPTION OF THE COMPARISON. The page shows it under every address search
+# that found a company, the sentences for "no match" below show it too, and so does the report of
+# a company picked from an address search (IDENTIFIED_BY_ADDRESS, since the review of Nov 26, 2026). Round 3 of leg D4's
+# review found that each prose restatement of the rule had missed a case, three rounds running,
+# so there is now only this one, and it follows the code clause by clause:
+#   "begins with the house number"     the first word of the address is the house number (street_parts)
+#   "left out of both"                 the cut applies to the record and to the note (rule S15)
+#   "unless that word is a unit word"  without_office_units() never takes a unit word as a number
+#   "no word left ... matches nothing" street_matches() returns False for an empty street
+#   "Punctuation counts as a space"    name_key() turns every run of other characters into one space
+#   "the word and its number"          APT, UNIT and LOT are words like any other: both are compared
+# "The one word after it, its number or letter" is the cut (search.without_office_units): the word
+# after a unit word goes with it unless that word is itself a unit word, so "FL STE 300" loses FL
+# alone and then STE 300, and "BLDG APT 305" keeps APT 305, which the last sentence covers. Round 1
+# of leg D4's review found that the first version, "with the number or letter after it", claimed
+# more: a unit number written with a hyphen is two words once punctuation is read as a space, so
+# its second part stays and is compared, and a unit word glued to its number, such as STE200, is
+# one word that is not a unit word, so it is compared. The sentence now names both. Round 2 found
+# that a street with nothing left, such as SOUTH ST now that SOUTH is a direction, matches nothing
+# (search.street_matches), and the sentence did not say so: it does now.
 # Exactly the comparison of search.street_matches(). Every line below says "matches" and never
 # "has this address", because the comparison is looser than that: 8586 PALM AVE matches
 # "8586 palm pkwy", and so does a street made of fewer words than were typed. Round 1 of leg
@@ -249,22 +304,44 @@ ADDRESS_INACTIVE_ONE = "1 inactive company also matches and is not listed."
 ADDRESS_INACTIVE_MANY = "{count} inactive companies also match and are not listed."
 # Rule S6: an address search lists only the active companies and says how many inactive ones
 # there are, in one sentence. Whether they should be listed is Andres's call (question Q45).
+ADDRESS_ONLY_INACTIVE = "Type the business's name to look for it with the name search, which lists inactive companies too."
+# Phase D rule S16 (leg D4; question Q45). When an address search finds no active company and at
+# least one inactive one, the page says "No active company matches." and gives the count of
+# inactive ones, and until leg D4 it stopped there. A contractor whose client is inactive got no
+# next step. This sentence comes after the count and asks for the business's name, because the
+# name search does not filter by status (rule S2) and marks an inactive company beside its name
+# (rule S10). It does not repeat the count, and it names none of the companies: an address can
+# be a home, and rule S6 lists none of the inactive companies there.
 ADDRESS_NO_STATUS_ONE = "1 company with no status on record also matches and is not listed."
 ADDRESS_NO_STATUS_MANY = "{count} companies with no status on record also match and are not listed."
 # A company with no status on record is not called inactive (CLAUDE.md rule 3). Every company has a status today.
 PRINCIPAL_ADDRESS_NOTE = "A company's principal address is the address it gave the state, which is not always where it does business."
 # Rule S8, word for word: once, under the results of every address search.
 ADDRESS_NOT_FOUND = (
-    "No company matches: none has a principal address on record with that house number and a street name made only of words you typed. "
-    "Check the house number and the spelling of the street's name, and add the suite or unit if the address has one."
+    "No company matches. {compared} "
+    "Check the house number and the spelling of the street's name, and add the apartment, unit or lot number if the address has one."
 )
 ADDRESS_NOT_FOUND_IN_CITY = (
-    "No company matches: none has a principal address on record with that house number, a street name made only of words you typed, "
-    "and a principal city that begins with the city you gave. "
-    "Check the house number, the spelling of the street's name and the city, and add the suite or unit if the address has one."
+    "No company matches. {compared} "
+    "Check the house number, the spelling of the street's name and the city, and add the apartment, unit or lot number if the address has one."
 )
-# Each says what was compared, so that it does not read as "no company is at this address". A
-# record that holds a suite only matches when the suite was typed too (question Q47). The
+# Each says what was compared, so that it does not read as "no company is at this address".
+# Round 1 of leg D4's review found a record that the first version denied: a note that types
+# "suite 200" leaves SUITE and 200 out (rule S15, the typed side), and a record that writes the
+# same unit as "#200" keeps 200, because a number after # is still compared. That record is
+# not matched, and yet its street IS made only of words that were typed. Round 2 found a second
+# record the next version denied: a street with nothing left once the street type and the
+# direction are gone, such as SOUTH ST, which matches nothing (search.street_matches). So each
+# sentence now says "No company matches." and then states the rule a match follows, which is true
+# of every record, in place of a claim about what no record has. Round 3 found four more records
+# that version described wrongly (a unit number with a hyphen, a BLDG followed by APT, and a
+# record whose first word is not its house number), because it was a second, shorter description
+# of the rule. So {compared} is now filled with ADDRESS_COMPARED itself, the one description, and
+# the sentence of its own says only "No company matches." and what to check. Whether the typed side
+# should keep the unit's number is question Q62.
+# Until leg D4 both advised adding "the suite or unit". A suite is no longer compared (rule
+# S15), so that advice could not help. A record that holds an apartment, a unit or a lot still
+# matches only when it was typed too, and so the advice is now about those three. The
 # second is shown when a city was read from the note: the city is then part of the comparison,
 # and a company with that house number and street in ANOTHER city is not a match. Round 2 of
 # leg D1's review found that one sentence for both cases denied such a company's record.
@@ -273,10 +350,13 @@ ADDRESS_TOO_MANY = "That house number and street name are on the records of too 
 # cannot say how many companies there are, and a sentence with a number would need a source.
 COMPANY_RECORDS_CITATION = "Florida Division of Corporations (Sunbiz) company records"
 # What a count of companies cites. One company cites its own record, with its document number.
-IDENTIFIED_BY_ADDRESS = (
-    "from {fields} · found by its principal address on record (the same house number, and a street name made only of words that were typed) "
-    "· chosen by the user from the active companies listed."
-)
+IDENTIFIED_BY_ADDRESS = "from {fields} · found by its principal address on record · chosen by the user from the active companies listed."
+# Until the review of Nov 26, 2026 this line, the one a saved report keeps, carried its own shorter
+# description of the comparison: "the same house number, and a street name made only of words that
+# were typed". Rule S15 made that untrue, because a record's office unit and direction are left out
+# and never have to be typed, and round 3 of leg D4's review had replaced every other restatement.
+# So the line says only how the company was found and picked, and identified_by_address_text()
+# follows it with ADDRESS_COMPARED itself, the one description.
 ADDRESS_OTHERS_ONE = "1 other active company was listed with it."
 ADDRESS_OTHERS_MANY = "{count} other active companies were listed with it."
 # Rule W7 for an address: every company on the list matched equally, so the report of whichever
@@ -350,6 +430,11 @@ def tie_text(count: int, level: str | None) -> str:
     return TIE_STRONG.format(count=count) if level == "Strong" else TIE_ON_LIST.format(count=count, level=level)
 
 
+def search_order_text(lower_level_above_higher: bool) -> str:
+    """The line under a shortlist that says its order is the search's (rule S12). Empty when the levels already go from best to worst."""
+    return SHORTLIST_SEARCH_ORDER if lower_level_above_higher else ""
+
+
 def not_shown_text(count: int) -> str:
     """The shortlist's line for the Strong candidates it counts and does not list. Empty when there are none."""
     if count <= 0:
@@ -369,19 +454,24 @@ def address_compared_text(house_number: str, city_given: bool) -> str:
     return f"{ADDRESS_COMPARED.format(house_number=house_number)} {ADDRESS_COMPARED_CITY if city_given else ADDRESS_COMPARED_NO_CITY}"
 
 
-def address_not_found_text(city_given: bool) -> str:
-    """The sentence for an address search that matched nobody. It names the city as one of the things compared only when one was given."""
-    return ADDRESS_NOT_FOUND_IN_CITY if city_given else ADDRESS_NOT_FOUND
+def only_inactive_text(active: int, inactive: int) -> str:
+    """Rule S16's sentence, for an address search with no active match and at least one inactive one. Empty in every other case."""
+    return ADDRESS_ONLY_INACTIVE if inactive > 0 and active == 0 else ""
 
 
-def identified_by_address_text(street: str, city: str, others_listed: int) -> str:
-    """The identification line of a company picked from an address search, built from the EXTRACTED street and city only (rule W6)."""
+def address_not_found_text(house_number: str, city_given: bool) -> str:
+    """The sentences for an address search that matched nobody: "No company matches.", the one description of the comparison, and what to check."""
+    return (ADDRESS_NOT_FOUND_IN_CITY if city_given else ADDRESS_NOT_FOUND).format(compared=address_compared_text(house_number, city_given))
+
+
+def identified_by_address_text(street: str, city: str, others_listed: int, house_number: str) -> str:
+    """The identification line of a company picked from an address search, built from the EXTRACTED street and city only (rule W6), then the one description of the comparison."""
     fields = [FIELD_STREET.format(value=street)]
     if city:
         fields.append(FIELD_CITY.format(value=city))
     line = IDENTIFIED_BY_ADDRESS.format(fields=", ".join(fields))
     others = count_text(others_listed, ADDRESS_OTHERS_ONE, ADDRESS_OTHERS_MANY)
-    return f"{line} {others}" if others else line
+    return " ".join(part for part in (line, others, address_compared_text(house_number, city_given=bool(city))) if part)
 
 
 def identified_text(business_name: str, city: str, street: str, level: str, evidence: tuple[str, ...], tied_others: int) -> str:

@@ -22,8 +22,8 @@ from datum import report_builder as builder_module
 from datum import wording
 from datum.models import Identification
 from datum.report_builder import (
-    CompanyNotFound, FakeReportBackend, NoSourceChecked, PostgresReportBackend, ReportBuilder, address_candidate_for_page, address_text, candidate_for_page,
-    count_fact, looks_like_a_document_number, one_year_before, render_markdown,
+    CompanyNotFound, FakeReportBackend, NoHouseNumber, NoSourceChecked, PostgresReportBackend, ReportBuilder, address_candidate_for_page, address_text, candidate_for_page,
+    address_counts, count_fact, looks_like_a_document_number, one_year_before, render_markdown,
 )
 from datum.search import Candidate as SearchCandidate
 
@@ -306,8 +306,9 @@ def test_the_functions_that_lay_out_a_report_or_talk_in_the_terminal_hold_no_sen
 
     a_sentence = re.compile(r"[A-Za-z]{2,}\s+[A-Za-z]{2,}")                # two words with a space between
     functions = (render_markdown, ReportBuilder.build, ReportBuilder.company_record_flags, ReportBuilder.linked_flags, candidate_for_page,
-                 address_candidate_for_page, address_text, count_fact,
-                 terminal.run, terminal.show_shortlist, terminal.source_line, terminal.pick, terminal.read_note, terminal.others_at_the_same_level)
+                 address_candidate_for_page, address_text, count_fact, address_counts,
+                 terminal.run, terminal.show_shortlist, terminal.source_line, terminal.pick, terminal.read_note, terminal.others_at_the_same_level,
+                 terminal.save_report, terminal.show_address_results, terminal.by_address)
     for function in functions:
         written = [text for text in texts(function.__code__) if text != function.__doc__ and a_sentence.search(text)]
         assert written == [], (function.__name__, written)
@@ -381,10 +382,22 @@ def test_a_company_found_by_its_address_says_so_on_its_report_and_claims_no_matc
     how = Identification(found_by="address", street="1 invented wy", city="Boynton Beach", tied_others=1)
     report = fx.builder().build(fx.LIEN_COMPANY, how)
     assert report.identification.text == (
-        'from the street "1 invented wy", the city "Boynton Beach" · found by its principal address on record (the same house number, and a street name '
-        "made only of words that were typed) · chosen by the user from the active companies listed. 1 other active company was listed with it.")
+        'from the street "1 invented wy", the city "Boynton Beach" · found by its principal address on record · chosen by the user from the active '
+        "companies listed. 1 other active company was listed with it. " + wording.address_compared_text("1", city_given=True))   # the one description, with the typed house number
     assert report.identification.citation == "Florida Division of Corporations (Sunbiz) record, document number T26000000001"
     assert report.caution == "" and "match level" not in render_markdown(report)   # no level was claimed, so there is nothing to caution about
+
+
+def test_the_house_number_on_an_address_report_is_the_one_the_search_compared():
+    # Review of Nov 26, 2026. The report names the house number as street_parts() reads it, which is the number the address search
+    # compared and the results page shows: "12-b" is simplified to the words 12 and B, and 12 is the house number.
+    how = Identification(found_by="address", street="12-b invented wy")
+    text = fx.builder().build(fx.LIEN_COMPANY, how).identification.text
+    assert text.endswith(wording.address_compared_text("12", city_given=False)) and "house number 12," in text
+    # A street with no house number can never come from an address search, which compares nothing without one. A report built from
+    # such a street would describe a comparison that never ran, so the builder refuses it.
+    with pytest.raises(NoHouseNumber):
+        fx.builder().build(fx.LIEN_COMPANY, Identification(found_by="address", street="main st"))
 
 
 def test_a_company_on_an_address_list_shows_its_address_as_the_state_has_it():

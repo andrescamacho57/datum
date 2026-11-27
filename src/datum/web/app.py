@@ -58,7 +58,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException   # wha
 
 from datum import wording
 from datum.models import Identification, read_extracted
-from datum.report_builder import CompanyNotFound, ReportBackend, ReportBuilder, address_candidate_for_page, candidate_for_page, count_fact
+from datum.report_builder import CompanyNotFound, ReportBackend, ReportBuilder, address_candidate_for_page, address_counts, candidate_for_page
 from datum.search import SearchBackend, address_search, evidence, search_kind, search_pool, shortlist
 
 HERE = Path(__file__).resolve().parent                     # src/datum/web/
@@ -224,8 +224,10 @@ def create_app(access_code: str, extract: Callable[[str], dict], open_backends: 
 
         It lists the ACTIVE companies whose principal address matches, says how many inactive
         ones it does not list, and says once that a principal address is not always where a
-        company does business. Whatever the extraction step put in the business name is not
-        shown: the note named no business.
+        company does business. When no active company matches and at least one inactive one
+        does, it also asks for the business's name, so that the name search can look for it
+        (rule S16). Whatever the extraction step put in the business name is not shown: the
+        note named no business.
         """
         try:
             with open_backends() as (search_backend, _):
@@ -238,20 +240,18 @@ def create_app(access_code: str, extract: Callable[[str], dict], open_backends: 
         if found.too_many:                  # an office tower, a mail drop or an agent's office: no list of fifty would help
             return page(request, "message.html", heading=wording.SEARCH_HEADING, message=wording.ADDRESS_TOO_MANY, read_as=read_as, form=True)
         if not (found.active or found.inactive or found.no_status):
-            return page(request, "message.html", heading=wording.SEARCH_HEADING, message=wording.address_not_found_text(city_given=bool(city)), read_as=read_as, form=True)
+            return page(request, "message.html", heading=wording.SEARCH_HEADING, message=wording.address_not_found_text(found.house_number, city_given=bool(city)), read_as=read_as, form=True)
         identifications = {
             company.document_number: Identification(found_by="address", street=street, city=city, tied_others=len(found.active) - 1)
             for company in found.active     # only a listed company can be opened from this page
         }
-        not_listed = [fact for fact in (
-            count_fact(wording.count_text(len(found.inactive), wording.ADDRESS_INACTIVE_ONE, wording.ADDRESS_INACTIVE_MANY), found.inactive),
-            count_fact(wording.count_text(len(found.no_status), wording.ADDRESS_NO_STATUS_ONE, wording.ADDRESS_NO_STATUS_MANY), found.no_status),
-        ) if fact is not None]              # each count is a Fact, so it cites the records it was made from
+        not_listed = address_counts(found)  # each count is a Fact, so it cites the records it was made from. The terminal takes its counts from the same function
         return page(
             request, "address.html", read_as=read_as, token=picks.put(identifications),
             compared=wording.address_compared_text(found.house_number, city_given=bool(city)),
             active_line=wording.count_text(len(found.active), wording.ADDRESS_ACTIVE_ONE, wording.ADDRESS_ACTIVE_MANY) or wording.ADDRESS_NO_ACTIVE,
             candidates=[address_candidate_for_page(company) for company in found.active], not_listed=not_listed,
+            only_inactive=wording.only_inactive_text(len(found.active), len(found.inactive)),   # rule S16: no active company and at least one inactive one
         )
 
     @app.post("/search")
@@ -297,6 +297,7 @@ def create_app(access_code: str, extract: Callable[[str], dict], open_backends: 
             request, "shortlist.html", read_as=read_as, token=picks.put(identifications),
             candidates=[candidate_for_page(found, level, short.city_given) for level, found in zip(short.levels, short.candidates)],
             tie=wording.tie_text(short.tied_at_top, short.top_level),
+            search_order=wording.search_order_text(short.lower_level_above_higher),   # rule S12: said once, under the list, when a lower level stands above a higher one
             not_shown_line=wording.not_shown_text(short.tied_not_shown),
             not_shown=[candidate_for_page(found, "Strong", short.city_given) for found in short.not_shown],   # only a Strong candidate is ever in not_shown
         )

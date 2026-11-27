@@ -31,7 +31,7 @@ from typing import Protocol                 # a Protocol describes an interface:
 
 from datum import wording                   # every fixed sentence and label
 from datum.models import AddressCandidate, Candidate, Fact, Flag, Identification, Report
-from datum.search import COMPANY_COLUMNS, Company, company_from_row, evidence
+from datum.search import COMPANY_COLUMNS, AddressMatches, Company, company_from_row, evidence, street_parts
 from datum.search import Candidate as SearchCandidate           # the search's own candidate: a company with its scores
 
 DOCUMENT_NUMBER = re.compile(r"[A-Z0-9]{5,12}")
@@ -90,6 +90,12 @@ class CompanyNotFound(LookupError):
 
 class NoSourceChecked(RuntimeError):
     """source_coverage lists no source whose flags may be shown, so there is nothing a report could truthfully say it checked."""
+
+
+class NoHouseNumber(ValueError):
+    """A company is said to be found by its address, and the street holds no house number. The address search compares nothing
+    without one, so a report would describe a comparison that never ran. The app and the terminal never build such an
+    identification: they make one only for a company the address search listed."""
 
 
 class ReportBackend(Protocol):
@@ -187,6 +193,19 @@ def count_fact(text: str, companies: tuple[Company, ...]) -> Fact | None:
     )
 
 
+def address_counts(found: AddressMatches) -> list[Fact]:
+    """The sentences under an address search that COUNT the companies it does not list (working rule S6), each a Fact with its source.
+
+    First the inactive companies, then the ones with no status on record. A count of none
+    gives no sentence. The web page and the terminal both take their counts from here, so
+    that one note gets the same answer in both (Phase D rule S18).
+    """
+    return [fact for fact in (
+        count_fact(wording.count_text(len(found.inactive), wording.ADDRESS_INACTIVE_ONE, wording.ADDRESS_INACTIVE_MANY), found.inactive),
+        count_fact(wording.count_text(len(found.no_status), wording.ADDRESS_NO_STATUS_ONE, wording.ADDRESS_NO_STATUS_MANY), found.no_status),
+    ) if fact is not None]
+
+
 class ReportBuilder:
     """Builds a Report for one document number. It reads through a ReportBackend and takes its words from wording.py."""
 
@@ -258,7 +277,10 @@ class ReportBuilder:
         if identification is None:
             identified = fact(wording.IDENTIFIED_BY_NUMBER)
         elif identification.found_by == "address":
-            identified = fact(wording.identified_by_address_text(identification.street, identification.city, identification.tied_others))
+            house_number = street_parts(identification.street)[0]   # the house number the address search read, from the same extracted street
+            if not house_number:
+                raise NoHouseNumber()       # no argument: the street came from a note, and an error may be logged
+            identified = fact(wording.identified_by_address_text(identification.street, identification.city, identification.tied_others, house_number))
         else:
             identified = fact(wording.identified_text(
                 identification.business_name, identification.city, identification.street,

@@ -18,7 +18,8 @@ What it does, in order:
                  companies company_search holds. One difference stops the run here.
     5. addresses build company_search_addresses, the narrow address table (Phase D, leg D1), from
                  the same company rows: the document number, the house number at the start of
-                 the principal address, and the words of the street after it. Then check that
+                 the principal address, and the words of the street after it, with office units
+                 such as STE 200 left out (leg D4, rule S15). Then check that
                  it holds exactly the document numbers company_search holds. One difference
                  stops the run here.
     6. index     build the indexes on the new tables, including the trigram index the search uses.
@@ -205,7 +206,7 @@ ADDRESSES = Table(
     columns=(
         ("document_number", "text not null"),
         ("house_number", "text"),               # empty (NULL) when the principal address does not begin with a number, or when there is none
-        ("street_words", "text not null"),      # the words after the house number, in capitals, one space between them. Empty when there are none
+        ("street_words", "text not null"),      # the words after the house number, office units left out (rule S15), in capitals, one space between them. Empty when there are none
     ),
     indexes=(("house_number", "(house_number)"),),   # the search by address starts from the house number, which must match exactly
 )
@@ -223,7 +224,10 @@ ADDRESSES_FILL_SQL = (
     "select document_number, house_number, street_words from ("
     "select document_number, "
     "case when words[1] ~ '^[0-9]' and words[1] !~ '^[0-9]+(ST|ND|RD|TH)$' then words[1] end as house_number, "
-    "case when words[1] ~ '^[0-9]' and words[1] !~ '^[0-9]+(ST|ND|RD|TH)$' then array_to_string(words[2:], ' ') else '' end as street_words "
+    "case when words[1] ~ '^[0-9]' and words[1] !~ '^[0-9]+(ST|ND|RD|TH)$' "
+    "then ltrim(regexp_replace(' ' || array_to_string(words[2:], ' '), "
+    "' (?:STE|SUITE|BLDG|FL|FLOOR|RM|ROOM)(?: (?!(?:STE|SUITE|BLDG|FL|FLOOR|RM|ROOM|APT|UNIT|LOT)(?: |$))[A-Z0-9]+)?(?= |$)', '', 'g')) "
+    "else '' end as street_words "
     "from (select document_number, "
     "string_to_array(trim(regexp_replace(upper(coalesce(principal_address_1, '')), '[^A-Z0-9]+', ' ', 'g')), ' ') as words "
     f"from company_search{NEW}) as simplified) as cut "
@@ -237,7 +241,21 @@ ADDRESSES_FILL_SQL = (
 # as 4TH in "4TH ST SOUTH", is not a house number: that is the second test, and it is the
 # pattern search.ORDINAL. An address that begins with a letter, such
 # as "PO BOX 12" or "ONE MAIN ST", has no house number here and cannot be found by address.
-# No word is removed: the search itself decides which words to ignore (street types and
+# OFFICE UNITS ARE LEFT OUT HERE (Phase D rule S15, leg D4). regexp_replace removes, from the
+# street's words, every office unit word (STE, SUITE, BLDG, FL, FLOOR, RM, ROOM) together with
+# the one word after it, which is its number or letter. So "PALM PKWY STE 200" is stored as
+# PALM PKWY, and one typed address finds the companies of the building's suites. A unit whose number
+# is written with a hyphen keeps the second part ("STE 400-B" leaves B), and a unit word glued to its
+# number ("STE200") is not a unit word, so those suites are still compared (question Q61). APT,
+# UNIT and LOT are NOT removed, and a unit word is never taken as another unit word's number:
+# "OCEAN DR BLDG 2 APT 305" is stored as OCEAN DR APT 305. The pattern is
+# search.OFFICE_UNIT_PATTERN, typed out here because this module does not import the search,
+# and a test fails when the two texts differ. A space is put in front of the street first,
+# because the pattern looks for a space before each unit word, and ltrim takes away the space
+# that is left at the front. 'g' means every match, not only the first.
+# Why here and not in the search: the unit has to go together with the word AFTER it, and the
+# search's query can only ask whether a word is in a list, not which word stood next to which.
+# No other word is removed: the search itself decides which words to ignore (street types and
 # directions), so that list lives in one place, search.py.
 # order by: the rows are WRITTEN in house-number order, then street, so the companies at one
 # address share a page on disk, as the names do in the narrow name table.

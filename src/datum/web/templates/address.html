@@ -8,6 +8,7 @@
 {% endfor %}
 {% for fact in not_listed %}<p>{{ fact.text }} <small>{{ w.LABEL_SOURCE }}: <a href="{{ fact.source_url }}" rel="noopener noreferrer">{{ fact.citation }}</a> · {{ fact.fetched_text }}</small></p>
 {% endfor %}
+{% if only_inactive %}<p><strong>{{ only_inactive }}</strong></p>{% endif %}
 <p>{{ w.PRINCIPAL_ADDRESS_NOTE }}</p>
 <h2>{{ w.SEARCH_AGAIN }}</h2>
 {% include "_form.html" %}

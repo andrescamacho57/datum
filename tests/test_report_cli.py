@@ -9,6 +9,7 @@ Run from ~/datum:  pytest
 """
 
 import ast                                  # parses source code into its structure, without running it
+import html                                 # turns &#39; and &#34; on a page back into the characters a person reads
 import inspect                              # reads the source of the module under test
 import re                                   # the search for the words rule W4 bans
 from pathlib import Path                    # the path of extract.py, which one test reads as text
@@ -75,12 +76,13 @@ def test_the_note_reaches_the_extraction_step_and_nothing_else(tmp_path):
     assert seen == [NOTE]                                                 # one call, with the note as typed
 
 
-def test_a_vague_note_asks_for_a_name_a_street_or_a_city_and_shows_no_company(tmp_path):
-    # Acceptance test A2. The old prompt also asked for "an owner's name" (rule W6).
+def test_a_vague_note_asks_for_a_name_or_an_address_and_shows_no_company(tmp_path):
+    # Acceptance test A2. The old prompt also asked for "an owner's name" (rule W6). Since leg D4 the question is the web page's own
+    # (rule S18): it asks for what the two searches use, and no longer for "a street or a city".
     talk = Talk([""])                                                    # Enter alone: nothing to add
     vague = {"business_name": "pool service", "city": "", "street": "Race Track Rd", "is_specific": False}
     assert run(talk, tmp_path, note="the pool guy off race track rd", fields=vague) is None
-    assert talk.asked == ["That describes a business but doesn't name one. Add its name, a street or a city (press Enter if you don't know): "]
+    assert talk.asked == ["That describes a business but doesn't name one. Add its name, or its street address beginning with the house number. (press Enter if you don't know): "]
     assert "INVENTED" not in talk.everything and list(tmp_path.iterdir()) == []   # no company was shown and no report was written
     assert talk.said[-1].strip() == wording.GIVING_UP
 
@@ -171,7 +173,7 @@ def test_a_wrong_pick_is_asked_again_and_zero_asks_for_more(tmp_path):
     talk = Talk(["9", "abc", "0", ""])                                   # out of range, not a number, then "add more details", then nothing to add
     assert run(talk, tmp_path) is None
     assert talk.said.count("Please type a number from 0 to 5.") == 2
-    assert talk.asked[-1] == "Add a street or a city (press Enter if you don't know): "
+    assert talk.asked[-1] == "Add the business's full name or its city (press Enter if you don't know): "   # since leg D4: a street appended to a named note is not used
 
 
 def test_the_command_gives_up_after_three_rounds_and_never_guesses(tmp_path):
@@ -316,7 +318,7 @@ def test_a_reply_that_calls_the_note_specific_and_gives_no_name_is_treated_as_na
     # Without this, the terminal would print: I read that as: the business name "" - and then search for nothing.
     talk = Talk([""])
     assert run(talk, tmp_path, fields={"business_name": "   ", "city": "Tampa", "street": "", "is_specific": True}) is None
-    assert talk.asked == ["That describes a business but doesn't name one. Add its name, a street or a city (press Enter if you don't know): "]
+    assert talk.asked == ["That describes a business but doesn't name one. Add its name, or its street address beginning with the house number. (press Enter if you don't know): "]
     assert not [line for line in talk.said if "I read that as" in line] and "INVENTED" not in talk.everything
 
 
@@ -363,3 +365,208 @@ def test_the_terminals_question_about_a_possible_match_still_gives_an_inactive_c
     assert "INACTIVE with the state. Nothing else confirms" in question
     assert "INACTIVE with the state) · chosen by the user from a shortlist." in path.read_text()
     assert [line for line in talk.said if line.endswith("(T26000000003)  ·  Inactive with the state")]   # and the shortlist line above it has the mark
+
+
+def test_the_terminal_lists_the_companies_in_rank_order_and_says_so_when_a_lower_level_comes_first(tmp_path):
+    # Phase D rule S12 (leg D3). The terminal prints the same Shortlist the page shows, so it is in rank order too, and it says the
+    # rule's sentence once, after the list and before it asks for a pick. Until leg D3 the two Likely companies were printed first.
+    sentence = "The list is in search order. The level beside each company says how much of the record agrees with what you typed."
+    base = next(c for c in fx.load_companies() if c.document_number == fx.NO_FLAG_COMPANY)
+    rows = (("ACME ROOFING AND SIDING INC", "TAMPA"), ("ACME ROOFERS INC", "JACKSONVILLE"), ("ACME ROOFER INC", "JACKSONVILLE"),
+            ("ACME ROOFINGS", "TAMPA"), ("ACME ROOFERS OF TAMPA INC", "TAMPA"))
+    five = [replace(base, document_number=f"T2600000020{n}", entity_name=name, name_key=name, principal_city=city) for n, (name, city) in enumerate(rows, start=1)]
+    acme = {"business_name": "Acme Roofing", "city": "Jacksonville", "street": "", "is_specific": True}
+    talk = Talk(["0", ""])                                               # look at the list, add nothing, stop
+    run(talk, tmp_path, note="acme roofing jacksonville", fields=acme, companies=five)
+    numbered = [line for line in talk.said if re.match(r"\d\. \[", line)]
+    assert [re.match(r"\d\. \[(\w+)\]", line).group(1) for line in numbered] == ["Possible", "Likely", "Likely", "Possible", "Possible"]
+    assert talk.said.count(sentence) == 1 and talk.said.index(sentence) > talk.said.index(numbered[-1])   # once, under the list
+    assert "2 companies on this list match at the level Likely." in talk.everything   # the tie reads the best level on the list
+    # Five Possible companies are already in level order, so nothing is said about the order.
+    talk = Talk(["0", ""])
+    run(talk, tmp_path, fields={"business_name": "Invented Air Cooling", "city": "", "street": "", "is_specific": True})
+    assert sentence not in talk.everything and len([line for line in talk.said if re.match(r"\d\. \[Possible\]", line)]) == 5
+
+
+# --- Rule S18 (leg D4): the terminal takes the same path as the web app -----------------------------------
+
+ADDRESS_NOTE = {"business_name": "<UNKNOWN>", "city": "", "street": "8586 palm pwwy", "is_specific": False}
+# What the extraction step returned for the note "8586 palm pwwy" on Nov 25, 2026: no business, and the street as typed.
+
+
+def palm_pkwy(active=1, inactive=2):
+    """Invented companies whose principal address is 8586 Palm Pkwy, written three ways, plus the fixture companies."""
+    base = next(c for c in fx.load_companies() if c.document_number == fx.NO_FLAG_COMPANY)
+    spellings = ("8586 PALM PKWY", "8586 PALM PARKWAY STE 4", "8586 Palm Pkwy., Suite 210")
+    companies = [replace(base, document_number=f"T260000002{n:02d}", entity_name=f"INVENTED PIZZA {n} LLC", name_key=f"INVENTED PIZZA {n} LLC",
+                         status_code="A", principal_address_1=spellings[n % 3], principal_city="ORLANDO", principal_zip="32836") for n in range(active)]
+    companies += [replace(base, document_number=f"T260000003{n:02d}", entity_name=f"INVENTED TILE {n} INC", name_key=f"INVENTED TILE {n} INC",
+                          status_code="I", principal_address_1=spellings[(n + 1) % 3], principal_city="ORLANDO", principal_zip="32836") for n in range(inactive)]
+    return fx.load_companies() + companies
+
+
+def test_an_address_alone_gets_the_address_search_in_the_terminal_and_a_report_of_the_company_picked(tmp_path):
+    # Phase D rule S18. Until leg D4 the terminal asked "That describes a business but doesn't name one" for this note, and this test
+    # fails on that: the question was asked, and nothing was listed.
+    talk = Talk(["1"])
+    path = run(talk, tmp_path, note="8586 palm pwwy", fields=ADDRESS_NOTE, companies=palm_pkwy())
+    assert path == tmp_path / "T26000000200_20261124.md"
+    said = talk.said
+    assert 'I read that as: the street "8586 palm pwwy"' in "\n".join(said)
+    assert said.index("1 active company matches.") < said.index("1. INVENTED PIZZA 0 LLC  (T26000000200)")
+    assert "   Principal address 8586 PALM PKWY, ORLANDO, FL 32836" in said   # the address as the state has it, to compare with what was typed
+    counted = next(line for line in said if line.startswith("2 inactive companies also match and are not listed."))
+    assert "Source: Florida Division of Corporations (Sunbiz) company records (" in counted   # the count cites the records, as on the page
+    assert said.count("A company's principal address is the address it gave the state, which is not always where it does business.") == 1
+    assert "TILE" not in talk.everything and "T260000003" not in talk.everything   # the inactive companies are counted and never listed (rule S6)
+    assert talk.asked == ["\nPick 1-1, or 0 to add more details: "]   # no question about a Possible match: a company found by its address has no level
+    saved = path.read_text()
+    assert ('from the street "8586 palm pwwy" · found by its principal address on record · chosen by the user from the active companies listed. '
+            + wording.address_compared_text("8586", city_given=False)) in saved   # the saved report carries the one description too
+    assert "made only of words" not in saved
+    assert "match level" not in saved
+
+
+def test_an_address_with_only_inactive_companies_in_the_terminal_asks_for_the_name_and_lists_nobody(tmp_path):
+    talk = Talk([""])                                                    # nothing to pick, so it asks for more, and Enter alone stops
+    assert run(talk, tmp_path, note="8586 palm pwwy", fields=ADDRESS_NOTE, companies=palm_pkwy(active=0, inactive=2)) is None
+    said = talk.said
+    assert said.index("No active company matches.") < next(i for i, line in enumerate(said) if line.startswith("2 inactive companies"))
+    assert said.count("Type the business's name to look for it with the name search, which lists inactive companies too.") == 1   # rule S16
+    assert talk.asked == ["Add the business's full name or its city (press Enter if you don't know): "] and "TILE" not in talk.everything
+
+
+def web_answer(fields, companies):
+    """The web app's answer to one note, with the same stand-ins the terminal gets: the page, as HTML."""
+    from contextlib import contextmanager                             # turns a function with one `yield` into something to open with `with`
+    from fastapi.testclient import TestClient                         # calls the app without a server
+    from datum.web.app import create_app
+
+    @contextmanager
+    def open_backends():
+        yield FakeBackend(companies), FakeReportBackend(companies, fx.load_flags(), fx.load_sources())
+
+    code = "a-throwaway-code-for-tests"                                # not a secret: it exists only inside this test
+    browser = TestClient(create_app(code, lambda note: dict(fields), open_backends, today=lambda: fx.BUILT_ON), client=("127.0.0.1", 50000))
+    browser.auth = ("anyone", code)
+    return browser.post("/search", data={"note": "a note"}).text
+
+
+ADDRESS_SENTENCES = (wording.ADDRESS_TOO_MANY, "No company matches. A company matches when")   # the two answers of an address search that list nobody
+
+
+def kind_on_the_page(page):
+    heading = re.search(r"<h1>(.*?)</h1>", page).group(1)
+    text = html.unescape(page)
+    if heading == wording.SHORTLIST_HEADING or wording.NO_COMPANY_FOUND in text:   # the name search, with a list or with no company close to the name
+        return "name"
+    if heading == wording.ADDRESS_HEADING or any(sentence in text for sentence in ADDRESS_SENTENCES):
+        return "address"
+    return "ask" if wording.ASK_FOR_A_BUSINESS_ON_A_PAGE in text else "something else"
+
+
+def kind_in_the_terminal(talk):
+    if any(re.match(r"\d+\. \[(Strong|Likely|Possible)\]", line) for line in talk.said) or wording.NO_COMPANY_FOUND in talk.said:
+        return "name"
+    if any(line.startswith("A company matches when its principal address") for line in talk.said) or any(s in line for line in talk.said for s in ADDRESS_SENTENCES):
+        return "address"
+    return "ask" if talk.asked and talk.asked[0].startswith(wording.ASK_FOR_A_BUSINESS_ON_A_PAGE) else "something else"
+
+
+def fixed_sentences(fields):
+    """Every fixed sentence an answer to this note could hold, built with the page's own wording, so both sides can be searched for them."""
+    street, city = fields["street"], fields["city"]
+    by_address = wording.READ_AS.format(fields=", ".join(
+        part for part in (wording.FIELD_STREET.format(value=street), wording.FIELD_CITY.format(value=city) if city else "") if part))
+    by_name = wording.READ_AS.format(fields=", ".join(
+        part for part in (wording.FIELD_BUSINESS_NAME.format(value=fields["business_name"]), wording.FIELD_CITY.format(value=city) if city else "",
+                          wording.FIELD_STREET.format(value=street) if street else "") if part))
+    house = street.split()[0] if street.split() and street.split()[0][0].isdigit() else ""
+    sentences = [by_address, by_name, wording.address_compared_text(house, city_given=bool(city)), wording.ADDRESS_NO_ACTIVE, wording.ADDRESS_ONLY_INACTIVE,
+                 wording.PRINCIPAL_ADDRESS_NOTE, wording.ADDRESS_TOO_MANY, wording.address_not_found_text(house, city_given=bool(city)), wording.NO_COMPANY_FOUND]
+    for count in (1, 2, 3):
+        sentences += [wording.count_text(count, wording.ADDRESS_ACTIVE_ONE, wording.ADDRESS_ACTIVE_MANY),
+                      wording.count_text(count, wording.ADDRESS_INACTIVE_ONE, wording.ADDRESS_INACTIVE_MANY),
+                      wording.count_text(count, wording.ADDRESS_NO_STATUS_ONE, wording.ADDRESS_NO_STATUS_MANY)]
+    return sentences
+
+
+def with_one_in_miami():
+    """The fixture of palm_pkwy(), plus an active company with the same house number and street name in Miami."""
+    base = next(c for c in fx.load_companies() if c.document_number == fx.NO_FLAG_COMPANY)
+    return palm_pkwy() + [replace(base, document_number="T26000000250", entity_name="INVENTED GLASS OF MIAMI LLC", name_key="INVENTED GLASS OF MIAMI LLC",
+                                  status_code="A", principal_address_1="8586 PALM AVE", principal_city="MIAMI")]
+
+
+def with_no_status_only():
+    """One company at 8586 Palm Pkwy, with no status on record, plus the fixture companies."""
+    base = next(c for c in fx.load_companies() if c.document_number == fx.NO_FLAG_COMPANY)
+    return fx.load_companies() + [replace(base, document_number="T26000000401", entity_name="INVENTED GLASS LLC", name_key="INVENTED GLASS LLC",
+                                          status_code=None, principal_address_1="8586 PALM PKWY", principal_city="ORLANDO")]
+
+
+@pytest.mark.parametrize("label,fields,companies,kind,listed", [
+    ("a business named", FIELDS, None, "name", 5),                   # five companies, in whatever order the name search ranks them
+    ("a business named, and no company close to it", FIELDS, "none", "name", []),
+    ("an address with one active company", ADDRESS_NOTE, "one", "address", ["T26000000200"]),
+    ("an address with a city given", {**ADDRESS_NOTE, "city": "Orlando"}, "one and Miami", "address", ["T26000000200"]),
+    ("an address with only inactive companies", ADDRESS_NOTE, "inactive", "address", []),
+    ("an address where the only company has no status", ADDRESS_NOTE, "no status", "address", []),
+    ("an address with too many companies", ADDRESS_NOTE, "crowded", "address", []),
+    ("an address nobody has", {**ADDRESS_NOTE, "street": "12 made up rd"}, "one", "address", []),
+    ("an address nobody has, with a city given", {**ADDRESS_NOTE, "street": "12 made up rd", "city": "Orlando"}, "one", "address", []),
+    ("no business and no house number", {"business_name": "pool service", "city": "", "street": "Race Track Rd", "is_specific": False}, None, "ask", []),
+])
+def test_the_terminal_and_the_web_app_give_the_same_kind_of_answer_and_the_same_companies_for_one_note(tmp_path, label, fields, companies, kind, listed):
+    # Phase D rule S18: one note gets the same answer in both places. Until leg D4 the address notes got the address search on the page
+    # and a question in the terminal, and this test fails on that. Round 1 of leg D4's review found the first version too narrow, and
+    # it now also compares, for every note: the same companies in the same order, each listed company followed by its address and its
+    # source in the terminal, and every fixed sentence on both sides or on neither, in the same order.
+    companies = {None: fx.load_companies(), "none": [], "one": palm_pkwy(), "one and Miami": with_one_in_miami(), "inactive": palm_pkwy(active=0, inactive=2),
+                 "no status": with_no_status_only(), "crowded": palm_pkwy(active=40, inactive=11)}[companies]
+    page = web_answer(fields, companies)
+    talk = Talk(["0", ""] if listed else [""])                           # look at the list and pick nothing, or add nothing, so the run stops
+    assert run(talk, tmp_path, note="a note", fields=fields, companies=companies) is None and list(tmp_path.iterdir()) == []   # 0, or nothing to pick: no report
+    assert kind_on_the_page(page) == kind_in_the_terminal(talk) == kind, label
+    on_the_page = re.findall(r'href="/company/(T\d{11})\?from=', page)
+    numbered = [at for at, line in enumerate(talk.said) if re.match(r"\d+\. ", line)]
+    in_the_terminal = [re.search(r"\((T\d{11})\)", talk.said[at]).group(1) for at in numbered]
+    assert on_the_page == in_the_terminal, label                           # the same companies, in the same order
+    assert (len(on_the_page) == listed) if isinstance(listed, int) else (on_the_page == listed), label
+    for at in numbered:                                                    # each company the terminal lists is followed by its source (rule W1)
+        assert talk.said[at + 2].startswith("   Source: Florida Division of Corporations (Sunbiz) record, document number T"), (label, talk.said[at + 2])
+    visible = html.unescape(" ".join(re.sub(r"<[^>]+>", " ", page).split()))
+    said = "\n".join(talk.said)
+    names = {c.document_number: c.entity_name for c in companies}
+    listed_names = [names[number] for number in on_the_page]              # the listed companies take part in the order too (round 2 of the review)
+    present = [sentence for sentence in fixed_sentences(fields) + listed_names if sentence in visible or sentence in said]
+    for sentence in present:
+        assert (sentence in visible) == (sentence in said), (label, sentence)   # every fixed sentence is on both, or on neither
+    assert sorted(present, key=visible.index) == sorted(present, key=said.index), label   # and in the same order
+
+
+def test_the_terminal_reports_on_the_company_picked_from_an_address_list_and_counts_the_others(tmp_path):
+    # Round 1 of leg D4's review: nothing checked which company the terminal reports on after an address list, or its count of the others.
+    talk = Talk(["2"])                                                  # three active companies at one address, two of them at suites: pick the second
+    path = run(talk, tmp_path, note="8586 palm pwwy", fields=ADDRESS_NOTE, companies=palm_pkwy(active=3, inactive=0))
+    assert [line for line in talk.said if re.match(r"\d+\. ", line)] == [
+        "1. INVENTED PIZZA 0 LLC  (T26000000200)", "2. INVENTED PIZZA 1 LLC  (T26000000201)", "3. INVENTED PIZZA 2 LLC  (T26000000202)"]
+    assert path == tmp_path / "T26000000201_20261124.md"                # the company typed, and not the first or the last
+    assert "2 other active companies were listed with it." in path.read_text()   # rule W7, as on the report the page opens
+
+
+def test_a_name_added_after_an_address_search_sends_the_note_to_the_name_search(tmp_path):
+    # Rule S16's sentence asks for the business's name. In the terminal what is typed next is added to the note, and the note is read
+    # again: once it names a business, the name search runs (rule S5). Round 1 of leg D4's review found nothing tested that path.
+    notes = []
+
+    def extract(note):
+        notes.append(note)
+        return dict(FIELDS) if "invented air" in note else dict(ADDRESS_NOTE)
+
+    talk = Talk(["invented air conditioning", "1"])
+    path = run(talk, tmp_path, note="8586 palm pwwy", extract=extract, companies=palm_pkwy(active=0, inactive=2))
+    assert notes == ["8586 palm pwwy", "8586 palm pwwy invented air conditioning"]
+    assert "Type the business's name to look for it with the name search, which lists inactive companies too." in talk.said
+    assert talk.asked[0] == "Add the business's full name or its city (press Enter if you don't know): "
+    assert [line for line in talk.said if re.match(r"1\. \[", line)] and path == tmp_path / "T26000000001_20261124.md"

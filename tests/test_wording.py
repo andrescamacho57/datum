@@ -58,6 +58,19 @@ def test_the_line_above_a_tied_shortlist_names_the_level_and_the_count_and_promi
         assert phrase not in every, phrase                                # three things the app could not stand behind
 
 
+def test_the_line_under_a_list_that_is_out_of_level_order_is_rule_s12s_sentence_word_for_word():
+    # Phase D rule S12 gives the sentence, so it is typed out here and not read from wording.py.
+    sentence = "The list is in search order. The level beside each company says how much of the record agrees with what you typed."
+    assert wording.search_order_text(True) == wording.SHORTLIST_SEARCH_ORDER == sentence
+    assert wording.search_order_text(False) == ""                         # levels that already go from best to worst need no sentence
+
+
+def test_the_reason_about_a_place_in_a_name_says_what_was_compared_and_claims_no_location():
+    # Phase D rule S14. The comparison is "every word of the city is a word of the name", so that is what the reason says.
+    # A name that holds a place does not put the company there, so the line says where the WORDS are and nothing about the company's location.
+    assert wording.EVIDENCE_CITY_IN_NAME == "every word of the city you gave is in the company's name"
+
+
 def test_the_identification_line_is_built_from_extracted_fields_and_leaves_out_an_empty_one():
     line = wording.identified_text("Acme Roofing", "", "", "Likely", ("name is similar (93/100)", "ACTIVE"), 0)
     assert line == 'from the business name "Acme Roofing" · match level Likely (name is similar (93/100); ACTIVE) · chosen by the user from a shortlist.'
@@ -105,21 +118,70 @@ def test_the_sentences_of_an_address_search_are_held_here_as_literal_text():
     assert wording.count_text(3, wording.ADDRESS_NO_STATUS_ONE, wording.ADDRESS_NO_STATUS_MANY) == "3 companies with no status on record also match and are not listed."
     assert "inactive" not in wording.ADDRESS_NO_STATUS_ONE + wording.ADDRESS_NO_STATUS_MANY   # no status on record is never called inactive
     assert wording.ADDRESS_TOO_MANY == "That house number and street name are on the records of too many companies to list them. Add the business's name."
-    assert wording.address_not_found_text(city_given=False) == wording.ADDRESS_NOT_FOUND and "city" not in wording.ADDRESS_NOT_FOUND
-    assert wording.address_not_found_text(city_given=True).startswith("No company matches: none has a principal address on record with that house number, "
-                                                                      "a street name made only of words you typed, and a principal city that begins with the city you gave.")
-    assert wording.address_compared_text("8586", city_given=False).endswith("are not compared. You gave no city, so a match can be in any city.")
-    assert wording.address_compared_text("8586", city_given=True).endswith("are not compared. Its principal city on record also begins with the city you gave.")
+    # Both sentences for "no match", word for word. Since round 3 of leg D4's review each holds the ONE description of the
+    # comparison, ADDRESS_COMPARED, and says nothing of its own about what was compared: two shorter restatements of the rule had each
+    # missed a case. "No company matches." makes no claim about any record.
+    assert wording.address_not_found_text("8586", city_given=False) == "No company matches. A company matches when its principal address on record begins with the house number 8586, and every word of its street name is among the words you typed once three things are left out of both: the kind of street, such as ST or PKWY; a direction (N, S, E, W, NORTH, SOUTH, EAST, WEST, NE, NW, SE or SW); and an office unit word (STE, SUITE, BLDG, FL, FLOOR, RM or ROOM) with the one word after it, unless that word is a unit word too. A street name with no word left after that matches nothing. Punctuation counts as a space, so in STE 400-B the B is still compared, and so is a unit written as one word, such as STE200. An apartment, unit or lot on the record is compared, the word and its number, so both have to be typed too. You gave no city, so a match can be in any city. Check the house number and the spelling of the street's name, and add the apartment, unit or lot number if the address has one."
+    assert wording.address_not_found_text("8586", city_given=True) == "No company matches. A company matches when its principal address on record begins with the house number 8586, and every word of its street name is among the words you typed once three things are left out of both: the kind of street, such as ST or PKWY; a direction (N, S, E, W, NORTH, SOUTH, EAST, WEST, NE, NW, SE or SW); and an office unit word (STE, SUITE, BLDG, FL, FLOOR, RM or ROOM) with the one word after it, unless that word is a unit word too. A street name with no word left after that matches nothing. Punctuation counts as a space, so in STE 400-B the B is still compared, and so is a unit written as one word, such as STE200. An apartment, unit or lot on the record is compared, the word and its number, so both have to be typed too. Its principal city on record also begins with the city you gave. Check the house number, the spelling of the street's name and the city, and add the apartment, unit or lot number if the address has one."
+    assert wording.address_compared_text("8586", city_given=False).endswith("so both have to be typed too. You gave no city, so a match can be in any city.")
+    assert wording.address_compared_text("8586", city_given=True).endswith("so both have to be typed too. Its principal city on record also begins with the city you gave.")
+
+
+def test_the_sentence_about_what_an_address_search_compares_names_exactly_the_words_the_search_leaves_out():
+    # Phase D rule S15 (leg D4). The sentence is typed out, and then checked against the search's own lists, so that it cannot
+    # name a direction or a unit word the search does not leave out, or leave one out that it does. Until leg D4 it named four
+    # directions and no unit, and the two sentences for "no match" advised adding a suite, which is no longer compared.
+    import re
+    from datum.search import DIRECTIONS, HOME_UNIT_WORDS, OFFICE_UNIT_WORDS
+    assert wording.ADDRESS_COMPARED == (
+        'A company matches when its principal address on record begins with the house number {house_number}, and every word of its street name '
+        'is among the words you typed once three things are left out of both: the kind of street, such as ST or PKWY; '
+        'a direction (N, S, E, W, NORTH, SOUTH, EAST, WEST, NE, NW, SE or SW); '
+        'and an office unit word (STE, SUITE, BLDG, FL, FLOOR, RM or ROOM) with the one word after it, unless that word is a unit word too. '
+        'A street name with no word left after that matches nothing. '
+        'Punctuation counts as a space, so in STE 400-B the B is still compared, and so is a unit written as one word, such as STE200. '
+        'An apartment, unit or lot on the record is compared, the word and its number, so both have to be typed too.'
+    )
+    # Each clause is what the code does: punctuation is read as a space, only the one word after the unit word goes, a unit word is
+    # never taken as another's number, and APT is compared like any other word.
+    from datum.search import street_parts
+    assert street_parts("12 made up rd ste 400-b") == ("12", ("MADE", "UP", "B")) and street_parts("12 made up rd ste.400") == ("12", ("MADE", "UP"))
+    assert street_parts("12 made up rd bldg apt 305") == ("12", ("MADE", "UP", "APT", "305"))
+    assert street_parts("12 made up rd ste200") == ("12", ("MADE", "UP", "STE200"))   # and a unit written as one word is compared, as the sentence says
+    named = re.findall(r"\(([^)]*)\)", wording.ADDRESS_COMPARED)          # the two lists in brackets
+    assert set(re.findall(r"[A-Z]+", named[0])) == set(DIRECTIONS) and len(DIRECTIONS) == 12
+    assert tuple(re.findall(r"[A-Z]+", named[1])) == OFFICE_UNIT_WORDS
+    assert HOME_UNIT_WORDS == ("APT", "UNIT", "LOT")                      # the three the last sentence says are still compared
+    for sentence in (wording.ADDRESS_NOT_FOUND, wording.ADDRESS_NOT_FOUND_IN_CITY):
+        assert sentence.endswith("and add the apartment, unit or lot number if the address has one.") and "suite" not in sentence.lower()
+
+
+def test_the_sentence_for_an_address_with_only_inactive_companies_asks_for_the_name_and_says_no_number():
+    # Phase D rule S16. Typed out here, so that a change to the words is a change to this test too.
+    assert wording.ADDRESS_ONLY_INACTIVE == "Type the business's name to look for it with the name search, which lists inactive companies too."
+    assert wording.only_inactive_text(0, 1) == wording.only_inactive_text(0, 7) == wording.ADDRESS_ONLY_INACTIVE   # no active company, and at least one inactive one
+    assert wording.only_inactive_text(1, 2) == wording.only_inactive_text(0, 0) == wording.only_inactive_text(3, 0) == ""   # an active one, or no inactive one: nothing
 
 
 def test_the_identification_line_of_an_address_search_names_the_street_and_no_match_level():
-    line = wording.identified_by_address_text("8586 palm pwwy", "", 0)
-    assert line == ('from the street "8586 palm pwwy" · found by its principal address on record (the same house number, and a street name made only of '
-                    "words that were typed) · chosen by the user from the active companies listed.")
+    line = wording.identified_by_address_text("8586 palm pwwy", "", 0, "8586")
+    assert line == ('from the street "8586 palm pwwy" · found by its principal address on record · chosen by the user from the active companies listed. '
+                    + wording.address_compared_text("8586", city_given=False))
     assert "level" not in line                                            # rule S4 keeps the three levels for the name search
-    with_city = wording.identified_by_address_text("8586 palm pwwy", "Orlando", 1)
-    assert 'from the street "8586 palm pwwy", the city "Orlando" ·' in with_city and with_city.endswith(" 1 other active company was listed with it.")
-    assert wording.identified_by_address_text("12 made up rd", "", 4).endswith(" 4 other active companies were listed with it.")
+    with_city = wording.identified_by_address_text("8586 palm pwwy", "Orlando", 1, "8586")
+    assert 'from the street "8586 palm pwwy", the city "Orlando" ·' in with_city
+    assert with_city.endswith(" 1 other active company was listed with it. " + wording.address_compared_text("8586", city_given=True))
+    assert " 4 other active companies were listed with it. A company matches when " in wording.identified_by_address_text("12 made up rd", "", 4, "12")
+
+
+def test_no_text_that_wording_defines_holds_the_retired_phrase_made_only_of_words():
+    # The review of Nov 26, 2026 found the report's line still carrying a shorter description of the comparison, "a street name made
+    # only of words that were typed", which rule S15 had made untrue: an office unit and a direction on the record are never typed.
+    # The report now shows ADDRESS_COMPARED itself (the line's own test above pins it word for word). What this test checks is
+    # narrow: no text that wording.py defines at its top level holds that exact phrase. It does not catch the same idea restated in
+    # other words, text inside a tuple or a function, or a template.
+    restated = [name for name, value in vars(wording).items() if isinstance(value, str) and "made only of words" in value]
+    assert restated == []
 
 
 def test_the_pages_ask_for_what_the_two_searches_use_and_no_longer_for_a_street_beside_a_name():
@@ -130,7 +192,14 @@ def test_the_pages_ask_for_what_the_two_searches_use_and_no_longer_for_a_street_
     assert wording.ASK_FOR_A_BUSINESS_ON_A_PAGE == "That describes a business but doesn't name one. Add its name, or its street address beginning with the house number."
     for page_sentence in (wording.SEARCH_HINT, wording.NOTE_EMPTY, wording.NOTE_TOO_LONG, wording.ASK_FOR_A_BUSINESS_ON_A_PAGE):
         assert "a street or a city" not in page_sentence
-    assert wording.ASK_FOR_A_BUSINESS.endswith("a street or a city")      # the terminal has no search by address, so its question is unchanged
+    # Since leg D4 the terminal has the search by address too (rule S18). It asks the page's own question, its old version is gone,
+    # and its two other sentences ask for what the searches use.
+    assert not hasattr(wording, "ASK_FOR_A_BUSINESS")
+    assert wording.ASK_FOR_MORE == "Add the business's full name or its city"
+    assert wording.GIVING_UP == ("I can't identify this business from what I have, so I won't guess. "
+                                 "Run it again when you have its name and its city, or its street address beginning with the house number.")
+    every = [value for name, value in vars(wording).items() if name.isupper() and isinstance(value, str)]
+    assert not [text for text in every if "a street or a city" in text]   # no sentence anywhere still offers "a street or a city"
 
 
 def test_the_summary_sentences_say_the_status_as_of_a_date_and_never_fill_a_gap():
