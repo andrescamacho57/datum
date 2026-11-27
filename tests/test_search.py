@@ -19,7 +19,7 @@ from datum.search import (
     ADDRESS_FETCH, CANDIDATE_POOL, COMPANY_COLUMNS, DIRECTIONS, HOME_UNIT_WORDS, IGNORED_STREET_WORDS, MOST_AT_AN_ADDRESS, OFFICE_UNIT_PATTERN, OFFICE_UNIT_WORDS, STREET_TYPES, SUFFIX_PATTERN,
     Company, FakeBackend, PostgresBackend,
     RANK_ORDER, address_search, by_city_then_words, by_similarity_then_city, by_words_then_city, city_in_name, company_from_row, evidence, holds_every_word, jaro_winkler_similarity, match_level, name_key, rank, search,
-    search_kind, search_pool, shortlist, street_matches, street_parts, without_office_units,
+    search_kind, search_pool, shortlist, street_matches, street_parts, typed_words, without_office_units,
 )
 
 PAIRS = Path(__file__).parent / "fixtures" / "search" / "jarowinkler_pairs.csv"
@@ -231,6 +231,30 @@ def test_every_word_compares_whole_words_and_leaves_legal_suffixes_out_of_both_n
     assert by_words_then_city(one) == (False, True, -95, "T00000000001") and by_city_then_words(one) == (True, False, -95, "T00000000001")   # the two sort keys themselves
     assert by_similarity_then_city(one) == (-95, True, "T00000000001")     # search version 1's key, kept for the evaluation
     assert RANK_ORDER is by_words_then_city                               # Phase D rule S13: the app's order is rule S2
+
+
+def test_a_typed_and_or_the_is_not_a_word_the_company_name_must_hold():
+    # The review of Nov 26, 2026, with invented companies. name_key() turns "&" into a space, so "A&B" never holds a typed AND, and a
+    # registered name often has no THE. Because the every-word test comes before the city, each pool below put the name that spells
+    # the word out first, in another city, until typed_words() left AND and THE out of the test.
+    and_pool = [
+        company("T00000000001", "ALPHA AND BRAVO ROOFING A B HOLDINGS OF NORTH FLORIDA INC", city="OCALA"),   # spells out AND, elsewhere
+        company("T00000000002", "A&B ROOFING LLC", city="TAMPA"),                                            # the company meant, in the city given
+    ]
+    assert rank(and_pool, "A and B Roofing", city="Tampa")[0].company.document_number == "T00000000002"
+    the_pool = [
+        company("T00000000003", "THE ACME GROUP OF NORTH FLORIDA INC", city="OCALA"),                      # spells out THE, elsewhere
+        company("T00000000004", "ACME GROUP LLC", city="JACKSONVILLE"),                                     # the company meant, in the city given
+    ]
+    assert rank(the_pool, "The Acme Group", city="Jacksonville")[0].company.document_number == "T00000000004"
+    assert holds_every_word("A AND B ROOFING", "A B ROOFING LLC") and holds_every_word("THE ACME GROUP", "ACME GROUP LLC")
+    assert not holds_every_word("THE ACME GROUP", "ACME LLC")                # leaving THE out does not drop the other words
+    assert typed_words("BANK OF THE WEST INC") == ["BANK", "OF", "WEST"]      # anywhere in the name, and the legal suffix goes too
+    assert typed_words("THE AND") == ["THE", "AND"]                          # nothing else typed: the words are kept, as a lone legal suffix is
+    conn = RecordingConnection()
+    PostgresBackend(conn).nearest("A AND B ROOFING LLC", 200)
+    assert conn.asked[-1][1]["words"] == ["A", "B", "ROOFING"]              # the query's every-word term reads the same words
+    assert conn.asked[-1][1]["key"] == "A AND B ROOFING"                     # and the nearness to the typed name still reads all of it
 
 
 def test_city_is_a_tie_break_and_never_a_filter():
@@ -541,7 +565,7 @@ def test_the_first_step_keeps_the_names_that_hold_every_typed_word_before_the_ne
     # Reading the pinned text: the every-word term comes first, THEN the nearest names, then a fixed order. Inside the term, the
     # answer is the test on the name WITHOUT its legal endings. The cheaper test on the whole name stands in front of it only so
     # that the pattern match runs on few names, and "else false" is right because a name that fails the first fails the second.
-    # The two values the term reads are the ones holds_every_word() compares: the typed words with the legal endings left out, and
+    # The two values the term reads are the ones holds_every_word() compares: the typed words with the legal endings, AND and THE left out, and
     # the one list of legal endings. A name that is nothing but a legal ending keeps its word, as it does in holds_every_word().
     conn = RecordingConnection()
     backend = PostgresBackend(conn)
