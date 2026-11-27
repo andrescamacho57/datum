@@ -161,7 +161,9 @@ Result: ✅ no draft **address** appears in any of the three pull requests. One 
 | `leg/d4-address-search` | `196776b` | The wording test is renamed to say what it checks: no string that `wording.py` names at its top level holds the phrase "made only of words". It does not catch the idea restated in other words, text inside a tuple or a function, or a template |
 | `leg/d4-address-search` | `967b103`, `464a252`, `b5a5728` | Merges that bring each commit of leg D3 above into leg D4 |
 
-The paperwork followed in `ed6bc46` (leg D3's report, section 7, and its row in the review log), `241da35` (its merge into leg D4) and `82cf85b` (leg D4's report, section 7, and its row). The Human review sections and descriptions of pull requests 29 and 30 were brought up to date on GitHub.
+The paperwork followed in `ed6bc46` (leg D3's report, section 7, and its row in the review log), `241da35` (its merge into leg D4) and `82cf85b` (leg D4's report, section 7, and its row). The Human review sections and descriptions of pull requests 29 and 30 were brought up to date on GitHub. A last correction to leg D3's section 7, `58fd191` (which checked case holds "the"), and its merge into leg D4, `ab27dcf`, came from the quick review of this report.
+
+**Pushed on Nov 26, 2026:** `leg/d3-name-search` from `a038b4f` to `58fd191` (6 commits) and `leg/d4-address-search` from `4ecabb5` to `ab27dcf` (15 commits), so pull requests 29 and 30 now show every fix. Both pushes were fast-forwards.
 
 ### The checks, run again, beside their targets
 
