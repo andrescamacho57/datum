@@ -164,13 +164,23 @@ def test_the_sentence_for_an_address_with_only_inactive_companies_asks_for_the_n
 
 
 def test_the_identification_line_of_an_address_search_names_the_street_and_no_match_level():
-    line = wording.identified_by_address_text("8586 palm pwwy", "", 0)
-    assert line == ('from the street "8586 palm pwwy" · found by its principal address on record (the same house number, and a street name made only of '
-                    "words that were typed) · chosen by the user from the active companies listed.")
+    line = wording.identified_by_address_text("8586 palm pwwy", "", 0, "8586")
+    assert line == ('from the street "8586 palm pwwy" · found by its principal address on record · chosen by the user from the active companies listed. '
+                    + wording.address_compared_text("8586", city_given=False))
     assert "level" not in line                                            # rule S4 keeps the three levels for the name search
-    with_city = wording.identified_by_address_text("8586 palm pwwy", "Orlando", 1)
-    assert 'from the street "8586 palm pwwy", the city "Orlando" ·' in with_city and with_city.endswith(" 1 other active company was listed with it.")
-    assert wording.identified_by_address_text("12 made up rd", "", 4).endswith(" 4 other active companies were listed with it.")
+    with_city = wording.identified_by_address_text("8586 palm pwwy", "Orlando", 1, "8586")
+    assert 'from the street "8586 palm pwwy", the city "Orlando" ·' in with_city
+    assert with_city.endswith(" 1 other active company was listed with it. " + wording.address_compared_text("8586", city_given=True))
+    assert " 4 other active companies were listed with it. A company matches when " in wording.identified_by_address_text("12 made up rd", "", 4, "12")
+
+
+def test_the_comparison_of_an_address_is_described_in_one_place_only():
+    # The review of Nov 26, 2026 found the report's line still carrying a shorter description of the comparison, "a street name made
+    # only of words that were typed", which rule S15 had made untrue: an office unit and a direction on the record are never typed.
+    # Every restatement of the rule had missed a case, so the report shows ADDRESS_COMPARED itself, and no sentence restates it.
+    restated = [name for name, value in vars(wording).items() if isinstance(value, str) and "made only of words" in value]
+    assert restated == []
+    assert wording.address_compared_text("100", city_given=False) in wording.identified_by_address_text("100 example st bldg 2 apt 305", "", 0, "100")
 
 
 def test_the_pages_ask_for_what_the_two_searches_use_and_no_longer_for_a_street_beside_a_name():

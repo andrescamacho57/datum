@@ -658,8 +658,9 @@ def test_an_address_alone_lists_the_one_active_company_there_and_says_two_inacti
 
     report = browser.get(f"/company/{links[0][0]}?from={links[0][1]}")
     page = seen(report.text)
-    assert ('How this company was identified: from the street "8586 palm pwwy" · found by its principal address on record (the same house number, '
-            "and a street name made only of words that were typed) · chosen by the user from the active companies listed.") in page
+    assert ('How this company was identified: from the street "8586 palm pwwy" · found by its principal address on record · chosen by the user from '
+            "the active companies listed. " + wording.address_compared_text("8586", city_given=False)) in page
+    assert "made only of words" not in page                               # the one description of the comparison, and no shorter one
     assert "match level" not in page and "POSSIBLE" not in page and "other active compan" not in page   # no level, no caution, and nobody else was listed
     # An inactive company was counted and never listed, so the page's token says nothing about it: its report claims no address search.
     unlisted = seen(browser.get(f"/company/T26000000300?from={links[0][1]}").text)

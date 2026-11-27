@@ -270,7 +270,8 @@ ADDRESS_COMPARED = (
 # directions and the seven office unit words, because those are exactly the words
 # search.street_parts() leaves out, and it says that APT, UNIT and LOT are still compared.
 # THIS IS THE ONE DESCRIPTION OF THE COMPARISON. The page shows it under every address search
-# that found a company, and the sentences for "no match" below show it too. Round 3 of leg D4's
+# that found a company, the sentences for "no match" below show it too, and so does the report of
+# a company picked from an address search (IDENTIFIED_BY_ADDRESS, since the review of Nov 26, 2026). Round 3 of leg D4's
 # review found that each prose restatement of the rule had missed a case, three rounds running,
 # so there is now only this one, and it follows the code clause by clause:
 #   "begins with the house number"     the first word of the address is the house number (street_parts)
@@ -349,10 +350,13 @@ ADDRESS_TOO_MANY = "That house number and street name are on the records of too 
 # cannot say how many companies there are, and a sentence with a number would need a source.
 COMPANY_RECORDS_CITATION = "Florida Division of Corporations (Sunbiz) company records"
 # What a count of companies cites. One company cites its own record, with its document number.
-IDENTIFIED_BY_ADDRESS = (
-    "from {fields} · found by its principal address on record (the same house number, and a street name made only of words that were typed) "
-    "· chosen by the user from the active companies listed."
-)
+IDENTIFIED_BY_ADDRESS = "from {fields} · found by its principal address on record · chosen by the user from the active companies listed."
+# Until the review of Nov 26, 2026 this line, the one a saved report keeps, carried its own shorter
+# description of the comparison: "the same house number, and a street name made only of words that
+# were typed". Rule S15 made that untrue, because a record's office unit and direction are left out
+# and never have to be typed, and round 3 of leg D4's review had replaced every other restatement.
+# So the line says only how the company was found and picked, and identified_by_address_text()
+# follows it with ADDRESS_COMPARED itself, the one description.
 ADDRESS_OTHERS_ONE = "1 other active company was listed with it."
 ADDRESS_OTHERS_MANY = "{count} other active companies were listed with it."
 # Rule W7 for an address: every company on the list matched equally, so the report of whichever
@@ -460,14 +464,14 @@ def address_not_found_text(house_number: str, city_given: bool) -> str:
     return (ADDRESS_NOT_FOUND_IN_CITY if city_given else ADDRESS_NOT_FOUND).format(compared=address_compared_text(house_number, city_given))
 
 
-def identified_by_address_text(street: str, city: str, others_listed: int) -> str:
-    """The identification line of a company picked from an address search, built from the EXTRACTED street and city only (rule W6)."""
+def identified_by_address_text(street: str, city: str, others_listed: int, house_number: str) -> str:
+    """The identification line of a company picked from an address search, built from the EXTRACTED street and city only (rule W6), then the one description of the comparison."""
     fields = [FIELD_STREET.format(value=street)]
     if city:
         fields.append(FIELD_CITY.format(value=city))
     line = IDENTIFIED_BY_ADDRESS.format(fields=", ".join(fields))
     others = count_text(others_listed, ADDRESS_OTHERS_ONE, ADDRESS_OTHERS_MANY)
-    return f"{line} {others}" if others else line
+    return " ".join(part for part in (line, others, address_compared_text(house_number, city_given=bool(city))) if part)
 
 
 def identified_text(business_name: str, city: str, street: str, level: str, evidence: tuple[str, ...], tied_others: int) -> str:

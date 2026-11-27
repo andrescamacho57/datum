@@ -382,8 +382,8 @@ def test_a_company_found_by_its_address_says_so_on_its_report_and_claims_no_matc
     how = Identification(found_by="address", street="1 invented wy", city="Boynton Beach", tied_others=1)
     report = fx.builder().build(fx.LIEN_COMPANY, how)
     assert report.identification.text == (
-        'from the street "1 invented wy", the city "Boynton Beach" · found by its principal address on record (the same house number, and a street name '
-        "made only of words that were typed) · chosen by the user from the active companies listed. 1 other active company was listed with it.")
+        'from the street "1 invented wy", the city "Boynton Beach" · found by its principal address on record · chosen by the user from the active '
+        "companies listed. 1 other active company was listed with it. " + wording.address_compared_text("1", city_given=True))   # the one description, with the typed house number
     assert report.identification.citation == "Florida Division of Corporations (Sunbiz) record, document number T26000000001"
     assert report.caution == "" and "match level" not in render_markdown(report)   # no level was claimed, so there is nothing to caution about
 

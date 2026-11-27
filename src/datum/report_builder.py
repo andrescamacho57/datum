@@ -31,7 +31,7 @@ from typing import Protocol                 # a Protocol describes an interface:
 
 from datum import wording                   # every fixed sentence and label
 from datum.models import AddressCandidate, Candidate, Fact, Flag, Identification, Report
-from datum.search import COMPANY_COLUMNS, AddressMatches, Company, company_from_row, evidence
+from datum.search import COMPANY_COLUMNS, AddressMatches, Company, company_from_row, evidence, street_parts
 from datum.search import Candidate as SearchCandidate           # the search's own candidate: a company with its scores
 
 DOCUMENT_NUMBER = re.compile(r"[A-Z0-9]{5,12}")
@@ -271,7 +271,8 @@ class ReportBuilder:
         if identification is None:
             identified = fact(wording.IDENTIFIED_BY_NUMBER)
         elif identification.found_by == "address":
-            identified = fact(wording.identified_by_address_text(identification.street, identification.city, identification.tied_others))
+            house_number = street_parts(identification.street)[0] or ""   # the house number the address search read, from the same extracted street
+            identified = fact(wording.identified_by_address_text(identification.street, identification.city, identification.tied_others, house_number))
         else:
             identified = fact(wording.identified_text(
                 identification.business_name, identification.city, identification.street,

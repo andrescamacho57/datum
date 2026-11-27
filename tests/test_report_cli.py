@@ -421,8 +421,9 @@ def test_an_address_alone_gets_the_address_search_in_the_terminal_and_a_report_o
     assert "TILE" not in talk.everything and "T260000003" not in talk.everything   # the inactive companies are counted and never listed (rule S6)
     assert talk.asked == ["\nPick 1-1, or 0 to add more details: "]   # no question about a Possible match: a company found by its address has no level
     saved = path.read_text()
-    assert ('from the street "8586 palm pwwy" · found by its principal address on record (the same house number, and a street name made only of '
-            "words that were typed) · chosen by the user from the active companies listed.") in saved
+    assert ('from the street "8586 palm pwwy" · found by its principal address on record · chosen by the user from the active companies listed. '
+            + wording.address_compared_text("8586", city_given=False)) in saved   # the saved report carries the one description too
+    assert "made only of words" not in saved
     assert "match level" not in saved
 
 
