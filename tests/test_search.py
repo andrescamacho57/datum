@@ -269,6 +269,13 @@ def test_a_typed_the_or_and_no_longer_keeps_an_exact_name_above_a_near_name_that
     assert [c.company.document_number for c in ranked] == ["T00000000006", "T00000000005"]
     assert [(c.every_word, c.exact_name, match_level(c, city_given=False)) for c in ranked] == [(True, False, "Possible"), (True, True, "Strong")]
     assert ranked[0].similarity > ranked[1].similarity                      # the near name is first by similarity alone
+    and_pool = [
+        company("T00000000007", "GATOR HEATING AND AIR CORPORATION"),       # the exact name, legal ending aside
+        company("T00000000008", "GATOR HEATING & AIR INC"),                 # a near name that writes "&" for the typed AND
+    ]
+    ranked = rank(and_pool, "Gator Heating and Air")
+    assert [c.company.document_number for c in ranked] == ["T00000000008", "T00000000007"]
+    assert [(c.every_word, c.exact_name, match_level(c, city_given=False)) for c in ranked] == [(True, False, "Possible"), (True, True, "Strong")]
 
 
 def test_city_is_a_tie_break_and_never_a_filter():
