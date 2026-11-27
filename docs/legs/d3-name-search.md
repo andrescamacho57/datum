@@ -1,6 +1,6 @@
 # Leg D3: the name search finds the company
 
-Branch `leg/d3-name-search` (from `main`) · pull request [#29](https://github.com/andrescamacho57/datum/pull/29) · run on Nov 26, 2026 · risk tier **High** · status: **built and reviewed, with every check passing. The Deep review ran its three rounds. Rounds 1 and 2 found 13 problems, 4 of them posted as Important, and round 3 found none. No Important finding is open. Nothing is merged.**
+Branch `leg/d3-name-search` (from `main`) · pull request [#29](https://github.com/andrescamacho57/datum/pull/29) · run on Nov 26, 2026 · risk tier **High** · status: **built and reviewed, with every check passing. The Deep review ran its three rounds. Rounds 1 and 2 found 13 problems, 4 of them posted as Important, and round 3 found none. No Important finding is open. Nothing is merged. After the pull request opened, a deep review found one more problem, now fixed, and the review of its fix left a decision for Andres, question Q64 (section 7).**
 
 This is the third leg of Phase D. Legs D1 and D2 fixed the search by address and the layout of the report, and left the name search failing for the restaurant Andres tried on Nov 24: `v pizza orlando` did not show V PIZZA LAKE BUENA VISTA LLC at all. On Nov 26 Andres answered the questions leg D1 had raised, and the brief turned his answers into four rules, S11 to S14, to be built one step at a time behind a gate, rule S17. This leg builds them.
 
@@ -26,7 +26,7 @@ This is the third leg of Phase D. Legs D1 and D2 fixed the search by address and
 - 🟡 **`v pizza durbin` is still fourth of five.** The extraction step returned the business name "V Pizza" and no city, so the word "durbin" never reached the search. The brief says not to add a rule to make it pass, and it is a draft case, not a checked one. Question Q55.
 - **The speed target is met, on the second approach.** The target is a p95 under 1 second, where the p95 is the time that 95 of every 100 searches beat. My first version of rule S11's query measured **1,052 milliseconds**, on a Mac that was very busy at that moment. The second version gives the same 200 candidates for every search and measured **599 milliseconds**. `main` measured 456 milliseconds the same hour (check 5).
 - **Of 210 searches, 5 pages now show a company with a lower match level above one with a higher level,** and each of those pages carries the new sentence of rule S12 (check 4).
-- The offline tests pass with Postgres stopped: **545**, of which 15 are new in this leg.
+- The offline tests pass with Postgres stopped: **547**, of which 17 are new in this leg: 545 and 15 when the leg's review ended, and two more from the deep review's fix (section 7).
 - The leg made **5** live extraction calls of the 10 that legs D3 and D4 share, and used **no Snowflake**. Five earlier requests were refused by the Claude API before any extraction ran, which item 4 below explains.
 - The Deep review ran three rounds. Round 1 found 7 problems in the code and its tests, 1 of them posted as Important. Round 2 found nothing in the code and 6 problems in the text that opens the pull request, 3 of them Important. Round 3 found nothing. Eleven are fixed and two are questions for Andres (Q58 and Q59).
 
@@ -727,3 +727,178 @@ Legs D3 and D4 share 10 live extraction calls, and leg D3 used **5**. No hosted 
 3. For `v pizza lake buena vista` the right company is now first, and the page still calls it a Possible match. Why did its place change and its level not, and what does the new line in its reasons say?
 
 **Answers, to check yourself.** (1) Step 1, in Postgres, lets every name pass that is close to the typed name and keeps 200 of them. Step 2, `rank()` in Python, puts those 200 in order. Step 1 used to keep the 200 names nearest to the typed name as a whole, and a long legal name is far from a short trade name: for "V PIZZA", 10,062 names passed and the right company stood 2,861st, so step 2 never saw it. This leg added one term to step 1's `ORDER BY`, so that the names that hold every typed word are kept first and the nearest names after them (rule S11). The fix had to be in step 1 because the second step can only order what the first one hands it. This pattern is called retrieve-then-rerank. (2) The page used to take the best five by rank and re-sort them by match level, so a company with exactly the typed name, rated Strong, could be shown above the right company although it ranked below it. That is what happened to case 9 under rule S2. Rule S12 makes the page show the five in rank order, each with its level, so first by rank is first on the page. The gate, rule S17, then had to be measured: one script ran the search as it is on `main` at `051a928` and the search after each step against the same database, and a step was kept only if no checked case was worse than on `main` or than after the step before, by rank or on the page. Every step passed. (3) Its place changed because of rule S14: the extraction step read "Lake Buena Vista" as the city, the company's principal city is Orlando, and the rule now also counts the city as agreeing when every word of it is in the company's name. That counts for the order only. The level is still worked out from the name and the principal city (rule S4): the name is similar and not the same, and the principal city does not agree, so the level is Possible. The new line says "every word of the city you gave is in the company's name", and it stands beside the line that says the principal city on record is Orlando.
+
+## 7. After the pull request opened: the deep review of Nov 26, 2026, and its fix
+
+This section was added after the pull request opened. Sections 1 to 6 describe the leg as it was when its three review rounds ended, and they are left as they were, apart from the count of tests in the short version at the top.
+
+### What the deep review found
+
+On the night of Nov 26 a deep review read this pull request with one fresh-context reviewer. Its report is `docs/reviews/2026-11-26_deep_review.md`, on the branch `docs/deep-review-nov26`. It found one Important problem here. `name_key()` turns "&" into a space, so a registered "A&B ROOFING LLC" can never hold a typed AND, and a registered name never holds a THE that a contractor types and the name lacks. Since rule S13, holding every typed word comes before the city and the similarity. So for a typed "A and B Roofing" in Tampa, a company in Ocala whose name spells out AND came first, and the company in Tampa came second.
+
+### The fix, and Andres's answer
+
+- **Commit `cc39913`.** `typed_words()` and `FILLER_WORDS` in `src/datum/search.py` leave AND and THE out of the words the every-word test looks for. The same words go to `holds_every_word()` and to the `words` value that step 1's query reads, so the two cannot drift apart. The nearness to the typed name, the key that step 1's `WHERE` and its trigram distance read, still holds every typed word. A typed name made only of those two words keeps them, as a name that is only a legal ending keeps its word. The new test is `test_a_typed_and_or_the_is_not_a_word_the_company_name_must_hold`. On the code at `a038b4f` its two pools put the wrong company first, and the fix puts the company meant first.
+- **Commit `ae4fcdd`.** Andres answered on Nov 26, 2026, recorded as question Q63: keep it. It also covers a registered name with no "&" at all, such as A B ROOFING, and a THE that a contractor types and the registered name lacks.
+- **Commit `17e9a19`.** The High-tier review of the fix found the cost of that answer, recorded as question Q64 for Andres, with a test that pins today's order. Its detail is under "The review of the fix" below.
+
+### The checks, run again
+
+The checks ran on the branch at `ae4fcdd`, whose search is the search at `cc39913`. None of them called the Claude API, and none used Snowflake.
+
+**Check 1, the evaluation.** The scores are the leg's own: 10 of the 13 checked cases have the right company first, 12 have it among the first five, and 2 are wrong matches.
+
+```
+python -m evals.run --backend postgres
+
+checked cases (pipeline/seeds/test_set.csv)
+case  group                 expected        answer          top-1  top-5  wrong_match  place of the expected company
+   1  legal_name_variant    P98000033661    P98000033661    yes    yes    no           1 of 1
+   2  legal_name_variant    L26000514010    L26000514010    yes    yes    no           1 of 1
+   3  legal_name_variant    P18000005972    P96000014879    no     yes    YES          2 of 10
+   4  legal_name_variant    L14000186157    L14000186157    yes    yes    no           1 of 12
+   5  legal_name_variant    L26000480461    L26000480461    yes    yes    no           1 of 1
+   6  legal_name_variant    P02000008536    P02000008536    yes    yes    no           1 of 27
+   7  legal_name_variant    L22000096579    NEEDS_MORE_INFO no     no     no           asked
+   8  legal_name_variant    L26000402102    L09000056609    no     yes    YES          2 of 6
+   9  real_world_reference  P24771          P24771          yes    yes    no           1 of 28
+  10  real_world_reference  NEEDS_MORE_INFO NEEDS_MORE_INFO yes    yes    no           asked
+  11  contractor_search     L22000086098    L22000086098    yes    yes    no           1 of 200
+  12  contractor_search     L22000086098    L22000086098    yes    yes    no           1 of 200
+  13  contractor_search     L22000086098    L22000086098    yes    yes    no           1 of 1
+
+group                    cases  top-1  recall@5  wrong_match
+contractor_search            3      3         3            0
+legal_name_variant           8      5         7            2
+real_world_reference         2      2         2            0
+ALL                         13     10        12            2
+
+draft cases (evals/draft_cases.csv: not checked by Andres, and so counted in no pass or fail decision)
+group                    cases  top-1  recall@5  wrong_match
+address_only                 5      3         4            1
+brand_and_city               6      4         6            2
+name_and_street              5      1         2            4
+ALL                         16      8        12            7
+```
+
+**Check 2, the gate of rule S17, with the fix as one more step after `a038b4f`.** The script is the one legs D3 and D4 used, which runs every checked case through the search as each commit has it. The column for `main` at `051a928` comes from results kept before leg D4 rebuilt the address table, as in leg D4's check 2, because the search at `051a928` cannot be run against the table as it is now.
+
+```
+python gate.py --saved main_051a928=<the results kept before the rebuild> d3_head=a038b4f nightly_fix=cc39913
+
+checked cases: 13   draft cases: 16
+  main_051a928 = src/datum/search.py at 051a928, results kept in a file before the address table was rebuilt
+  d3_head = src/datum/search.py at a038b4f
+  nightly_fix = src/datum/search.py at cc39913
+
+each cell: the expected company's place by rank among the candidates / its place on the page
+case  main_051a928                d3_head                     nightly_fix                 
+   1  1 of 1 / 1                  1 of 1 / 1                  1 of 1 / 1                  
+   2  1 of 1 / 1                  1 of 1 / 1                  1 of 1 / 1                  
+   3  2 of 10 / 2                 2 of 10 / 2                 2 of 10 / 2                 
+   4  1 of 12 / 1                 1 of 12 / 1                 1 of 12 / 1                 
+   5  1 of 1 / 1                  1 of 1 / 1                  1 of 1 / 1                  
+   6  1 of 27 / 1                 1 of 27 / 1                 1 of 27 / 1                 
+   7  asked / asked               asked / asked               asked / asked               
+   8  2 of 6 / 2                  2 of 6 / 2                  2 of 6 / 2                  
+   9  1 of 28 / 1                 1 of 28 / 1                 1 of 28 / 1                 
+  10  asked / asked               asked / asked               asked / asked               
+  11  not among 200 / not shown   1 of 200 / 1                1 of 200 / 1                
+  12  not among 200 / not shown   1 of 200 / 1                1 of 200 / 1                
+  13  1 of 1 / 1                  1 of 1 / 1                  1 of 1 / 1                  
+
+scored on the first five ON THE PAGE:
+            main_051a928                d3_head                     nightly_fix                 
+top-1         8                           10                          10                          
+recall@5      10                          12                          12                          
+wrong_match   4                           2                           2                           
+first on page 8                           10                          10                          
+
+the gate of rule S17 (a checked case is worse when its company drops by rank, drops on the page, or leaves the first five, or when a note that should be asked about gets a company):
+  d3_head: worse than main_051a928: none   better than main_051a928: [11, 12]   -> passes
+  nightly_fix: worse than main_051a928: none   worse than d3_head: none   better than main_051a928: [11, 12]   -> passes
+
+draft cases, counts only (not checked by Andres, and so counted in no decision):
+  d3_head against main_051a928:
+    group                    cases  moved up  moved down  stayed
+    address_only                 5         0           0       5
+    brand_and_city               6         5           0       1
+    name_and_street              5         2           0       3
+    ALL                         16         7           0       9
+  nightly_fix against main_051a928:
+    group                    cases  moved up  moved down  stayed
+    address_only                 5         0           0       5
+    brand_and_city               6         5           0       1
+    name_and_street              5         2           0       3
+    ALL                         16         7           0       9
+  nightly_fix against d3_head:
+    group                    cases  moved up  moved down  stayed
+    address_only                 5         0           0       5
+    brand_and_city               6         0           0       6
+    name_and_street              5         0           0       5
+    ALL                         16         0           0      16
+
+draft cases, scored on the first five on the page (top-1 / recall@5 / wrong_match), counts only:
+  main_051a928              3 / 7 / 12
+  d3_head                   8 / 12 / 7
+  nightly_fix               8 / 12 / 7
+```
+
+- ✅ The fix passes. No checked case is worse than on `main` or than at `a038b4f`, and no draft case moved against `a038b4f`.
+
+**Check 3, rule S11 in the query against `holds_every_word()` in Python.** It is leg D3's script with one change: the values it sends to the query's term are recorded from the app's own `PostgresBackend.nearest()`, not rebuilt, because the fix changed them. The line A is check 4's count, which did not change.
+
+```
+the term compared with Python: (case when string_to_array(name_key, ' ') @> %(words)s::text[] then string_to_array(regexp_replace(name_key, %(suffixes)s, ''), ' ') @> %(words)s::text[] else false end)
+210 searches: 10 specific checked cases, then 200 random company names (fingerprint 29e32d4a94b0a803614ddf7256322a37)
+A. pages that show a lower level above a higher one: 5 of 210 (3 of the 200 random names, 2 of the 10 checked cases); pages with at least one company: 210
+B. 210 searches (12 of them type AND or THE), 558,647 names that pass the first step's WHERE, 3,876 of them hold every typed word by the SQL term: the SQL term and holds_every_word() differ for 0
+```
+
+- ✅ The query's term and the Python rule still agree on every one of the 558,647 names.
+- One more count, from a scratch script: the 12 searches that type AND or THE are all among the 200 random company names, and the search before the fix and the fix keep the same 200 candidates and show the same page for all 12. They are full legal names, which spell the word out.
+
+**Check 5, the speed of the name search**, as the first run after a Postgres restart, the way section 2 measured it.
+
+```
+brew services restart postgresql@17
+python -m evals.run --backend postgres --latency 200
+22:19  load averages: 4.03 4.87 5.05
+latency over 210 searches (10 test inputs + 200 random company names, pool of 200):
+  p50 129 ms   p95 608 ms   slowest 2498 ms
+  searches over 1 second: 5 of 210
+  fingerprint of the random names: 29e32d4a94b0a803614ddf7256322a37
+
+(after another restart)
+22:20  load averages: 3.37 4.55 4.91
+latency over 210 searches (10 test inputs + 200 random company names, pool of 200):
+  p50 122 ms   p95 599 ms   slowest 2449 ms
+  searches over 1 second: 3 of 210
+  fingerprint of the random names: 29e32d4a94b0a803614ddf7256322a37
+```
+
+| What was timed | p50 | p95 | Slowest | Searches over 1 second | Target: p95 under 1 second |
+|---|---|---|---|---|---|
+| The leg's final code, first run after a restart | 134 ms | 599 ms | 3,565 ms | 4 of 210 | ✅ |
+| **With the fix, first run after a restart** | 129 ms | **608 ms** | 2,498 ms | 5 of 210 | ✅ |
+| With the fix, first run after another restart | 122 ms | 599 ms | 2,449 ms | 3 of 210 | ✅ |
+
+**The tests.** With the database server stopped: `pytest` gave **547 passed** in 3.61 seconds at `e972020`, and `ruff check src tests evals` passed. The leg ended with 545, and the review added two: the fix's test and the test that pins question Q64's order.
+
+### The review of the fix
+
+The fix's review was High tier, in three rounds.
+
+- **Round 1.** Three reviewers ran in parallel, each hunting one thing: a wrong company first or a sentence that claims too much, a person's data or a secret, and a test that cannot fail. A fourth then checked every finding against the code. For this pull request it confirmed two findings, and neither is Important.
+  - **A call for Andres, now question Q64.** With AND and THE left out, a near name that lacks the typed word joins the exact name's group, and with no city the similarity decides, which counts the legal ending. For "Lords of the Lawn", LORDS OF LAWN (Possible) comes before LORDS OF THE LAWN L.L.C. (Strong), and for "Gator Heating and Air", GATOR HEATING & AIR INC (Possible) comes before GATOR HEATING AND AIR CORPORATION (Strong). No sentence becomes false, and the page says the list is in search order. The fourth reviewer found that the order cannot change without a new matching rule. The one narrow rule it found, an exact name first after the city but only when AND or THE was typed, would need the gate. It is answered by the Q64 row in `docs/open_questions.md` and by `test_a_typed_the_or_and_no_longer_keeps_an_exact_name_above_a_near_name_that_lacks_it`, which pins today's order (commits `17e9a19` and `e972020`).
+  - **Pre-existing.** Step 1's `WHERE` still compares the whole typed name, THE included, so a short name can miss the candidates: in Postgres, "THE ACME GROUP" against ACME GROUP LLC scores 0.733, under the threshold of 0.75. It is recorded in Q64, and the new test's THE case holds in the ordering step only.
+  - A security review of the new lines in `src/` found no vulnerability. The new words reach Postgres only as a bound value, and no pattern is built from what was typed.
+- **Round 2.** One reviewer read the new commits, the Human review section, which is in the pull request's text, and the three questions. For this pull request it found two Important problems in the section, a bold sentence that said a typed "and" or "the" no longer counts against the right company anywhere, while step 1 still reads THE, and test counts given "with Postgres stopped" that had been measured with it running. It also found a Nit: the test that pins Q64 held only the THE example. All three are fixed. All three questions were answerable from the section.
+- **Round 3.** It had one reviewer on the corrections. In pull request 30's section it found one Important problem, a count of merges ("two merges") that round 3's own merge had made stale, and one Nit, a sentence that read as if the wording test covered the collections of strings in `wording.py`. Both are corrected, and as three rounds is the most `REVIEW.md` allows, no round read those two corrections. It found nothing more in this pull request's section.
+
+### What the fix does not prove
+
+- 🟡 It changes nothing the evaluation can see. No checked case types AND or THE, and the 12 searches of the speed check that do keep their results, so its benefit rests on the new test's invented companies.
+- 🟡 Question Q64: a near name that lacks the typed word now joins the exact name's group, and with no city the similarity decides. For "Lords of the Lawn", LORDS OF LAWN, rated Possible, comes before LORDS OF THE LAWN L.L.C., rated Strong. No sentence becomes false, and the page says the list is in search order.
+- 🟡 Step 1's `WHERE` still compares the whole typed name, THE included. In Postgres, "THE ACME GROUP" against ACME GROUP LLC scores 0.733, under the threshold of 0.75, so for a short name the company meant can miss the 200 candidates, and the new test's THE case holds in the ordering step only.
+- 🟡 The timings come from a Mac with a load average between 3 and 5.
