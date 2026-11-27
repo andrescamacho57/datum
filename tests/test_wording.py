@@ -174,13 +174,14 @@ def test_the_identification_line_of_an_address_search_names_the_street_and_no_ma
     assert " 4 other active companies were listed with it. A company matches when " in wording.identified_by_address_text("12 made up rd", "", 4, "12")
 
 
-def test_the_comparison_of_an_address_is_described_in_one_place_only():
+def test_no_text_that_wording_defines_holds_the_retired_phrase_made_only_of_words():
     # The review of Nov 26, 2026 found the report's line still carrying a shorter description of the comparison, "a street name made
     # only of words that were typed", which rule S15 had made untrue: an office unit and a direction on the record are never typed.
-    # Every restatement of the rule had missed a case, so the report shows ADDRESS_COMPARED itself, and no sentence restates it.
+    # The report now shows ADDRESS_COMPARED itself (the line's own test above pins it word for word). What this test checks is
+    # narrow: no text that wording.py defines at its top level holds that exact phrase. It does not catch the same idea restated in
+    # other words, text inside a tuple or a function, or a template.
     restated = [name for name, value in vars(wording).items() if isinstance(value, str) and "made only of words" in value]
     assert restated == []
-    assert wording.address_compared_text("100", city_given=False) in wording.identified_by_address_text("100 example st bldg 2 apt 305", "", 0, "100")
 
 
 def test_the_pages_ask_for_what_the_two_searches_use_and_no_longer_for_a_street_beside_a_name():
