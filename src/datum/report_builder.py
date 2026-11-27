@@ -92,6 +92,12 @@ class NoSourceChecked(RuntimeError):
     """source_coverage lists no source whose flags may be shown, so there is nothing a report could truthfully say it checked."""
 
 
+class NoHouseNumber(ValueError):
+    """A company is said to be found by its address, and the street holds no house number. The address search compares nothing
+    without one, so a report would describe a comparison that never ran. The app and the terminal never build such an
+    identification: they make one only for a company the address search listed."""
+
+
 class ReportBackend(Protocol):
     """Anything that can hand over a company, its flag rows and the list of sources."""
 
@@ -271,7 +277,9 @@ class ReportBuilder:
         if identification is None:
             identified = fact(wording.IDENTIFIED_BY_NUMBER)
         elif identification.found_by == "address":
-            house_number = street_parts(identification.street)[0] or ""   # the house number the address search read, from the same extracted street
+            house_number = street_parts(identification.street)[0]   # the house number the address search read, from the same extracted street
+            if not house_number:
+                raise NoHouseNumber()       # no argument: the street came from a note, and an error may be logged
             identified = fact(wording.identified_by_address_text(identification.street, identification.city, identification.tied_others, house_number))
         else:
             identified = fact(wording.identified_text(
