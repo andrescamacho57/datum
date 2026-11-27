@@ -1028,3 +1028,43 @@ Source: Anthropic, "Building Effective Agents" (the evaluator-optimizer workflow
   of removing it, and a shell value set on purpose for one test would then be ignored without a word. Removing
   the stale copy is simpler and fixes Claude Code too, because Claude Code can bill the API instead of the plan
   when it finds an API key in its environment 🟡 (the plan's note of Oct 30, not checked again).
+
+---
+
+## An & Is a Word: Both Sides Must Lose the Same Thing (Nov 26)
+
+- Normalizing text before a comparison only works when the typed side and the record side lose the same things.
+  Datum's name search turns every run of punctuation into one space, so "A.B.C." and "A B C" compare as equal. But
+  an "&" in a company name stands for the word AND, so "A&B ROOFING LLC" became A B ROOFING LLC, while a contractor
+  who typed "a and b roofing" kept the word AND.
+- Since leg D3, the search ranks a name that holds every typed word ahead of a name in the right city. So the deep
+  review of Nov 26 found that a company in another city that spelled out AND came first, ahead of A&B ROOFING LLC in
+  the city the contractor typed.
+- The fix, on the leg D3 branch, leaves AND and THE out of the words that test looks for. One function,
+  `typed_words()`, gives those words to both Python and the database query, so the two copies of the rule cannot
+  drift apart.
+- **The lesson.** A normalization rule is a matching rule. Before stripping a character, ask what it meant, and
+  check that both sides of the comparison lose the same thing.
+- **The tradeoff.** Ignoring AND and THE also forgives a THE that a contractor types and the registered name lacks.
+  But two names that differ only by those words now pass that test alike, and the next keys in the order, the city
+  and how similar the names are, have to tell them apart.
+
+---
+
+## A Sentence That Describes a Rule Is a Second Copy of It (Nov 26)
+
+- The address search tells the contractor, in words, how it compared an address: which parts of a street are left
+  out and which must be typed. That sentence is the rule written again in English, so every change to the rule has
+  to change it too.
+- In leg D4, three review rounds in a row each found a sentence that restated the rule in fewer words and got a case
+  wrong. So round 3 gave the comparison one description, `ADDRESS_COMPARED`, shown everywhere. Then the deep review
+  of Nov 26 found one more copy. The line that every report of a company found by address keeps still said its
+  street was "made only of words that were typed", which the new office-unit cut had made untrue.
+- The fix, on the leg D4 branch, makes the report show `ADDRESS_COMPARED` itself, and a test fails if any sentence in
+  `wording.py` contains the old phrase again.
+- **The lesson.** Text that explains a rule to a user is part of the rule. It needs one home, the way a business
+  definition lives in one dbt model and every other model refers to it, and it needs a test.
+- **The tradeoff.** With a city given, the report's line grows from 50 words to 193. Accuracy came first, and showing
+  the description once, as its own part of the report, could shorten it later. The test looks for one phrase only,
+  so a new sentence that restates the rule in other words would still pass, and a reviewer still has to read new
+  wording.
